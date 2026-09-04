@@ -1,0 +1,94 @@
+export const createCode = () => `${Math.floor(100000 + Math.random() * 900000)}`;
+
+export const hashPassword = async (bcrypt, password) => bcrypt.hash(password, 12);
+
+export const comparePassword = async (bcrypt, password, hash) => bcrypt.compare(password, hash);
+
+export const createTemporaryPassword = (length = 10) => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+  return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+};
+
+export const normalizePhoneNumber = (phone = "") =>
+  `${phone}`.replace(/[^\d]/g, "").replace(/^63/, "0").replace(/^9/, "09");
+
+export const buildUsername = ({ fullName = "", firstName = "", lastName = "", suffix = "" }) => {
+  const source = fullName || `${firstName} ${lastName}`;
+  const cleaned = source
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const [first = "resident", ...rest] = cleaned;
+  const last = rest[rest.length - 1] || "user";
+  const base = `${first}.${last}`.replace(/\.+/g, ".");
+  return suffix ? `${base}.${suffix}` : base;
+};
+
+export const calculateAge = (birthdate) => {
+  if (!birthdate) return 0;
+  const today = new Date();
+  const birth = new Date(birthdate);
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age;
+};
+
+export const ensureAdult = (birthdate) => {
+  if (!birthdate) {
+    throw Object.assign(new Error("Birthdate is required."), { status: 400 });
+  }
+
+  if (calculateAge(birthdate) < 18) {
+    throw Object.assign(new Error("Resident must be at least 18 years old."), { status: 400 });
+  }
+};
+
+export const normalizeRole = (role) => {
+  const value = `${role || ""}`.trim().toLowerCase();
+
+  if (["super_admin", "super-admin", "superadmin"].includes(value)) {
+    return "super_admin";
+  }
+
+  if (["admin", "staff"].includes(value)) {
+    return "admin";
+  }
+
+  return "resident";
+};
+
+export const roleMatches = (role, allowedRoles = []) => {
+  const normalizedRole = normalizeRole(role);
+  const normalizedAllowedRoles = allowedRoles.map((allowedRole) => normalizeRole(allowedRole));
+
+  return normalizedAllowedRoles.includes(normalizedRole) || (normalizedRole === "super_admin" && normalizedAllowedRoles.includes("admin"));
+};
+
+export const sanitizeUser = (user) => ({
+  id: user.id,
+  email: user.email,
+  firstName: user.first_name,
+  middleName: user.middle_name,
+  lastName: user.last_name,
+  fullName: user.full_name || [user.first_name, user.middle_name, user.last_name].filter(Boolean).join(" "),
+  address: user.address,
+  purok: user.purok,
+  birthdate: user.birthdate,
+  username: user.username,
+  contactNumber: user.contact_number,
+  role: normalizeRole(user.role),
+  status: user.status,
+  isActive: Boolean(user.is_active),
+  mustChangePassword: Boolean(user.must_change_password),
+  emailVerified: user.email_verified,
+  emailVerifiedAt: user.email_verified_at,
+  verificationProvider: user.verification_provider,
+  hasVoted: Boolean(user.has_voted),
+  createdAt: user.created_at,
+});
