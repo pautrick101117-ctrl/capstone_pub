@@ -803,7 +803,7 @@ router.post("/users", async (req, res, next) => {
     const { data, error } = await db.from("users").insert(payload).select("*").single();
     if (error) throw error;
 
-    let emailDelivery = { delivered: false };
+    let emailDelivery = { delivered: false, reason: "unknown" };
 
     try {
       emailDelivery = await sendAccountCreatedEmail({
@@ -815,6 +815,20 @@ router.post("/users", async (req, res, next) => {
       });
     } catch (emailError) {
       console.warn("[EMAIL ACCOUNT ERROR]", emailError.message);
+      emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
+    }
+
+    // Resident creation is only considered complete when the one-time credentials are accepted
+    // by the configured email provider. Never expose a newly-created password in the API response.
+    if (!emailDelivery?.delivered) {
+      const { error: rollbackError } = await db.from("users").delete().eq("id", data.id);
+      if (rollbackError) {
+        console.error(`[RESIDENT CREATE ROLLBACK ERROR] ${data.id}: ${rollbackError.message}`);
+      }
+      throw Object.assign(new Error("Resident account was not created because the login email could not be sent. Check the email address/provider and try again."), {
+        status: 502,
+        code: "ACCOUNT_EMAIL_DELIVERY_FAILED",
+      });
     }
 
     await logAudit({
@@ -823,10 +837,10 @@ router.post("/users", async (req, res, next) => {
       action: role === "admin" ? "create_admin_user" : "create_resident_user",
       entityType: "user",
       entityId: data.id,
-      details: { username, role },
+      details: { username, role, emailDelivered: true },
     });
 
-    res.status(201).json({ user: sanitizeUser(data), temporaryPassword: tempPassword, emailDelivery });
+    res.status(201).json({ user: sanitizeUser(data), emailDelivery });
   } catch (error) {
     next(error);
   }

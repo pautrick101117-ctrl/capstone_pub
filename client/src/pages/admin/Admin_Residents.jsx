@@ -99,11 +99,7 @@ const Admin_Residents = () => {
         body: form,
       });
       setCredentialResult({ ...data, action: "created" });
-      if (data.emailDelivery?.delivered) {
-        toast.success("Resident account created. Temporary login details were emailed successfully.");
-      } else {
-        toast.info("Resident account created, but email delivery was not confirmed. Copy the temporary password securely.");
-      }
+      toast.success("Resident account created. Temporary login details were emailed successfully.");
       setForm(initialForm);
       setShowCreateModal(false);
       await load();
@@ -410,18 +406,20 @@ const Admin_Residents = () => {
         {credentialResult ? (
           <div className="space-y-4">
             <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.delivered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-              {credentialResult.emailDelivery?.delivered
-                ? "The resident received the username and temporary password by email. They must change the password on first login."
-                : "The account action succeeded, but email delivery was not confirmed. Give the temporary password to the resident through a secure channel."}
+              {credentialResult.action === "reset"
+                ? (credentialResult.emailDelivery?.delivered
+                    ? "The resident received the reset credentials by email. The temporary password is also shown below for this administrator-initiated recovery action."
+                    : "The password was reset, but email delivery was not confirmed. Use the temporary password below as the recovery fallback or retry the same email.")
+                : "The resident account was created and the temporary login credentials were sent by email. For security, the temporary password is never displayed after account creation."}
             </div>
             <div className="rounded-2xl bg-stone-50 p-4 text-sm">
               <p><span className="text-stone-500">Resident email:</span> <strong>{credentialResult.user?.email || "Not set"}</strong></p>
               <p className="mt-2"><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
-              {credentialResult.temporaryPassword ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
+              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              {credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(credentialResult.temporaryPassword, "Temporary password copied.")}><Copy className="h-4 w-4" /> Copy Password</Button> : null}
-              {credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(`Username: ${credentialResult.user?.username || ""}\nTemporary password: ${credentialResult.temporaryPassword}`, "Credentials copied.")}><Copy className="h-4 w-4" /> Copy Credentials</Button> : null}
+              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(credentialResult.temporaryPassword, "Temporary password copied.")}><Copy className="h-4 w-4" /> Copy Password</Button> : null}
+              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(`Username: ${credentialResult.user?.username || ""}\nTemporary password: ${credentialResult.temporaryPassword}`, "Credentials copied.")}><Copy className="h-4 w-4" /> Copy Credentials</Button> : null}
               {!credentialResult.emailDelivery?.delivered && credentialResult.action === "reset" ? <Button type="button" variant="secondary" loading={retryingEmail} onClick={retryCredentialEmail}><Mail className="h-4 w-4" /> Retry Same Email</Button> : null}
               <Button onClick={() => setCredentialResult(null)}>Done</Button>
             </div>

@@ -27,6 +27,18 @@ test("temporary credentials are not written to email fallback logs", async () =>
   assert.match(mailer, /Temporary password:/);
 });
 
+
+test("resident creation never exposes the generated temporary password to the admin UI", async () => {
+  const admin = await read("server/src/routes/admin.js");
+  const residents = await read("client/src/pages/admin/Admin_Residents.jsx");
+  const createStart = admin.indexOf('router.post("/users"');
+  const createEnd = admin.indexOf('router.patch("/users/:userId"', createStart);
+  const createBlock = admin.slice(createStart, createEnd);
+  assert.match(createBlock, /sendAccountCreatedEmail/);
+  assert.doesNotMatch(createBlock, /res\.status\(201\)\.json\(\{[^}]*temporaryPassword/s);
+  assert.match(createBlock, /ACCOUNT_EMAIL_DELIVERY_FAILED/);
+  assert.match(residents, /credentialResult\.action === "reset" && credentialResult\.temporaryPassword/);
+});
 test("reset endpoint validates email before replacing resident password", async () => {
   const admin = await read("server/src/routes/admin.js");
   const resetStart = admin.indexOf('router.post("/users/:userId/reset-password"');
