@@ -16,40 +16,72 @@ if (hasGmailAppConfig) {
 const getFromAddress = () => `"${env.gmailFromName}" <${env.gmailAppEmail}>`;
 
 export const sendSystemEmail = async ({ to, subject, text, html }) => {
-  if (!to) {
-    return { delivered: false, reason: "missing_email" };
-  }
+  if (!to) return { delivered: false, reason: "missing_email" };
 
   if (!transporter) {
-    console.log(`[EMAIL LOG] To: ${to} | Subject: ${subject} | Message: ${text || html || ""}`);
-    return { delivered: false, preview: text || html || "" };
+    // Never log message bodies because account emails may contain temporary credentials.
+    console.warn(`[EMAIL NOT CONFIGURED] To: ${to} | Subject: ${subject}`);
+    return { delivered: false, reason: "email_not_configured" };
   }
 
-  await transporter.sendMail({
-    from: getFromAddress(),
-    to,
-    subject,
-    text,
-    html,
-  });
-
+  await transporter.sendMail({ from: getFromAddress(), to, subject, text, html });
   console.log(`[EMAIL SENT] To: ${to} | Subject: ${subject}`);
-
   return { delivered: true, provider: "gmail_app_password" };
 };
 
-export const sendVerificationEmail = async ({ email, code, fullName }) => {
-  return sendSystemEmail({
+export const sendVerificationEmail = async ({ email, code, fullName }) =>
+  sendSystemEmail({
     to: email,
     subject: "Your Barangay Iba verification code",
     text: `Hello ${fullName || "resident"}, your verification code is ${code}. It expires in 10 minutes.`,
   });
+
+const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = false }) => {
+  const roleLabel = role.replace(/_/g, " ");
+  const intro = reset
+    ? `Your Barangay Iba ${roleLabel} account password was reset by an administrator.`
+    : `Your Barangay Iba ${roleLabel} portal account has been created.`;
+  const text = [
+    `Hello ${fullName || roleLabel},`,
+    "",
+    intro,
+    `Username: ${username}`,
+    `Temporary password: ${temporaryPassword}`,
+    "",
+    "For security, sign in using this temporary password and create a new password immediately. The resident portal will remain locked until the password is changed.",
+    "",
+    "If you did not expect this message, please contact the Barangay Iba office.",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#1f2937;line-height:1.6">
+      <h2 style="color:#1f552a">Barangay Iba Portal</h2>
+      <p>Hello ${fullName || roleLabel},</p>
+      <p>${intro}</p>
+      <div style="background:#f2f8f2;border:1px solid #beddb9;border-radius:12px;padding:16px">
+        <strong>Username:</strong> ${username}<br/>
+        <strong>Temporary password:</strong> ${temporaryPassword}
+      </div>
+      <p><strong>Required on first login:</strong> create a new password before using the resident portal.</p>
+      <p style="font-size:13px;color:#64748b">If you did not expect this message, please contact the Barangay Iba office.</p>
+    </div>`;
+  return { text, html };
 };
 
 export const sendAccountCreatedEmail = async ({ email, fullName, username, temporaryPassword, role = "resident" }) => {
+  const body = credentialEmail({ fullName, username, temporaryPassword, role, reset: false });
   return sendSystemEmail({
     to: email,
-    subject: "Your Barangay Iba portal account",
-    text: `Hello ${fullName || role.replace(/_/g, " ")}, your Barangay Iba ${role.replace(/_/g, " ")} account is ready. Username: ${username}. Temporary password: ${temporaryPassword}. Please change your password after your first login.`,
+    subject: "Your Barangay Iba portal account is ready",
+    ...body,
+  });
+};
+
+export const sendPasswordResetEmail = async ({ email, fullName, username, temporaryPassword, role = "resident" }) => {
+  const body = credentialEmail({ fullName, username, temporaryPassword, role, reset: true });
+  return sendSystemEmail({
+    to: email,
+    subject: "Your Barangay Iba temporary password",
+    ...body,
   });
 };

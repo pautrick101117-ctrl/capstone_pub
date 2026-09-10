@@ -1,6 +1,6 @@
-import { ArrowLeft, Shield, UserRound } from "lucide-react";
+import { Shield, UserRound } from "lucide-react";
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { Button, Card } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
@@ -32,15 +32,8 @@ const AdminLogin = () => {
   }
 
   return (
-    <section className="relative min-h-screen bg-[linear-gradient(135deg,#103219_0%,#266a33_42%,#dfeedd_100%)] py-14 sm:py-20">
-      <Link
-        to="/"
-        className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 sm:left-8 sm:top-8"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Home
-      </Link>
-      <div className="section-shell grid gap-10 pt-12 lg:grid-cols-[1.05fr_0.95fr] lg:pt-0">
+    <section className="min-h-screen bg-[linear-gradient(135deg,#103219_0%,#266a33_42%,#dfeedd_100%)] py-14 sm:py-20">
+      <div className="section-shell grid gap-10 lg:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-6 text-white">
           <div className="inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em]">
             Administrative Access
@@ -58,7 +51,7 @@ const AdminLogin = () => {
           </div>
           <form className="space-y-4" onSubmit={submit}>
             <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-              <span>Username or Email</span>
+              <span>Username</span>
               <div className="flex items-center rounded-2xl border border-stone-200 px-4 py-3">
                 <UserRound className="h-4 w-4 text-stone-400" />
                 <input
@@ -66,7 +59,7 @@ const AdminLogin = () => {
                   value={form.username}
                   onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
                   className="ml-3 w-full outline-none"
-                  placeholder="admin username or email"
+                  placeholder="admin username"
                 />
               </div>
             </label>

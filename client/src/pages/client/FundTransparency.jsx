@@ -1,17 +1,12 @@
 import { FileText, ReceiptText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
-import { Badge, Card, EmptyState, PageHeader, Pagination, TableShell } from "../../components/ui";
+import { Badge, Card, EmptyState, PageHeader, TableShell } from "../../components/ui";
 import { formatCurrency, formatDate } from "../../lib/format";
-
-const sourcePageSize = 5;
-const projectPageSize = 6;
 
 const FundTransparency = () => {
   const [data, setData] = useState({ sources: [], projects: [] });
   const [loading, setLoading] = useState(true);
-  const [sourcePage, setSourcePage] = useState(1);
-  const [projectPage, setProjectPage] = useState(1);
 
   useEffect(() => {
     api("/public/funds")
@@ -22,25 +17,6 @@ const FundTransparency = () => {
       .catch(() => setData({ sources: [], projects: [] }))
       .finally(() => setLoading(false));
   }, []);
-
-  const sourceTotalPages = Math.max(1, Math.ceil((data.sources || []).length / sourcePageSize));
-  const projectTotalPages = Math.max(1, Math.ceil((data.projects || []).length / projectPageSize));
-  const paginatedSources = useMemo(
-    () => (data.sources || []).slice((sourcePage - 1) * sourcePageSize, sourcePage * sourcePageSize),
-    [data.sources, sourcePage]
-  );
-  const paginatedProjects = useMemo(
-    () => (data.projects || []).slice((projectPage - 1) * projectPageSize, projectPage * projectPageSize),
-    [data.projects, projectPage]
-  );
-
-  useEffect(() => {
-    if (sourcePage > sourceTotalPages) setSourcePage(sourceTotalPages);
-  }, [sourcePage, sourceTotalPages]);
-
-  useEffect(() => {
-    if (projectPage > projectTotalPages) setProjectPage(projectTotalPages);
-  }, [projectPage, projectTotalPages]);
 
   const totals = useMemo(() => {
     const total = (data.sources || []).reduce((sum, item) => sum + Number(item.allocated_amount || 0), 0);
@@ -83,7 +59,7 @@ const FundTransparency = () => {
             {!data.sources.length && !loading ? (
               <EmptyState title="No fund sources yet" description="Allocated fund pools will appear here once encoded by the barangay administration." />
             ) : (
-              paginatedSources.map((source) => (
+              data.sources.map((source) => (
                 <div key={source.id} className="rounded-2xl border border-stone-200 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -96,7 +72,6 @@ const FundTransparency = () => {
               ))
             )}
           </div>
-          <Pagination page={sourcePage} totalPages={sourceTotalPages} onPageChange={setSourcePage} />
         </Card>
 
         <Card>
@@ -125,7 +100,7 @@ const FundTransparency = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedProjects.map((project) => (
+                    {data.projects.map((project) => (
                       <tr key={project.id} className="border-t border-stone-100">
                         <td className="px-4 py-4">
                           <p className="font-semibold text-[var(--brand-900)]">{project.name}</p>
@@ -153,7 +128,6 @@ const FundTransparency = () => {
                   </tbody>
                 </table>
               </TableShell>
-              <Pagination page={projectPage} totalPages={projectTotalPages} onPageChange={setProjectPage} />
             </div>
           )}
         </Card>

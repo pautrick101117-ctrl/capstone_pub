@@ -1,12 +1,10 @@
 import { KeyRound, Power, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, StatCard, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Modal, PageHeader, StatCard, TableShell, TextInput } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { formatDate } from "../../lib/format";
 import { api } from "../../lib/api";
-
-const pageSize = 10;
 
 const initialForm = {
   fullName: "",
@@ -27,7 +25,6 @@ const Admin_UserMaintenance = () => {
   const [form, setForm] = useState(initialForm);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [credential, setCredential] = useState(null);
-  const [page, setPage] = useState(1);
 
   const loadUsers = async () => {
     if (!token) return;
@@ -58,11 +55,6 @@ const Admin_UserMaintenance = () => {
           .some((value) => `${value}`.toLowerCase().includes(term));
       });
   }, [users, search, roleFilter, activeFilter]);
-
-  useEffect(() => { setPage(1); }, [search, roleFilter, activeFilter]);
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-  const paginatedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
 
   const counts = useMemo(
     () => ({
@@ -237,7 +229,7 @@ const Admin_UserMaintenance = () => {
               </tr>
             </thead>
             <tbody>
-              {paginatedUsers.map((account) => {
+              {filteredUsers.map((account) => {
                 const isSelf = account.id === user.id;
                 return (
                   <tr key={account.id} className="border-t border-stone-100 align-top transition hover:bg-stone-50/70">
@@ -291,7 +283,7 @@ const Admin_UserMaintenance = () => {
                   </tr>
                 );
               })}
-              {!paginatedUsers.length ? (
+              {!filteredUsers.length ? (
                 <tr>
                   <td className="px-4 py-8 text-center text-sm text-stone-500" colSpan={5}>
                     {loading ? "Loading accounts..." : "No user accounts match the current filters."}
@@ -301,7 +293,6 @@ const Admin_UserMaintenance = () => {
             </tbody>
           </table>
         </TableShell>
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </Card>
 
       <Modal

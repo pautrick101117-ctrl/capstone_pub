@@ -1,13 +1,11 @@
 import express from "express";
 import adminVotingRoutes from "./adminVoting.js";
-import adminComplaintsRoutes from "./adminComplaints.js";
-import adminSettingsRoutes from "./adminSettings.js";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import zlib from "zlib";
 import { requireSupabase } from "../lib/supabase.js";
 import { uploadAsset } from "../lib/storage.js";
-import { sendAccountCreatedEmail, sendSystemEmail } from "../lib/mailer.js";
+import { sendAccountCreatedEmail, sendPasswordResetEmail, sendSystemEmail } from "../lib/mailer.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
 import {
@@ -21,12 +19,9 @@ import {
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-const RESIDENT_PUROKS = new Set(["Purok 1", "Purok 2", "Purok 3", "Purok 4", "Purok 5", "Purok 6"]);
 
 router.use(requireAuth, requireCurrentUser({ allowPasswordChange: true }), requireRole("admin"));
 router.use(adminVotingRoutes);
-router.use("/complaints", adminComplaintsRoutes);
-router.use("/settings", adminSettingsRoutes);
 
 const ensure = (value, message) => {
   if (!value) throw Object.assign(new Error(message), { status: 400 });
@@ -168,12 +163,8 @@ const buildCensusPayload = (body) => {
 
   ensure(householdName, "Household name is required.");
   ensure(purok, "Purok is required.");
-  if (!RESIDENT_PUROKS.has(purok)) {
-    throw Object.assign(new Error("Purok must be Purok 1 through Purok 6."), { status: 400 });
-  }
   ensure(houseNumber, "House number is required.");
   ensure(Number.isInteger(members) && members >= 1, "Members must be a positive whole number.");
-  ensure(new Set(["active", "for update", "inactive"]).has(status), "Household status must be Active, For Update, or Inactive.");
 
   return {
     household_name: householdName,
@@ -657,15 +648,12 @@ const tableCrud = ({ table, label, fileField, fileFolder, filePrefix, mapPayload
 router.get("/dashboard", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    const [users, requests, officials, elections, logs, complaints, suggestions, idRequests] = await Promise.all([
+    const [users, requests, officials, elections, logs] = await Promise.all([
       db.from("users").select("*").order("created_at", { ascending: false }),
       db.from("requests").select("*").order("created_at", { ascending: false }),
       db.from("officials").select("*"),
       db.from("elections").select("*").order("created_at", { ascending: false }),
       db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(30),
-      db.from("complaints").select("id, status, priority, created_at"),
-      db.from("project_suggestions").select("id, status, created_at"),
-      db.from("id_requests").select("id, status, preferred_date, time_slot, created_at"),
     ]);
 
     if (users.error) throw users.error;
@@ -673,25 +661,12 @@ router.get("/dashboard", async (_req, res, next) => {
     if (officials.error) throw officials.error;
     if (elections.error) throw elections.error;
     if (logs.error) throw logs.error;
-    if (complaints.error) throw complaints.error;
-    if (suggestions.error) throw suggestions.error;
-    if (idRequests.error) throw idRequests.error;
 
     const residents = (users.data || []).filter((user) => normalizeRole(user.role) === "resident");
     const activeResidents = residents.filter((user) => user.is_active);
     const pendingRequests = (requests.data || []).filter((item) => item.status !== "completed").length;
     const activeOfficials = (officials.data || []).filter((item) => item.is_active).length;
     const openElections = (elections.data || []).filter((item) => item.status === "live").length;
-    const actionableComplaints = (complaints.data || []).filter((item) => ["submitted", "under_review", "in_progress", "pending"].includes(item.status)).length;
-    const urgentComplaints = (complaints.data || []).filter((item) => item.priority === "urgent" && !["resolved", "closed"].includes(item.status)).length;
-    const pendingSuggestions = (suggestions.data || []).filter((item) => ["submitted", "under_review", "pending"].includes(item.status)).length;
-    const today = new Date().toISOString().slice(0, 10);
-    const pickupsToday = (idRequests.data || []).filter((item) => item.preferred_date === today && ["confirmed", "rescheduled", "ready_for_pickup"].includes(item.status)).length;
-    const needsInformation = (requests.data || []).filter((item) => item.status === "needs_information").length;
-    const readyForRelease = (requests.data || []).filter((item) => item.status === "ready_for_release").length;
-    const nextElection = (elections.data || [])
-      .filter((item) => ["scheduled", "live"].includes(item.status))
-      .sort((a, b) => new Date(a.ends_at || a.starts_at || 0) - new Date(b.ends_at || b.starts_at || 0))[0] || null;
 
     const requestsByDateMap = new Map();
     for (const item of requests.data || []) {
@@ -735,18 +710,6 @@ router.get("/dashboard", async (_req, res, next) => {
         pendingRequests,
         activeOfficials,
         openElections,
-      },
-      actionCenter: {
-        pendingRequests,
-        needsInformation,
-        readyForRelease,
-        complaints: actionableComplaints,
-        urgentComplaints,
-        pendingSuggestions,
-        pickupsToday,
-        nextElection: nextElection
-          ? { id: nextElection.id, title: nextElection.title, status: nextElection.status, startsAt: nextElection.starts_at, endsAt: nextElection.ends_at }
-          : null,
       },
       charts: {
         requestsByType: Array.from(requestsByDateMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
@@ -797,9 +760,6 @@ router.post("/users", async (req, res, next) => {
     ensure(fullName, "Full name is required.");
     ensure(address, "Address is required.");
     ensure(purok, "Purok is required.");
-    if (!RESIDENT_PUROKS.has(purok)) {
-      throw Object.assign(new Error("Purok must be Purok 1 through Purok 6."), { status: 400 });
-    }
     ensure(contactNumber, "Phone number is required.");
     ensure(email, "Email is required for resident accounts.");
     if (role === "resident") ensureAdult(birthdate);
@@ -894,13 +854,7 @@ router.patch("/users/:userId", async (req, res, next) => {
       updates.last_name = parts.lastName;
     }
     if (req.body.address !== undefined) updates.address = `${req.body.address}`.trim();
-    if (req.body.purok !== undefined) {
-      const purok = `${req.body.purok}`.trim();
-      if (!RESIDENT_PUROKS.has(purok)) {
-        throw Object.assign(new Error("Purok must be Purok 1 through Purok 6."), { status: 400 });
-      }
-      updates.purok = purok;
-    }
+    if (req.body.purok !== undefined) updates.purok = `${req.body.purok}`.trim();
     if (req.body.contactNumber !== undefined || req.body.phoneNumber !== undefined) {
       updates.contact_number = normalizePhoneNumber(req.body.contactNumber || req.body.phoneNumber);
     }
@@ -949,7 +903,7 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
     const db = requireSupabase();
     const { data: targetUser, error: targetError } = await db
       .from("users")
-      .select("id, role")
+      .select("id, role, email, full_name, first_name, username")
       .eq("id", req.params.userId)
       .maybeSingle();
     if (targetError) throw targetError;
@@ -957,32 +911,33 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
     if (normalizeRole(targetUser.role) !== "resident") {
       throw Object.assign(new Error("Only super admins can reset admin account passwords."), { status: 403 });
     }
+    if (!targetUser.email) {
+      throw Object.assign(new Error("Resident has no email address on file. Add an email before resetting the password."), { status: 400 });
+    }
 
     const tempPassword = createTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 12);
     const { data, error } = await db
       .from("users")
-      .update({
-        password_hash: passwordHash,
-        must_change_password: true,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ password_hash: passwordHash, must_change_password: true, updated_at: new Date().toISOString() })
       .eq("id", req.params.userId)
       .select("*")
       .single();
     if (error) throw error;
 
-    if (!data.email) {
-      throw Object.assign(new Error("Resident has no email address on file."), { status: 400 });
+    let emailDelivery = { delivered: false, reason: "unknown" };
+    try {
+      emailDelivery = await sendPasswordResetEmail({
+        email: targetUser.email,
+        fullName: targetUser.full_name || targetUser.first_name,
+        username: targetUser.username,
+        temporaryPassword: tempPassword,
+        role: "resident",
+      });
+    } catch (emailError) {
+      console.warn("[EMAIL RESET ERROR]", emailError.message);
+      emailDelivery = { delivered: false, reason: "send_failed" };
     }
-
-    const emailDelivery = await sendAccountCreatedEmail({
-      email: data.email,
-      fullName: data.full_name || data.first_name,
-      username: data.username,
-      temporaryPassword: tempPassword,
-      role: "resident",
-    });
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -990,10 +945,69 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
       action: "reset_user_password",
       entityType: "user",
       entityId: req.params.userId,
-      details: {},
+      details: { emailDelivered: Boolean(emailDelivery.delivered) },
     });
 
-    res.json({ message: "Temporary password generated and emailed to the resident.", temporaryPassword: tempPassword, emailDelivery });
+    res.json({
+      message: emailDelivery.delivered
+        ? "Password reset successful. The temporary password was emailed to the resident."
+        : "Password reset successful, but the email could not be delivered. Copy the temporary password and provide it securely to the resident.",
+      temporaryPassword: tempPassword,
+      emailDelivery,
+      user: sanitizeUser(data),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.get("/complaints", async (_req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data, error } = await db.from("complaints").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ complaints: data || [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/complaints/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const status = `${req.body.status || ""}`.trim().toLowerCase();
+    if (!["pending", "in_review", "resolved"].includes(status)) {
+      throw Object.assign(new Error("Complaint status must be pending, in_review, or resolved."), { status: 400 });
+    }
+    const updates = {
+      status,
+      admin_note: `${req.body.adminNote || req.body.admin_note || ""}`.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await db.from("complaints").update(updates).eq("id", req.params.id).select("*").single();
+    if (error) throw error;
+
+    if (data.user_id) {
+      await db.from("notifications").insert({
+        user_id: data.user_id,
+        title: "Community concern updated",
+        body: `Your concern is now ${status.replace("_", " ")}.${updates.admin_note ? ` ${updates.admin_note}` : ""}`,
+        kind: status === "resolved" ? "success" : "info",
+        broadcast: false,
+      });
+    }
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "update_complaint",
+      entityType: "complaint",
+      entityId: data.id,
+      details: updates,
+    });
+
+    res.json({ complaint: data, message: "Community concern updated." });
   } catch (error) {
     next(error);
   }
@@ -1013,24 +1027,9 @@ router.get("/requests", async (_req, res, next) => {
   }
 });
 
-const REQUEST_STATUSES = new Set([
-  "submitted",
-  "acknowledged",
-  "processing",
-  "needs_information",
-  "ready_for_release",
-  "completed",
-  "rejected",
-  "cancelled",
-]);
-const ID_REQUEST_STATUSES = new Set(["submitted", "confirmed", "rescheduled", "ready_for_pickup", "completed", "cancelled"]);
-
 router.patch("/requests/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    if (!REQUEST_STATUSES.has(req.body.status)) {
-      throw Object.assign(new Error("Invalid request status."), { status: 400 });
-    }
     const payload = {
       status: req.body.status,
       admin_note: req.body.adminNote || "",
@@ -1089,35 +1088,6 @@ router.get("/id-requests", async (_req, res, next) => {
 router.patch("/id-requests/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    if (!ID_REQUEST_STATUSES.has(req.body.status)) {
-      throw Object.assign(new Error("Invalid Barangay ID request status."), { status: 400 });
-    }
-
-    const requestedDate = req.body.preferredDate || null;
-    const requestedTime = req.body.timeSlot || null;
-    if (requestedDate && requestedTime && req.body.status !== "cancelled") {
-      const { data: slot, error: slotError } = await db
-        .from("id_pickup_slots")
-        .select("*")
-        .eq("slot_date", requestedDate)
-        .eq("time_slot", requestedTime)
-        .eq("is_active", true)
-        .maybeSingle();
-      if (slotError) throw slotError;
-      if (!slot) throw Object.assign(new Error("The selected pickup slot is not active."), { status: 409 });
-      const { count, error: countError } = await db
-        .from("id_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("preferred_date", requestedDate)
-        .eq("time_slot", requestedTime)
-        .neq("status", "cancelled")
-        .neq("id", req.params.id);
-      if (countError) throw countError;
-      if ((count || 0) >= Number(slot.capacity || 1)) {
-        throw Object.assign(new Error("The selected pickup slot is already full."), { status: 409 });
-      }
-    }
-
     const payload = {
       status: req.body.status,
       admin_note: req.body.adminNote || "",
@@ -1348,6 +1318,11 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
     }
 
     if (savedElection.status === "live" && previousElection?.status !== "live") {
+      const closeOtherLives = await db.from("elections").update({ status: "closed" }).neq("id", savedElection.id).eq("status", "live");
+      if (closeOtherLives.error) throw closeOtherLives.error;
+      const resetVotes = await db.from("users").update({ has_voted: false }).eq("role", "resident");
+      if (resetVotes.error) throw resetVotes.error;
+
       const residents = await getResidentRecipients(db);
       await notifyResidents(db, residents, {
         title: "Voting is now open",

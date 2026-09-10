@@ -31,7 +31,7 @@ const Login = () => {
         usernameOrEmail: form.username,
         password: form.password,
       });
-      navigate(isAdminRole(loggedInUser.role) ? "/admin" : "/portal");
+      navigate(loggedInUser.mustChangePassword ? "/change-password" : "/portal");
     } catch (error) {
       toast.error(error.message);
     }
@@ -42,7 +42,7 @@ const Login = () => {
     try {
       const data = await api("/auth/forgot-password/request-code", {
         method: "POST",
-        body: { usernameOrEmail: resetForm.usernameOrEmail },
+        body: { usernameOrEmail: resetForm.usernameOrEmail, portal: "resident" },
       });
       setCodeRequested(true);
       toast.success(data.message);
@@ -59,7 +59,7 @@ const Login = () => {
     try {
       const data = await api("/auth/forgot-password/reset", {
         method: "POST",
-        body: resetForm,
+        body: { ...resetForm, portal: "resident" },
       });
       toast.success(data.message);
       setResetForm(initialResetForm);
@@ -90,7 +90,7 @@ const Login = () => {
           <div className="glass-card max-w-xl border-white/20 bg-white/10 p-5 text-emerald-50">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-100">Account notice</p>
             <p className="mt-3 text-sm leading-6 text-emerald-50/85">
-              No account yet? Contact your Barangay admin. Resident accounts are created by barangay staff and first-time credentials are sent through the official contact number on file.
+              No account yet? Contact your Barangay admin. Resident accounts are created by barangay staff and first-time credentials are sent to the resident email on file. A password change is required on first login.
             </p>
           </div>
         </div>

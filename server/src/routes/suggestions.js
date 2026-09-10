@@ -56,10 +56,7 @@ router.post("/", upload.single("image"), async (req, res, next) => {
         title,
         description,
         image_url: imageUrl,
-        status: "submitted",
-        purok: `${req.body.purok || req.currentUser.purok || ""}`.trim(),
-        category: `${req.body.category || "general"}`.trim() || "general",
-        updated_at: new Date().toISOString(),
+        status: "pending",
       })
       .select("*")
       .single();

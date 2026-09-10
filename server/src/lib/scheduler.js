@@ -1,6 +1,5 @@
 import { requireSupabase } from "./supabase.js";
 import { broadcastSms, sendSms } from "./sms.js";
-import { synchronizeElectionStatuses } from "../services/electionService.js";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -14,7 +13,27 @@ export const runMaintenance = async () => {
     .eq("is_active", true);
   if (residentsError) throw residentsError;
 
-  await synchronizeElectionStatuses(db);
+  const { data: expiredElections, error: expiredError } = await db
+    .from("elections")
+    .select("id, title")
+    .eq("status", "live")
+    .lt("ends_at", nowIso);
+  if (expiredError) throw expiredError;
+
+  for (const election of expiredElections || []) {
+    await db.from("elections").update({ status: "closed" }).eq("id", election.id);
+    if ((residents || []).length) {
+      await db.from("notifications").insert(
+        residents.map((resident) => ({
+          user_id: resident.id,
+          title: "Election closed",
+          body: `${election.title} has automatically closed.`,
+          kind: "info",
+          broadcast: false,
+        }))
+      );
+    }
+  }
 
   const reminderDate = new Date(Date.now() + DAY_IN_MS).toISOString().slice(0, 10);
   const { data: idRequests, error: reminderError } = await db

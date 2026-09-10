@@ -25,8 +25,13 @@ const blankSession = {
 
 export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : blankSession;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : blankSession;
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+      return blankSession;
+    }
   });
   const [loading, setLoading] = useState(false);
   const timeoutRef = useRef(null);
@@ -103,7 +108,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const data = await api("/auth/login", {
         method: "POST",
-        body: { usernameOrEmail, password, adminOnly },
+        body: { usernameOrEmail, password, adminOnly, portal: adminOnly ? "admin" : "resident" },
       });
 
       const expiresAt = Date.now() + (data.sessionTimeoutMinutes || SESSION_MINUTES) * 60 * 1000;

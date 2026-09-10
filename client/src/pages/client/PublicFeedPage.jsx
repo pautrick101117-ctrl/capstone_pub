@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
-import { Card, EmptyState, Modal, PageHeader, Pagination, Skeleton } from "../../components/ui";
+import { Card, EmptyState, Modal, PageHeader, Skeleton } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 
 const PublicFeedPage = ({ type = "news" }) => {
@@ -16,26 +16,18 @@ const PublicFeedPage = ({ type = "news" }) => {
     setLoading(true);
     api(`/public/announcements?type=${type}&page=${page}&limit=6`)
       .then((data) => {
-        setItems(data.items || []);
-        setTotal(data.pagination?.total || 0);
+        setItems((data.items || []).length ? data.items : fallback);
+        setTotal(data.pagination?.total || fallback.length || 0);
       })
       .catch(() => {
-        setItems([]);
-        setTotal(0);
+        setItems(fallback);
+        setTotal(fallback.length);
       })
       .finally(() => setLoading(false));
   }, [type, page]);
 
   const isNews = type === "news";
   const pages = Math.max(1, Math.ceil(total / 6));
-
-  useEffect(() => {
-    setPage(1);
-  }, [type]);
-
-  useEffect(() => {
-    if (page > pages) setPage(pages);
-  }, [page, pages]);
 
   return (
     <section className="section-shell py-10 sm:py-14">
@@ -83,7 +75,27 @@ const PublicFeedPage = ({ type = "news" }) => {
 
       {!loading && !items.length ? <EmptyState title={`No ${type} yet`} description="Please check back again soon." /> : null}
 
-      {!loading && total > 0 ? <Pagination page={page} totalPages={pages} onPageChange={setPage} className="mt-8" /> : null}
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+        <p className="text-sm text-stone-500">
+          Page {page} of {pages}
+        </p>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(pages, current + 1))}
+            className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white"
+          >
+            Next
+          </button>
+        </div>
+      </div>
 
       <div className="mt-8 text-sm text-stone-500">
         <NavLink to="/" className="font-semibold text-[var(--brand-600)] hover:underline">

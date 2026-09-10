@@ -19,7 +19,8 @@ export const requireAuth = (req, _res, next) => {
 };
 
 export const requireRole = (...roles) => (req, _res, next) => {
-  if (!req.auth || !roleMatches(req.auth.role, roles)) {
+  const liveRole = req.currentUser?.role ?? req.auth?.role;
+  if (!liveRole || !roleMatches(liveRole, roles)) {
     return next(Object.assign(new Error("You do not have access to this action."), { status: 403 }));
   }
 

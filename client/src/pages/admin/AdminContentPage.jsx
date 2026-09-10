@@ -21,13 +21,16 @@ const AdminContentPage = ({ type = "news" }) => {
   const label = type === "news" ? "News" : "Announcements";
 
   const load = async () => {
-    try {
-      const data = await api("/admin/announcements", { token });
-      setItems((data.announcements || []).filter((item) => item.type === type));
-    } catch (error) {
-      setItems([]);
-      toast.error(error.message || `Unable to load ${label.toLowerCase()}.`);
-    }
+    const data = await api("/admin/announcements", { token });
+    const liveItems = (data.announcements || []).filter((item) => item.type === type);
+    setItems(liveItems.length ? liveItems : fallback.map((item) => ({
+      id: item.id,
+      title: item.title,
+      body: item.body,
+      image_url: item.imageUrl,
+      created_at: item.createdAt,
+      type,
+    })));
   };
 
   useEffect(() => {
@@ -95,12 +98,7 @@ const AdminContentPage = ({ type = "news" }) => {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const paginatedItems = items.slice((page - 1) * pageSize, page * pageSize);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   return (
     <div className="space-y-8">
@@ -166,7 +164,7 @@ const AdminContentPage = ({ type = "news" }) => {
             </tbody>
           </table>
         </TableShell>
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(items.length / pageSize))} onPageChange={setPage} />
       </Card>
 
       <Modal

@@ -7,22 +7,13 @@ import { Button, Card, PageHeader, TextInput } from "../../components/ui";
 const ChangePassword = () => {
   const navigate = useNavigate();
   const toast = useToast();
-  const { changePassword, isPasswordChangeRequired, logout } = useAuth();
+  const { changePassword, isPasswordChangeRequired } = useAuth();
   const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [saving, setSaving] = useState(false);
 
   const onChange = (event) => {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
-  };
-
-  const goBack = () => {
-    if (isPasswordChangeRequired) {
-      logout();
-      navigate("/login", { replace: true });
-      return;
-    }
-    navigate("/portal");
   };
 
   const onSubmit = async (event) => {
@@ -78,14 +69,9 @@ const ChangePassword = () => {
             value={form.confirmPassword}
             onChange={onChange}
           />
-          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
-            <Button type="button" variant="ghost" onClick={goBack} disabled={saving}>
-              {isPasswordChangeRequired ? "Back to Login" : "Cancel"}
-            </Button>
-            <Button type="submit" loading={saving}>
-              Save Password
-            </Button>
-          </div>
+          <Button type="submit" loading={saving}>
+            Save Password
+          </Button>
         </form>
       </Card>
     </section>

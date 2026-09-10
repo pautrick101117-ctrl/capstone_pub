@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, API_URL } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, EmptyState, PageHeader, Pagination, SelectInput, StatusBadge, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, PageHeader, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 
 const requestTypes = [
@@ -14,14 +14,12 @@ const requestTypes = [
   "Other",
 ];
 
-const downloadableKinds = {
-  "Barangay Clearance": "clearance",
-  "Certificate of Residency": "residency",
-  "Certificate of Indigency": "indigency",
+const toneForStatus = (status) => {
+  if (status === "completed" || status === "confirmed") return "success";
+  if (status === "processing" || status === "rescheduled") return "warning";
+  if (status === "submitted" || status === "acknowledged") return "info";
+  return "neutral";
 };
-
-
-const historyPageSize = 5;
 
 const RequestsPage = () => {
   const { token } = useAuth();
@@ -34,8 +32,6 @@ const RequestsPage = () => {
   const [idForm, setIdForm] = useState({ purpose: "", preferredDate: "", timeSlot: "" });
   const [savingRequest, setSavingRequest] = useState(false);
   const [savingId, setSavingId] = useState(false);
-  const [requestPage, setRequestPage] = useState(1);
-  const [idPage, setIdPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
@@ -57,19 +53,12 @@ const RequestsPage = () => {
     if (token) load();
   }, [token]);
 
-  const requestTotalPages = Math.max(1, Math.ceil(requests.length / historyPageSize));
-  const idTotalPages = Math.max(1, Math.ceil(idRequests.length / historyPageSize));
-  useEffect(() => { if (requestPage > requestTotalPages) setRequestPage(requestTotalPages); }, [requestPage, requestTotalPages]);
-  useEffect(() => { if (idPage > idTotalPages) setIdPage(idTotalPages); }, [idPage, idTotalPages]);
-  const paginatedRequests = requests.slice((requestPage - 1) * historyPageSize, requestPage * historyPageSize);
-  const paginatedIdRequests = idRequests.slice((idPage - 1) * historyPageSize, idPage * historyPageSize);
-
   const slotOptions = useMemo(() => {
     const grouped = new Map();
     for (const slot of slots) {
       const date = slot.slot_date;
       const current = grouped.get(date) || [];
-      if (!slot.is_full && Number(slot.remaining ?? 1) > 0) current.push(slot);
+      current.push(slot.time_slot);
       grouped.set(date, current);
     }
     return grouped;
@@ -105,22 +94,17 @@ const RequestsPage = () => {
     }
   };
 
-  const downloadDocument = async (request) => {
-    const kind = downloadableKinds[request.request_type];
-    if (!kind) return;
+  const downloadClearance = async (requestId) => {
     try {
-      const response = await fetch(`${API_URL}/requests/document/${request.id}/${kind}`, {
+      const response = await fetch(`${API_URL}/requests/document/${requestId}/clearance`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || "Failed to download document PDF.");
-      }
+      if (!response.ok) throw new Error("Failed to download clearance PDF.");
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${kind}-${request.id}.pdf`;
+      anchor.download = `barangay-clearance-${requestId}.pdf`;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -201,8 +185,8 @@ const RequestsPage = () => {
             >
               <option value="">Select a time slot</option>
               {(slotOptions.get(idForm.preferredDate) || []).map((slot) => (
-                <option key={slot.id || slot.time_slot} value={slot.time_slot}>
-                  {slot.time_slot} — {slot.remaining} slot{Number(slot.remaining) === 1 ? "" : "s"} left
+                <option key={slot} value={slot}>
+                  {slot}
                 </option>
               ))}
             </SelectInput>
@@ -221,7 +205,7 @@ const RequestsPage = () => {
           ) : !requests.length ? (
             <EmptyState title="No requests yet" description="Your submitted document requests will appear here." />
           ) : (
-            paginatedRequests.map((request) => (
+            requests.map((request) => (
               <div key={request.id} className="rounded-3xl border border-stone-200 p-5">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -229,11 +213,11 @@ const RequestsPage = () => {
                     <p className="text-sm text-stone-600">{request.details}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <StatusBadge status={request.status} />
-                    {downloadableKinds[request.request_type] && request.status === "completed" ? (
+                    <Badge tone={toneForStatus(request.status)}>{request.status}</Badge>
+                    {request.request_type === "Barangay Clearance" && request.status === "completed" ? (
                       <button
                         type="button"
-                        onClick={() => downloadDocument(request)}
+                        onClick={() => downloadClearance(request.id)}
                         className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white"
                       >
                         <Download className="h-4 w-4" />
@@ -245,7 +229,7 @@ const RequestsPage = () => {
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
                   {(request.request_timeline || []).map((step) => (
                     <div key={step.id} className="rounded-2xl bg-[var(--brand-50)] p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-500)]">{`${step.status || "Status"}`.replaceAll("_", " ")}</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-500)]">{step.status}</p>
                       <p className="mt-2 text-sm text-stone-600">{step.note || "Status updated."}</p>
                       <p className="mt-3 text-xs text-stone-400">{formatDateTime(step.created_at)}</p>
                     </div>
@@ -254,7 +238,6 @@ const RequestsPage = () => {
               </div>
             ))
           )}
-          <Pagination page={requestPage} totalPages={requestTotalPages} onPageChange={setRequestPage} />
         </div>
       </Card>
 
@@ -264,7 +247,7 @@ const RequestsPage = () => {
           {!idRequests.length && !loading ? (
             <EmptyState title="No Barangay ID requests yet" description="Your ID schedule confirmations will appear here." />
           ) : (
-            paginatedIdRequests.map((request) => (
+            idRequests.map((request) => (
               <div key={request.id} className="rounded-2xl border border-stone-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -274,13 +257,12 @@ const RequestsPage = () => {
                       {(request.time_slot || request.timeSlot) ? ` - ${request.time_slot || request.timeSlot}` : ""}
                     </p>
                   </div>
-                  <StatusBadge status={request.status} />
+                  <Badge tone={toneForStatus(request.status)}>{request.status}</Badge>
                 </div>
                 {request.admin_note ? <p className="mt-3 text-sm text-stone-600">Admin note: {request.admin_note}</p> : null}
               </div>
             ))
           )}
-          <Pagination page={idPage} totalPages={idTotalPages} onPageChange={setIdPage} />
         </div>
       </Card>
     </div>

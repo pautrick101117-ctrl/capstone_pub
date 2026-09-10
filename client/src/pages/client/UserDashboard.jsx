@@ -10,7 +10,7 @@ const pageSize = 4;
 const UserDashboard = () => {
   const { token, user, notifications } = useAuth();
   const [requests, setRequests] = useState([]);
-  const [elections, setElections] = useState([]);
+  const [election, setElection] = useState(null);
   const [notificationPage, setNotificationPage] = useState(1);
   const [requestPage, setRequestPage] = useState(1);
 
@@ -18,22 +18,12 @@ const UserDashboard = () => {
     if (!token) return;
     Promise.all([api("/requests/mine", { token }), api("/voting/current", { token })]).then(([requestData, votingData]) => {
       setRequests(requestData.requests || []);
-      setElections(votingData.elections || (votingData.election ? [votingData.election] : []));
+      setElection(votingData.election || null);
     });
   }, [token]);
 
   const completedRequests = requests.filter((item) => item.status === "completed").length;
   const visibleNotifications = notifications || [];
-  const notificationTotalPages = Math.max(1, Math.ceil(visibleNotifications.length / pageSize));
-  const requestTotalPages = Math.max(1, Math.ceil(requests.length / pageSize));
-
-  useEffect(() => {
-    if (notificationPage > notificationTotalPages) setNotificationPage(notificationTotalPages);
-  }, [notificationPage, notificationTotalPages]);
-
-  useEffect(() => {
-    if (requestPage > requestTotalPages) setRequestPage(requestTotalPages);
-  }, [requestPage, requestTotalPages]);
 
   const paginatedNotifications = useMemo(
     () => visibleNotifications.slice((notificationPage - 1) * pageSize, notificationPage * pageSize),
@@ -57,7 +47,7 @@ const UserDashboard = () => {
         <StatCard icon={ClipboardCheck} label="Total Requests" value={requests.length} />
         <StatCard icon={Wallet} label="Completed Requests" value={completedRequests} />
         <StatCard icon={BellRing} label="Unread Notifications" value={visibleNotifications.filter((item) => !item.is_read).length} />
-        <StatCard icon={Vote} label="Live Elections" value={elections.length} hint={elections.length ? "Open for resident voting" : "No live voting"} />
+        <StatCard icon={Vote} label="Live Voting" value={election?.status === "live" ? "Open" : "No live poll"} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -66,31 +56,26 @@ const UserDashboard = () => {
             <h2 className="text-xl font-bold text-[var(--brand-900)]">Current Voting</h2>
             <p className="mt-1 text-sm text-stone-500">A quick summary of the election currently visible in your portal.</p>
           </div>
-          {elections.length ? (
-            <div className="mt-5 space-y-4">
-              {elections.slice(0, 3).map((election) => (
-                <div key={election.id} className="rounded-3xl border border-stone-200 p-5">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Badge tone="success">live</Badge>
-                    <span className="text-sm text-stone-500">Ends: {formatDateTime(election.endsAt)}</span>
+          {election ? (
+            <div className="mt-5 rounded-3xl border border-stone-200 p-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone={election.status === "live" ? "success" : "neutral"}>{election.status}</Badge>
+                <span className="text-sm text-stone-500">Ends: {formatDateTime(election.endsAt)}</span>
+              </div>
+              <h3 className="mt-4 text-2xl font-black text-[var(--brand-900)]">{election.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-stone-600">{election.description}</p>
+              <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                {[
+                  ["Votes Cast", election.totalVotes],
+                  ["Eligible Residents", election.eligibleVoters],
+                  ["Participation", `${election.participationRate}%`],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl bg-[var(--brand-50)] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-500)]">{label}</p>
+                    <p className="mt-2 text-lg font-bold text-[var(--brand-900)]">{value}</p>
                   </div>
-                  <h3 className="mt-4 text-xl font-black text-[var(--brand-900)]">{election.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">{election.description}</p>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                    {[
-                      ["Votes Cast", Number.isFinite(Number(election.totalVotes)) ? Number(election.totalVotes) : 0],
-                      ["Eligible Residents", Number.isFinite(Number(election.eligibleVoters)) ? Number(election.eligibleVoters) : 0],
-                      ["Participation", `${Number.isFinite(Number(election.participationRate)) ? Number(election.participationRate) : 0}%`],
-                    ].map(([label, value]) => (
-                      <div key={label} className="rounded-2xl bg-[var(--brand-50)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-500)]">{label}</p>
-                        <p className="mt-2 text-lg font-bold text-[var(--brand-900)]">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {elections.length > 3 ? <p className="text-sm text-stone-500">+ {elections.length - 3} more live election(s). Open Voting to view all.</p> : null}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="mt-5">
@@ -126,7 +111,7 @@ const UserDashboard = () => {
           </div>
           <Pagination
             page={notificationPage}
-            totalPages={notificationTotalPages}
+            totalPages={Math.max(1, Math.ceil(visibleNotifications.length / pageSize))}
             onPageChange={setNotificationPage}
           />
         </Card>
@@ -153,7 +138,7 @@ const UserDashboard = () => {
         </div>
         <Pagination
           page={requestPage}
-          totalPages={requestTotalPages}
+          totalPages={Math.max(1, Math.ceil(requests.length / pageSize))}
           onPageChange={setRequestPage}
         />
       </Card>

@@ -19,6 +19,7 @@ import SuggestionsPage from "./pages/client/SuggestionsPage";
 import ChangePassword from "./pages/client/ChangePassword";
 import SettingsPage from "./pages/client/SettingsPage";
 import Complaints from "./pages/client/Complaints";
+import BorrowingPage from "./pages/client/BorrowingPage";
 import AdminPageLayout from "./components/layouts/AdminPageLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import Admin_Residents from "./pages/admin/Admin_Residents";
@@ -33,6 +34,7 @@ import Admin_Census from "./pages/admin/Admin_Census";
 import Admin_UserMaintenance from "./pages/admin/Admin_UserMaintenance";
 import Admin_Complaints from "./pages/admin/Admin_Complaints";
 import Admin_Settings from "./pages/admin/Admin_Settings";
+import Admin_Borrowing from "./pages/admin/Admin_Borrowing";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -53,16 +55,17 @@ const router = createBrowserRouter(
 
       <Route path="admin/login" element={<AdminLogin />} />
 
-      <Route element={<ProtectedRoute />}>
+      <Route element={<ProtectedRoute roles={["resident"]} redirectTo="/login" />}>
         <Route path="/" element={<UserPortalLayout />}>
           <Route path="portal" element={<UserDashboard />} />
           <Route path="portal/requests" element={<RequestsPage />} />
-          <Route path="portal/complaints" element={<Complaints />} />
           <Route path="portal/voting" element={<VotingCenter />} />
           <Route path="portal/calendar" element={<CalendarPage />} />
           <Route path="portal/suggestions" element={<SuggestionsPage />} />
           <Route path="portal/results" element={<VotingResult />} />
           <Route path="portal/voting-result" element={<VotingResult />} />
+          <Route path="portal/complaints" element={<Complaints />} />
+          <Route path="portal/borrowing" element={<BorrowingPage />} />
           <Route path="portal/settings" element={<SettingsPage />} />
         </Route>
         <Route path="change-password" element={<ChangePassword />} />
@@ -73,7 +76,6 @@ const router = createBrowserRouter(
           <Route index element={<AdminDashboard />} />
           <Route path="residents" element={<Admin_Residents />} />
           <Route path="requests" element={<AdminRequests />} />
-          <Route path="complaints" element={<Admin_Complaints />} />
           <Route path="officials" element={<Admin_Officials />} />
           <Route path="news" element={<AdminContentPage type="news" />} />
           <Route path="announcements" element={<AdminContentPage type="announcement" />} />
@@ -81,6 +83,8 @@ const router = createBrowserRouter(
           <Route path="events" element={<AdminEvents />} />
           <Route path="voting" element={<Admin_VotingResult />} />
           <Route path="census" element={<Admin_Census />} />
+          <Route path="complaints" element={<Admin_Complaints />} />
+          <Route path="borrowing" element={<Admin_Borrowing />} />
           <Route path="settings" element={<Admin_Settings />} />
           <Route path="user-maintenance" element={<Admin_UserMaintenance />} />
         </Route>

@@ -27,7 +27,6 @@ const AdminFunds = () => {
   const [projectForm, setProjectForm] = useState(emptyProject);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
-  const [sourcePage, setSourcePage] = useState(1);
   const [projectPage, setProjectPage] = useState(1);
 
   const load = async () => {
@@ -73,18 +72,7 @@ const AdminFunds = () => {
     }
   };
 
-  const sourceTotalPages = Math.max(1, Math.ceil((funds.sources || []).length / pageSize));
-  const projectTotalPages = Math.max(1, Math.ceil((funds.projects || []).length / pageSize));
-  const paginatedSources = (funds.sources || []).slice((sourcePage - 1) * pageSize, sourcePage * pageSize);
   const paginatedProjects = (funds.projects || []).slice((projectPage - 1) * pageSize, projectPage * pageSize);
-
-  useEffect(() => {
-    if (sourcePage > sourceTotalPages) setSourcePage(sourceTotalPages);
-  }, [sourcePage, sourceTotalPages]);
-
-  useEffect(() => {
-    if (projectPage > projectTotalPages) setProjectPage(projectTotalPages);
-  }, [projectPage, projectTotalPages]);
 
   return (
     <div className="space-y-8">
@@ -110,7 +98,7 @@ const AdminFunds = () => {
         <Card>
           <h2 className="text-xl font-bold text-[var(--brand-900)]">Fund Sources</h2>
           <div className="mt-5 space-y-4">
-            {paginatedSources.map((source) => (
+            {(funds.sources || []).map((source) => (
               <div key={source.id} className="rounded-2xl border border-stone-200 p-4 transition hover:border-[var(--brand-200)]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -122,7 +110,6 @@ const AdminFunds = () => {
               </div>
             ))}
           </div>
-          <Pagination page={sourcePage} totalPages={sourceTotalPages} onPageChange={setSourcePage} />
         </Card>
 
         <Card>
@@ -175,7 +162,7 @@ const AdminFunds = () => {
           </TableShell>
           <Pagination
             page={projectPage}
-            totalPages={projectTotalPages}
+            totalPages={Math.max(1, Math.ceil((funds.projects || []).length / pageSize))}
             onPageChange={setProjectPage}
           />
         </Card>

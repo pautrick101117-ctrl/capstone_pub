@@ -2,38 +2,31 @@ import express from "express";
 import multer from "multer";
 import { requireSupabase } from "../lib/supabase.js";
 import { uploadAsset } from "../lib/storage.js";
+import { sendSystemEmail } from "../lib/mailer.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
-import {
-  activateElection,
-  closeElection,
-  createCommunityProjectFromElection,
-  createRunoffElection,
-  finalizeElection,
-  getCommunityProjects,
-  getElectionMetrics,
-  getElectionMonitoring,
-  snapshotEligibleVoters,
-  synchronizeElectionStatuses,
-} from "../services/electionService.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-const ELECTION_EDITABLE_STATUSES = new Set(["draft", "scheduled", "live", "cancelled"]);
-const SUGGESTION_REVIEW_STATUSES = new Set(["submitted", "under_review", "needs_revision", "approved", "rejected"]);
-const PUROK_OPTIONS = new Set(["Purok 1", "Purok 2", "Purok 3", "Purok 4", "Purok 5", "Purok 6"]);
+const ELECTION_STATUSES = new Set(["draft", "live", "closed"]);
+const SUGGESTION_REVIEW_STATUSES = new Set(["approved", "rejected"]);
 
 const requireValue = (value, message) => {
-  if (!value) throw Object.assign(new Error(message), { status: 400 });
+  if (!value) {
+    throw Object.assign(new Error(message), { status: 400 });
+  }
 };
 
 const normalizeElectionDate = (value) => {
   if (!value) return null;
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     throw Object.assign(new Error("Voting dates must be valid date and time values."), { status: 400 });
   }
+
   return date.toISOString();
 };
 
@@ -49,35 +42,178 @@ const normalizeElectionOptions = (items = []) =>
 
 const sameElectionOptions = (left = [], right = []) => {
   const normalize = (items) =>
-    items.map((item) => [item.name || "", item.description || "", item.sourceSuggestionId || item.source_suggestion_id || ""].join("\n"));
-  const a = normalize(left);
-  const b = normalize(right);
-  return a.length === b.length && a.every((item, index) => item === b[index]);
+    items.map((item) =>
+      [item.name || "", item.description || "", item.sourceSuggestionId || item.source_suggestion_id || ""].join("\n")
+    );
+
+  const leftItems = normalize(left);
+  const rightItems = normalize(right);
+
+  return leftItems.length === rightItems.length && leftItems.every((item, index) => item === rightItems[index]);
 };
 
-const validateSuggestions = async (db, options) => {
-  const ids = [...new Set(options.map((option) => option.sourceSuggestionId).filter(Boolean))];
-  if (!ids.length) return;
+const getResidentRecipients = async (db) => {
+  const { data, error } = await db
+    .from("users")
+    .select("id, email, full_name, first_name")
+    .eq("role", "resident")
+    .eq("is_active", true);
 
-  const { data, error } = await db.from("project_suggestions").select("id, status").in("id", ids);
   if (error) throw error;
-  if ((data || []).length !== ids.length) {
-    throw Object.assign(new Error("One or more selected project suggestions no longer exist."), { status: 400 });
+
+  return data || [];
+};
+
+const notifyResidents = async (db, residents, { title, body, kind = "info" }) => {
+  if (!residents.length) return;
+
+  const { error } = await db.from("notifications").insert(
+    residents.map((resident) => ({
+      user_id: resident.id,
+      title,
+      body,
+      kind,
+      broadcast: false,
+    }))
+  );
+
+  if (error) throw error;
+
+  await Promise.all(
+    residents
+      .filter((resident) => resident.email)
+      .map((resident) =>
+        sendSystemEmail({
+          to: resident.email,
+          subject: title,
+          text: body,
+        }).catch((emailError) => {
+          console.warn(`[EMAIL NOTIFICATION ERROR] ${resident.email}: ${emailError.message}`);
+        })
+      )
+  );
+};
+
+const getVoteCountsByOption = (votes = []) =>
+  votes.reduce((counts, vote) => {
+    const optionId = vote.option_id;
+    counts[optionId] = (counts[optionId] || 0) + 1;
+    return counts;
+  }, {});
+
+const syncOptionVoteCounts = async (db, electionId) => {
+  const [optionsResult, votesResult] = await Promise.all([
+    db.from("election_options").select("id").eq("election_id", electionId),
+    db.from("votes").select("option_id").eq("election_id", electionId),
+  ]);
+
+  if (optionsResult.error) throw optionsResult.error;
+  if (votesResult.error) throw votesResult.error;
+
+  const counts = getVoteCountsByOption(votesResult.data || []);
+
+  for (const option of optionsResult.data || []) {
+    const { error } = await db
+      .from("election_options")
+      .update({ votes_count: counts[option.id] || 0 })
+      .eq("id", option.id);
+
+    if (error) throw error;
   }
-  const invalid = (data || []).find((suggestion) => !["approved", "included_in_voting"].includes(suggestion.status));
-  if (invalid) {
-    throw Object.assign(new Error("Only approved project suggestions can be used as voting options."), { status: 400 });
-  }
+};
+
+const getElectionMetrics = async (db, electionId) => {
+  await syncOptionVoteCounts(db, electionId);
+
+  const [election, options, votes, completions, residents] = await Promise.all([
+    db.from("elections").select("*").eq("id", electionId).single(),
+    db.from("election_options").select("*").eq("election_id", electionId).order("created_at"),
+    db.from("votes").select("id, user_id, option_id").eq("election_id", electionId),
+    db.from("project_completions").select("id, user_id").eq("election_id", electionId),
+    db.from("users").select("id", { count: "exact", head: true }).eq("role", "resident").eq("is_active", true),
+  ]);
+
+  if (election.error) throw election.error;
+  if (options.error) throw options.error;
+  if (votes.error) throw votes.error;
+  if (completions.error) throw completions.error;
+
+  const optionRows = options.data || [];
+  const voteRows = votes.data || [];
+  const voteCounts = getVoteCountsByOption(voteRows);
+  const totalVotes = voteRows.length;
+  const eligibleVoters = residents.count || 0;
+
+  const mappedOptions = optionRows.map((option) => {
+    const voteCount = voteCounts[option.id] || 0;
+
+    return {
+      id: option.id,
+      name: option.name,
+      description: option.description,
+      imageUrl: option.image_url,
+      sourceSuggestionId: option.source_suggestion_id,
+      votes: voteCount,
+      percentage: totalVotes ? Number(((voteCount / totalVotes) * 100).toFixed(1)) : 0,
+    };
+  });
+
+  const winner =
+    totalVotes > 0
+      ? [...mappedOptions].sort((a, b) => Number(b.votes || 0) - Number(a.votes || 0))[0] || null
+      : null;
+
+  return {
+    id: election.data.id,
+    title: election.data.title,
+    description: election.data.description,
+    status: election.data.status,
+    startsAt: election.data.starts_at,
+    endsAt: election.data.ends_at,
+    imageUrl: election.data.image_url,
+    sourceSuggestionId: election.data.source_suggestion_id,
+    totalVotes,
+    eligibleVoters,
+    notVotedCount: Math.max(eligibleVoters - totalVotes, 0),
+    participationRate: eligibleVoters ? Number(((totalVotes / eligibleVoters) * 100).toFixed(1)) : 0,
+    completionCount: completions.data?.length || 0,
+    winner: winner
+      ? {
+          id: winner.id,
+          name: winner.name,
+          votes: Number(winner.votes || 0),
+        }
+      : null,
+    options: mappedOptions.map((option) => ({
+      ...option,
+      isWinner: winner ? winner.id === option.id : false,
+    })),
+  };
+};
+
+const closeExpiredLiveElections = async (db) => {
+  const now = new Date().toISOString();
+
+  const { error } = await db
+    .from("elections")
+    .update({ status: "closed" })
+    .eq("status", "live")
+    .lte("ends_at", now);
+
+  if (error) throw error;
 };
 
 router.get("/suggestions", async (_req, res, next) => {
   try {
     const db = requireSupabase();
+
     const { data, error } = await db
       .from("project_suggestions")
-      .select("*, users!project_suggestions_user_id_fkey(full_name, first_name, last_name, purok)")
+      .select("*, users!project_suggestions_user_id_fkey(full_name, first_name, last_name)")
       .order("created_at", { ascending: false });
+
     if (error) throw error;
+
     res.json({ suggestions: data || [] });
   } catch (error) {
     next(error);
@@ -87,40 +223,22 @@ router.get("/suggestions", async (_req, res, next) => {
 router.patch("/suggestions/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const status = `${req.body.status || ""}`.trim();
-    const adminFeedback = `${req.body.adminFeedback || req.body.admin_feedback || ""}`.trim();
+    const status = req.body.status;
+
     requireValue(status, "Status is required.");
+
     if (!SUGGESTION_REVIEW_STATUSES.has(status)) {
-      throw Object.assign(new Error("Invalid suggestion review status."), { status: 400 });
-    }
-    if (["needs_revision", "rejected"].includes(status) && !adminFeedback) {
-      throw Object.assign(new Error("Provide feedback so the resident knows what needs to change."), { status: 400 });
+      throw Object.assign(new Error("Suggestion status must be approved or rejected."), { status: 400 });
     }
 
-    const now = new Date().toISOString();
     const { data, error } = await db
       .from("project_suggestions")
-      .update({
-        status,
-        admin_feedback: adminFeedback,
-        reviewed_by: req.currentUser.id,
-        reviewed_at: now,
-        updated_at: now,
-      })
+      .update({ status })
       .eq("id", req.params.id)
       .select("*")
       .single();
-    if (error) throw error;
 
-    if (data.user_id) {
-      await db.from("notifications").insert({
-        user_id: data.user_id,
-        title: "Project suggestion reviewed",
-        body: `Your suggestion “${data.title}” is now ${status.replaceAll("_", " ")}.${adminFeedback ? ` Feedback: ${adminFeedback}` : ""}`,
-        kind: status === "approved" ? "success" : status === "rejected" ? "warning" : "info",
-        broadcast: false,
-      });
-    }
+    if (error) throw error;
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -128,7 +246,7 @@ router.patch("/suggestions/:id", async (req, res, next) => {
       action: "review_project_suggestion",
       entityType: "project_suggestion",
       entityId: req.params.id,
-      details: { status, adminFeedback },
+      details: { status },
     });
 
     res.json({ suggestion: data });
@@ -137,31 +255,47 @@ router.patch("/suggestions/:id", async (req, res, next) => {
   }
 });
 
-router.get("/elections", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    await synchronizeElectionStatuses(db);
-    const { data, error } = await db.from("elections").select("id").order("created_at", { ascending: false });
-    if (error) throw error;
-    const elections = [];
-    for (const row of data || []) elections.push(await getElectionMetrics(db, row.id));
-    res.json({ elections });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Compatibility endpoint used by older UI code.
 router.get("/election", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    await synchronizeElectionStatuses(db);
-    const { data: election, error } = await db.from("elections").select("*").order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+    await closeExpiredLiveElections(db);
+
+    const { data: election, error } = await db
+      .from("elections")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     if (error) throw error;
-    if (!election) return res.json({ election: null, options: [] });
-    const { data: options, error: optionError } = await db.from("election_options").select("*").eq("election_id", election.id).order("created_at");
+
+    if (!election) {
+      return res.json({ election: null, options: [] });
+    }
+
+    const { data: options, error: optionError } = await db
+      .from("election_options")
+      .select("*")
+      .eq("election_id", election.id)
+      .order("created_at");
+
     if (optionError) throw optionError;
-    res.json({ election, options: options || [] });
+
+    const { count: voteCount, error: voteError } = await db
+      .from("votes")
+      .select("id", { count: "exact", head: true })
+      .eq("election_id", election.id);
+
+    if (voteError) throw voteError;
+
+    res.json({
+      election: {
+        ...election,
+        totalVotes: voteCount || 0,
+      },
+      options: options || [],
+    });
   } catch (error) {
     next(error);
   }
@@ -170,112 +304,143 @@ router.get("/election", async (_req, res, next) => {
 router.put("/election", upload.single("image"), async (req, res, next) => {
   try {
     const db = requireSupabase();
+
     const rawElection = req.body.election ? JSON.parse(req.body.election) : req.body;
     const rawOptions = req.body.options ? JSON.parse(req.body.options) : [];
+
     requireValue(rawElection?.title, "Voting title is required.");
 
     const status = rawElection.status || "draft";
-    if (!ELECTION_EDITABLE_STATUSES.has(status)) {
-      throw Object.assign(new Error("Use the dedicated close/finalize/archive actions for completed elections."), { status: 400 });
+
+    if (!ELECTION_STATUSES.has(status)) {
+      throw Object.assign(new Error("Voting status must be draft, live, or closed."), { status: 400 });
     }
 
     const options = normalizeElectionOptions(rawOptions);
-    if (["scheduled", "live"].includes(status) && options.length < 2) {
-      throw Object.assign(new Error("At least two approved project suggestions are required before publishing voting."), { status: 400 });
-    }
-    await validateSuggestions(db, options);
 
-    const startsAt = normalizeElectionDate(rawElection.startsAt || rawElection.starts_at);
-    const endsAt = normalizeElectionDate(rawElection.endsAt || rawElection.ends_at);
-    if (["scheduled", "live"].includes(status)) {
+    if (status !== "draft" && options.length < 2) {
+      throw Object.assign(new Error("At least two approved project suggestions are required before posting voting."), {
+        status: 400,
+      });
+    }
+
+    const sourceSuggestionIds = [...new Set(options.map((option) => option.sourceSuggestionId).filter(Boolean))];
+
+    if (sourceSuggestionIds.length) {
+      const { data: selectedSuggestions, error: suggestionError } = await db
+        .from("project_suggestions")
+        .select("id, status")
+        .in("id", sourceSuggestionIds);
+
+      if (suggestionError) throw suggestionError;
+
+      if ((selectedSuggestions || []).length !== sourceSuggestionIds.length) {
+        throw Object.assign(new Error("One or more selected project suggestions no longer exist."), { status: 400 });
+      }
+
+      const notApproved = (selectedSuggestions || []).find((suggestion) => suggestion.status !== "approved");
+
+      if (notApproved) {
+        throw Object.assign(new Error("Only approved project suggestions can be posted for voting."), { status: 400 });
+      }
+    }
+
+    const startsAt = normalizeElectionDate(rawElection.startsAt);
+    const endsAt = normalizeElectionDate(rawElection.endsAt);
+
+    if (status === "live") {
       requireValue(startsAt, "Voting open date and time are required.");
       requireValue(endsAt, "Voting close date and time are required.");
+
       if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
-        throw Object.assign(new Error("Voting close time must be after the opening time."), { status: 400 });
+        throw Object.assign(new Error("Voting close time must be after the open time."), { status: 400 });
       }
+
       if (new Date(endsAt).getTime() <= Date.now()) {
-        throw Object.assign(new Error("Voting close time must be in the future."), { status: 400 });
-      }
-      if (status === "scheduled" && new Date(startsAt).getTime() <= Date.now()) {
-        throw Object.assign(new Error("Scheduled voting must start in the future. Use Start Now to open it immediately."), { status: 400 });
-      }
-      if (status === "live" && new Date(startsAt).getTime() > Date.now()) {
-        throw Object.assign(new Error("Live voting cannot have a future opening time. Use Scheduled instead."), { status: 400 });
+        throw Object.assign(new Error("Voting close time must be in the future before posting live voting."), {
+          status: 400,
+        });
       }
     }
 
     const imageUrl = req.file
-      ? await uploadAsset({ file: req.file, folder: "elections", prefix: rawElection.title })
-      : rawElection.imageUrl || rawElection.image_url || null;
+      ? await uploadAsset({
+          file: req.file,
+          folder: "elections",
+          prefix: rawElection.title,
+        })
+      : rawElection.imageUrl || null;
 
-    let existing = null;
+    let previousElection = null;
     let existingOptions = [];
-    let voteCount = 0;
+    let existingVoteCount = 0;
+
     if (rawElection.id) {
-      const [previousResult, optionsResult, votesResult] = await Promise.all([
+      const [previous, optionRows, voteRows] = await Promise.all([
         db.from("elections").select("*").eq("id", rawElection.id).maybeSingle(),
-        db.from("election_options").select("name, description, source_suggestion_id, image_url").eq("election_id", rawElection.id).order("created_at"),
+        db
+          .from("election_options")
+          .select("name, description, source_suggestion_id")
+          .eq("election_id", rawElection.id)
+          .order("created_at"),
         db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", rawElection.id),
       ]);
-      if (previousResult.error) throw previousResult.error;
-      if (optionsResult.error) throw optionsResult.error;
-      if (votesResult.error) throw votesResult.error;
-      existing = previousResult.data;
-      existingOptions = normalizeElectionOptions(optionsResult.data || []);
-      voteCount = votesResult.count || 0;
+
+      if (previous.error) throw previous.error;
+      if (optionRows.error) throw optionRows.error;
+      if (voteRows.error) throw voteRows.error;
+
+      previousElection = previous.data;
+      existingOptions = normalizeElectionOptions(optionRows.data || []);
+      existingVoteCount = voteRows.count || 0;
     }
 
-    if (existing && ["closed", "finalized", "archived"].includes(existing.status)) {
-      throw Object.assign(new Error("Closed or finalized elections are locked from editing."), { status: 409 });
+    if (existingVoteCount > 0 && !sameElectionOptions(existingOptions, options)) {
+      throw Object.assign(new Error("Voting options cannot be changed after votes have been recorded."), {
+        status: 400,
+      });
     }
 
-    if (voteCount > 0) {
-      if (!sameElectionOptions(existingOptions, options)) {
-        throw Object.assign(new Error("Voting options cannot be changed after votes have been recorded."), { status: 409 });
-      }
-      const materiallyChanged =
-        `${existing.title || ""}` !== `${rawElection.title || ""}`.trim() ||
-        `${existing.description || ""}` !== `${rawElection.description || ""}` ||
-        new Date(existing.starts_at || 0).getTime() !== new Date(startsAt || 0).getTime();
-      if (materiallyChanged) {
-        throw Object.assign(new Error("Title, description, opening time, and options are locked after voting begins."), { status: 409 });
-      }
-      if (existing.ends_at && endsAt && new Date(endsAt).getTime() < new Date(existing.ends_at).getTime()) {
-        throw Object.assign(new Error("Closing time cannot be shortened after votes have been recorded."), { status: 409 });
-      }
-    }
-
-    const now = new Date().toISOString();
-    const payload = {
+    const electionPayload = {
       title: `${rawElection.title || ""}`.trim(),
-      description: `${rawElection.description || ""}`.trim(),
+      description: rawElection.description || "",
       status,
       starts_at: startsAt,
       ends_at: endsAt,
       image_url: imageUrl,
-      source_suggestion_id: rawElection.sourceSuggestionId || options[0]?.sourceSuggestionId || null,
-      results_visibility: rawElection.resultsVisibility || rawElection.results_visibility || "after_close",
-      updated_at: now,
+      source_suggestion_id: rawElection.sourceSuggestionId || sourceSuggestionIds[0] || null,
     };
 
-    let saved;
+    let savedElection;
+
     if (rawElection.id) {
-      const { data, error } = await db.from("elections").update(payload).eq("id", rawElection.id).select("*").single();
-      if (error) throw error;
-      saved = data;
+      const update = await db
+        .from("elections")
+        .update(electionPayload)
+        .eq("id", rawElection.id)
+        .select("*")
+        .single();
+
+      if (update.error) throw update.error;
+
+      savedElection = update.data;
     } else {
-      const { data, error } = await db.from("elections").insert(payload).select("*").single();
-      if (error) throw error;
-      saved = data;
+      const insert = await db.from("elections").insert(electionPayload).select("*").single();
+
+      if (insert.error) throw insert.error;
+
+      savedElection = insert.data;
     }
 
-    if (voteCount === 0) {
-      const { error: deleteError } = await db.from("election_options").delete().eq("election_id", saved.id);
-      if (deleteError) throw deleteError;
+    if (existingVoteCount === 0) {
+      const deleteOptions = await db.from("election_options").delete().eq("election_id", savedElection.id);
+
+      if (deleteOptions.error) throw deleteOptions.error;
+
       if (options.length) {
-        const { error: insertError } = await db.from("election_options").insert(
+        const insertOptions = await db.from("election_options").insert(
           options.map((option) => ({
-            election_id: saved.id,
+            election_id: savedElection.id,
             name: option.name,
             description: option.description,
             source_suggestion_id: option.sourceSuggestionId || null,
@@ -283,175 +448,45 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
             votes_count: 0,
           }))
         );
-        if (insertError) throw insertError;
+
+        if (insertOptions.error) throw insertOptions.error;
       }
     }
 
-    if (["scheduled", "live"].includes(status)) {
-      await snapshotEligibleVoters(db, saved.id);
-      const selectedSuggestionIds = options.map((option) => option.sourceSuggestionId).filter(Boolean);
-      if (selectedSuggestionIds.length) {
-        await db
-          .from("project_suggestions")
-          .update({ status: "included_in_voting", updated_at: now })
-          .in("id", selectedSuggestionIds)
-          .eq("status", "approved");
-      }
-    }
+    if (savedElection.status === "live") {
+      const closeOtherLives = await db
+        .from("elections")
+        .update({ status: "closed" })
+        .neq("id", savedElection.id)
+        .eq("status", "live");
 
-    if (status === "live" && existing?.status !== "live") {
-      saved = await activateElection(db, saved, {
-        id: req.currentUser.id,
-        role: normalizeRole(req.currentUser.role),
-      });
+      if (closeOtherLives.error) throw closeOtherLives.error;
+
+      if (previousElection?.status !== "live") {
+        const resetVotes = await db.from("users").update({ has_voted: false }).eq("role", "resident");
+
+        if (resetVotes.error) throw resetVotes.error;
+
+        const residents = await getResidentRecipients(db);
+
+        await notifyResidents(db, residents, {
+          title: "Voting is now open",
+          body: `${savedElection.title} is now live for voting.`,
+        });
+
+      }
     }
 
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
-      action: rawElection.id ? "update_election" : "create_election",
+      action: "save_election",
       entityType: "election",
-      entityId: saved.id,
-      details: { status, startsAt, endsAt, resultsVisibility: payload.results_visibility },
+      entityId: savedElection.id,
+      details: electionPayload,
     });
 
-    res.json({ election: saved });
-  } catch (error) {
-    next(error);
-  }
-});
-
-
-router.delete("/elections/:id", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: election, error } = await db.from("elections").select("id, status").eq("id", req.params.id).single();
-    if (error) throw error;
-    if (election.status !== "draft") {
-      throw Object.assign(new Error("Only draft elections can be deleted."), { status: 400 });
-    }
-    const { count, error: voteError } = await db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", req.params.id);
-    if (voteError) throw voteError;
-    if ((count || 0) > 0) throw Object.assign(new Error("An election with recorded votes cannot be deleted."), { status: 409 });
-    const { error: deleteError } = await db.from("elections").delete().eq("id", req.params.id);
-    if (deleteError) throw deleteError;
-    await logAudit({ actorId: req.currentUser.id, actorRole: normalizeRole(req.currentUser.role), action: "delete_draft_election", entityType: "election", entityId: req.params.id, details: {} });
-    res.json({ message: "Draft election deleted." });
-  } catch (error) { next(error); }
-});
-
-router.post("/elections/:id/archive", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).single();
-    if (error) throw error;
-    if (election.status !== "finalized") throw Object.assign(new Error("Only finalized elections can be archived."), { status: 400 });
-    const { data, error: updateError } = await db.from("elections").update({ status: "archived", updated_at: new Date().toISOString() }).eq("id", req.params.id).select("*").single();
-    if (updateError) throw updateError;
-    await logAudit({ actorId: req.currentUser.id, actorRole: normalizeRole(req.currentUser.role), action: "archive_election", entityType: "election", entityId: req.params.id, details: {} });
-    res.json({ election: data });
-  } catch (error) { next(error); }
-});
-router.post("/elections/:id/start", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).single();
-    if (error) throw error;
-    if (!["draft", "scheduled"].includes(election.status)) {
-      throw Object.assign(new Error("Only a draft or scheduled election can be started."), { status: 400 });
-    }
-    const { count, error: optionError } = await db.from("election_options").select("id", { count: "exact", head: true }).eq("election_id", election.id);
-    if (optionError) throw optionError;
-    if ((count || 0) < 2) throw Object.assign(new Error("Add at least two voting options before starting."), { status: 400 });
-
-    const now = new Date().toISOString();
-    const end = req.body.endsAt ? normalizeElectionDate(req.body.endsAt) : election.ends_at;
-    requireValue(end, "Set a closing date and time before starting voting.");
-    const normalized = { ...election, starts_at: now, ends_at: end };
-    await db.from("elections").update({ starts_at: now, ends_at: end }).eq("id", election.id);
-    const started = await activateElection(db, normalized, { id: req.currentUser.id, role: normalizeRole(req.currentUser.role) });
-    res.json({ election: started });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/elections/:id/close", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const election = await closeElection(
-      db,
-      req.params.id,
-      { id: req.currentUser.id, role: normalizeRole(req.currentUser.role) },
-      `${req.body.reason || ""}`.trim()
-    );
-    res.json({ election });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/elections/:id/finalize", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    res.json(await finalizeElection(db, req.params.id, { id: req.currentUser.id, role: normalizeRole(req.currentUser.role) }));
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/elections/:id/runoff", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const election = await createRunoffElection(db, req.params.id, { id: req.currentUser.id, role: normalizeRole(req.currentUser.role) });
-    res.status(201).json({ election });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/elections/:id/project", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const project = await createCommunityProjectFromElection(db, req.params.id, {
-      id: req.currentUser.id,
-      role: normalizeRole(req.currentUser.role),
-    });
-    res.status(201).json({ project });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get("/elections/:id/voters", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    await snapshotEligibleVoters(db, req.params.id);
-    const { data, error } = await db
-      .from("election_voters")
-      .select("user_id, eligible, voted_at, users!election_voters_user_id_fkey(full_name, first_name, last_name, purok)")
-      .eq("election_id", req.params.id)
-      .eq("eligible", true)
-      .order("created_at", { ascending: true });
-    if (error) throw error;
-    res.json({
-      voters: (data || []).map((row) => ({
-        userId: row.user_id,
-        name: row.users?.full_name || [row.users?.first_name, row.users?.last_name].filter(Boolean).join(" ") || "Resident",
-        purok: row.users?.purok || "",
-        voted: Boolean(row.voted_at),
-        votedAt: row.voted_at,
-      })),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get("/elections/:id/monitor", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    res.json({ monitoring: await getElectionMonitoring(db, req.params.id) });
+    res.json({ election: savedElection });
   } catch (error) {
     next(error);
   }
@@ -460,126 +495,23 @@ router.get("/elections/:id/monitor", async (req, res, next) => {
 router.get("/election-results", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    await synchronizeElectionStatuses(db);
-    const { data, error } = await db.from("elections").select("id").order("created_at", { ascending: false });
+
+    await closeExpiredLiveElections(db);
+
+    const { data: elections, error } = await db
+      .from("elections")
+      .select("id")
+      .order("created_at", { ascending: false });
+
     if (error) throw error;
-    const elections = [];
-    for (const row of data || []) elections.push(await getElectionMetrics(db, row.id));
-    res.json({ elections });
-  } catch (error) {
-    next(error);
-  }
-});
 
-router.get("/community-projects", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    res.json({ projects: await getCommunityProjects(db) });
-  } catch (error) {
-    next(error);
-  }
-});
+    const items = [];
 
-router.patch("/community-projects/:id", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const allowed = new Set(["planned", "preparation", "in_progress", "completed", "cancelled"]);
-    const status = req.body.status;
-    if (status && !allowed.has(status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
-
-    const updates = {
-      updated_at: new Date().toISOString(),
-    };
-    if (req.body.purok !== undefined && req.body.purok !== "" && !PUROK_OPTIONS.has(`${req.body.purok}`.trim())) {
-      throw Object.assign(new Error("Purok must be Purok 1 through Purok 6, or left blank for barangay-wide projects."), { status: 400 });
+    for (const election of elections || []) {
+      items.push(await getElectionMetrics(db, election.id));
     }
-    if (status) updates.status = status;
-    if (req.body.progressPercentage !== undefined) updates.progress_percentage = Math.max(0, Math.min(100, Number(req.body.progressPercentage)));
-    for (const [incoming, column] of [
-      ["location", "location"],
-      ["purok", "purok"],
-      ["plannedStartDate", "planned_start_date"],
-      ["actualStartDate", "actual_start_date"],
-      ["targetCompletionDate", "target_completion_date"],
-      ["actualCompletionDate", "actual_completion_date"],
-      ["allocatedBudget", "allocated_budget"],
-      ["actualCost", "actual_cost"],
-      ["description", "description"],
-    ]) {
-      if (req.body[incoming] !== undefined) updates[column] = req.body[incoming] === "" ? null : req.body[incoming];
-    }
-    if (status === "completed" && !updates.actual_completion_date) updates.actual_completion_date = new Date().toISOString().slice(0, 10);
 
-    const { data, error } = await db.from("community_projects").update(updates).eq("id", req.params.id).select("*").single();
-    if (error) throw error;
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "update_community_project",
-      entityType: "community_project",
-      entityId: req.params.id,
-      details: updates,
-    });
-    res.json({ project: data });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/community-projects/:id/updates", upload.single("image"), async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const title = `${req.body.title || ""}`.trim();
-    requireValue(title, "Update title is required.");
-    const imageUrl = req.file
-      ? await uploadAsset({ file: req.file, folder: "project-updates", prefix: title })
-      : null;
-    const progress = req.body.progressPercentage === undefined || req.body.progressPercentage === ""
-      ? null
-      : Math.max(0, Math.min(100, Number(req.body.progressPercentage)));
-
-    const { data, error } = await db
-      .from("project_updates")
-      .insert({
-        project_id: req.params.id,
-        title,
-        description: `${req.body.description || ""}`.trim(),
-        progress_percentage: progress,
-        image_url: imageUrl,
-        created_by: req.currentUser.id,
-      })
-      .select("*")
-      .single();
-    if (error) throw error;
-    if (progress !== null) {
-      await db.from("community_projects").update({ progress_percentage: progress, updated_at: new Date().toISOString() }).eq("id", req.params.id);
-    }
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "create_project_update",
-      entityType: "community_project",
-      entityId: req.params.id,
-      details: { updateId: data.id, progress },
-    });
-    res.status(201).json({ update: data });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get("/voting-audit", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data, error } = await db
-      .from("audit_logs")
-      .select("*")
-      .in("entity_type", ["election", "community_project", "project_suggestion"])
-      .order("created_at", { ascending: false })
-      .limit(200);
-    if (error) throw error;
-    // Participation logs intentionally do not expose selected options.
-    res.json({ logs: data || [] });
+    res.json({ elections: items });
   } catch (error) {
     next(error);
   }

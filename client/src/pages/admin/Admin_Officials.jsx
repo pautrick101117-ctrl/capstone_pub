@@ -88,12 +88,7 @@ const Admin_Officials = () => {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(officials.length / pageSize));
   const paginatedOfficials = officials.slice((page - 1) * pageSize, page * pageSize);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   return (
     <div className="space-y-8">
@@ -129,6 +124,7 @@ const Admin_Officials = () => {
             <tbody>
               {paginatedOfficials.map((official) => {
                 const isActive = official.is_active ?? official.isActive;
+                console.log(official.photo_url)
                 return (
                   <tr key={official.id} className="border-t border-stone-100 transition hover:bg-stone-50/70">
                     <td className="px-4 py-4">
@@ -166,7 +162,7 @@ const Admin_Officials = () => {
             </tbody>
           </table>
         </TableShell>
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(officials.length / pageSize))} onPageChange={setPage} />
       </Card>
 
       <Modal

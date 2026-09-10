@@ -1,36 +1,20 @@
 import { CalendarDays, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { Card, EmptyState, Modal, PageHeader, Pagination, Skeleton } from "../../components/ui";
+import { Card, EmptyState, Modal, PageHeader, Skeleton } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 
 const CalendarPage = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const pageSize = 9;
 
   useEffect(() => {
-    setLoading(true);
-    api(`/public/events?upcomingOnly=true&page=${page}&limit=${pageSize}`)
-      .then((data) => {
-        setEvents(data.items || []);
-        setTotal(data.pagination?.total || 0);
-      })
-      .catch(() => {
-        setEvents([]);
-        setTotal(0);
-      })
+    api("/public/events?upcomingOnly=true&page=1&limit=20")
+      .then((data) => setEvents(data.items || []))
+      .catch(() => setEvents([]))
       .finally(() => setLoading(false));
-  }, [page]);
-
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, []);
 
   return (
     <section className="section-shell py-10 sm:py-14">
@@ -76,10 +60,6 @@ const CalendarPage = () => {
         <div className="mt-8">
           <EmptyState title="No upcoming events" description="The public calendar is clear right now." />
         </div>
-      ) : null}
-
-      {!loading && total > 0 ? (
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-8" />
       ) : null}
 
       <Modal

@@ -3,7 +3,7 @@ import {
   CalendarDays,
   Landmark,
   Newspaper,
-  CircleDollarSign,
+  WalletCards,
   Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -125,7 +125,7 @@ const Home = () => {
           <StatCard icon={Users} label="Registered Residents" value={statistics.totalRegisteredResidents} />
           <StatCard icon={Landmark} label="Completed Projects" value={statistics.completedProjects} />
           <StatCard icon={CalendarDays} label="Active Officials" value={statistics.activeOfficials} />
-          <StatCard icon={CircleDollarSign} label="Funds Spent" value={formatCurrency(statistics.totalFundsSpent)} />
+          <StatCard icon={WalletCards} label="Funds Spent" value={formatCurrency(statistics.totalFundsSpent)} />
         </div>
       </section>
 

@@ -3,19 +3,16 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, EmptyState, PageHeader, Pagination, SelectInput, StatusBadge, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, PageHeader, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
-
-const pageSize = 6;
 
 const SuggestionsPage = () => {
   const { token } = useAuth();
   const toast = useToast();
   const [suggestions, setSuggestions] = useState([]);
-  const [form, setForm] = useState({ title: "", description: "", category: "general", purok: "", image: null, preview: "" });
+  const [form, setForm] = useState({ title: "", description: "", image: null, preview: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [page, setPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
@@ -31,10 +28,6 @@ const SuggestionsPage = () => {
     if (token) load();
   }, [token]);
 
-  const totalPages = Math.max(1, Math.ceil(suggestions.length / pageSize));
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-  const paginatedSuggestions = suggestions.slice((page - 1) * pageSize, page * pageSize);
-
   const submit = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -42,13 +35,11 @@ const SuggestionsPage = () => {
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
-      formData.append("category", form.category);
-      formData.append("purok", form.purok);
       if (form.image) formData.append("image", form.image);
 
       await api("/suggestions", { method: "POST", token, body: formData });
       toast.success("Project suggestion submitted.");
-      setForm({ title: "", description: "", category: "general", purok: "", image: null, preview: "" });
+      setForm({ title: "", description: "", image: null, preview: "" });
       await load();
     } catch (error) {
       toast.error(error.message);
@@ -79,17 +70,6 @@ const SuggestionsPage = () => {
             onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
             placeholder="Explain the community problem and how your idea helps."
           />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectInput label="Category" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
-              <option value="general">General Improvement</option>
-              <option value="infrastructure">Infrastructure</option>
-              <option value="health">Health</option>
-              <option value="safety">Safety</option>
-              <option value="environment">Environment</option>
-              <option value="youth">Youth / Sports</option>
-            </SelectInput>
-            <TextInput label="Purok / Location" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} placeholder="Example: Purok 3" />
-          </div>
           <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
             <span>Project Image (optional)</span>
             <div className="flex flex-col gap-3 rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-4">
@@ -140,7 +120,7 @@ const SuggestionsPage = () => {
           ) : !suggestions.length ? (
             <EmptyState title="No suggestions yet" description="Your submitted ideas will appear here with their review status." />
           ) : (
-            paginatedSuggestions.map((item) => (
+            suggestions.map((item) => (
               <div key={item.id} className="rounded-2xl border border-stone-200 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -149,19 +129,15 @@ const SuggestionsPage = () => {
                     ) : null}
                     <h3 className="text-lg font-bold text-[var(--brand-900)]">{item.title}</h3>
                     <p className="mt-2 text-sm text-stone-600">{item.description}</p>
-                    {item.admin_feedback ? (
-                      <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">
-                        <span className="font-semibold">Barangay feedback:</span> {item.admin_feedback}
-                      </div>
-                    ) : null}
                     <p className="mt-3 text-xs text-stone-400">{formatDateTime(item.created_at)}</p>
                   </div>
-                  <StatusBadge status={item.status} />
+                  <Badge tone={item.status === "approved" ? "success" : item.status === "rejected" ? "danger" : "info"}>
+                    {item.status}
+                  </Badge>
                 </div>
               </div>
             ))
           )}
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
       </Card>
     </div>

@@ -5,13 +5,8 @@ import {
   Landmark,
   Users,
   Vote,
-  CircleAlert,
-  Lightbulb,
-  IdCard,
-  ArrowRight,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -68,7 +63,6 @@ const AdminDashboard = () => {
   const { token } = useAuth();
   const emptyDashboard = {
     stats: { totalResidents: 0, pendingRequests: 0, activeOfficials: 0, openElections: 0 },
-    actionCenter: { pendingRequests: 0, needsInformation: 0, readyForRelease: 0, complaints: 0, urgentComplaints: 0, pendingSuggestions: 0, pickupsToday: 0, nextElection: null },
     charts: { requestsByType: [], residentStatusBreakdown: [], votingParticipation: [] },
     recentActivity: [],
   };
@@ -80,7 +74,14 @@ const AdminDashboard = () => {
     if (!token) return;
 
     api("/admin/dashboard", { token })
-      .then((data) => setDashboard({ ...emptyDashboard, ...(data || {}), stats: { ...emptyDashboard.stats, ...(data?.stats || {}) }, actionCenter: { ...emptyDashboard.actionCenter, ...(data?.actionCenter || {}) }, charts: { ...emptyDashboard.charts, ...(data?.charts || {}) } }))
+      .then((data) => {
+        const hasMeaningfulCharts =
+          (data?.charts?.requestsByType || []).length ||
+          (data?.charts?.residentStatusBreakdown || []).length ||
+          (data?.charts?.votingParticipation || []).length;
+
+        setDashboard(hasMeaningfulCharts ? data : emptyDashboard);
+      })
       .catch(() => setDashboard(emptyDashboard));
   }, [token]);
 
@@ -102,15 +103,10 @@ const AdminDashboard = () => {
     return filtered.length ? filtered : items;
   }, [dashboard]);
 
-  const activityTotalPages = Math.max(1, Math.ceil(recentActivity.length / activityPageSize));
   const paginatedActivity = useMemo(
     () => recentActivity.slice((activityPage - 1) * activityPageSize, activityPage * activityPageSize),
     [recentActivity, activityPage]
   );
-
-  useEffect(() => {
-    if (activityPage > activityTotalPages) setActivityPage(activityTotalPages);
-  }, [activityPage, activityTotalPages]);
 
   const requestKeys = useMemo(() => {
     const firstRow = requestsByType[0] || {};
@@ -131,37 +127,6 @@ const AdminDashboard = () => {
         <StatCard icon={Landmark} label="Active Officials" value={dashboard.stats?.activeOfficials ?? 0} />
         <StatCard icon={Vote} label="Open Elections" value={dashboard.stats?.openElections ?? 0} />
       </div>
-
-      <Card>
-        <div className="mb-5 flex items-center gap-3">
-          <div className="rounded-2xl bg-amber-100 p-3 text-amber-700"><CircleAlert className="h-5 w-5" /></div>
-          <div>
-            <h2 className="text-xl font-bold text-[var(--brand-900)]">Action Center</h2>
-            <p className="mt-1 text-sm text-stone-500">Work that needs staff attention now, with direct links to the right filtered module.</p>
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            { to: "/admin/requests", icon: ClipboardList, label: "Requests to process", value: dashboard.actionCenter?.pendingRequests || 0, note: `${dashboard.actionCenter?.readyForRelease || 0} ready for release` },
-            { to: "/admin/complaints", icon: CircleAlert, label: "Open complaints", value: dashboard.actionCenter?.complaints || 0, note: dashboard.actionCenter?.urgentComplaints ? `${dashboard.actionCenter.urgentComplaints} urgent` : "No urgent complaints" },
-            { to: "/admin/voting", icon: Lightbulb, label: "Suggestions to review", value: dashboard.actionCenter?.pendingSuggestions || 0, note: dashboard.actionCenter?.nextElection ? `${dashboard.actionCenter.nextElection.status}: ${dashboard.actionCenter.nextElection.title}` : "No upcoming voting" },
-            { to: "/admin/requests", icon: IdCard, label: "ID pickups today", value: dashboard.actionCenter?.pickupsToday || 0, note: `${dashboard.actionCenter?.needsInformation || 0} requests need resident info` },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink key={item.label} to={item.to} className="group rounded-3xl border border-stone-200 bg-stone-50 p-4 transition hover:border-[var(--brand-200)] hover:bg-[var(--brand-50)]">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="rounded-2xl bg-white p-2.5 text-[var(--brand-600)] shadow-sm"><Icon className="h-5 w-5" /></div>
-                  <ArrowRight className="h-4 w-4 text-stone-400 transition group-hover:translate-x-1 group-hover:text-[var(--brand-600)]" />
-                </div>
-                <p className="mt-4 text-3xl font-black text-[var(--brand-900)]">{item.value}</p>
-                <p className="mt-1 text-sm font-semibold text-stone-700">{item.label}</p>
-                <p className="mt-2 text-xs text-stone-500">{item.note}</p>
-              </NavLink>
-            );
-          })}
-        </div>
-      </Card>
 
       <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
@@ -310,7 +275,7 @@ const AdminDashboard = () => {
           )}
           <Pagination
             page={activityPage}
-            totalPages={activityTotalPages}
+            totalPages={Math.max(1, Math.ceil(recentActivity.length / activityPageSize))}
             onPageChange={setActivityPage}
           />
         </Card>

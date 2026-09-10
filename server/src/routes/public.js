@@ -43,7 +43,7 @@ router.get("/landing", async (_req, res, next) => {
       db.from("events").select("*").gte("date", new Date().toISOString().slice(0, 10)).order("date").order("time").limit(3),
       db.from("announcements").select("*").eq("type", "news").order("created_at", { ascending: false }).limit(3),
       db.from("announcements").select("*").eq("type", "announcement").order("created_at", { ascending: false }).limit(3),
-      db.from("elections").select("id, title, description, ends_at, image_url").eq("status", "live").lte("starts_at", new Date().toISOString()).gt("ends_at", new Date().toISOString()).order("starts_at", { ascending: false }).limit(1).maybeSingle(),
+      db.from("elections").select("id, title, description, ends_at, image_url").eq("status", "live").gt("ends_at", new Date().toISOString()).maybeSingle(),
       db.from("landing_content").select("*").order("key_name"),
     ]);
 
@@ -170,6 +170,25 @@ router.get("/officials", async (_req, res, next) => {
       .order("created_at");
     if (error) throw error;
     res.json({ officials: data || [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.get("/community-support", async (_req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data, error } = await db.from("landing_content").select("value").eq("key_name", "hotline").maybeSingle();
+    if (error) throw error;
+    res.json({
+      hotline: data?.value || {
+        title: "Barangay Iba Hotline",
+        phone: "0917 123 4567",
+        hours: "24/7 for urgent community concerns",
+        note: "Sample hotline number — update this in Admin Portal > Settings.",
+      },
+    });
   } catch (error) {
     next(error);
   }

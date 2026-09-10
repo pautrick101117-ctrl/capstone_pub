@@ -1,125 +1,73 @@
-import { MessageSquareWarning, Search } from "lucide-react";
+import { CircleAlert, MessageSquareText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, EmptyState, Modal, PageError, PageHeader, Pagination, ResponsiveListTable, SelectInput, StatCard, StatusBadge, Tabs, TextArea, TextInput } from "../../components/ui";
+import { api } from "../../lib/api";
+import { Badge, Button, Card, EmptyState, Modal, PageHeader, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 
-const statusTabs = ["all", "submitted", "under_review", "in_progress", "resolved", "closed"];
-const pageSize = 8;
+const tone = { pending: "warning", in_review: "info", resolved: "success" };
 
 const Admin_Complaints = () => {
   const { token } = useAuth();
   const toast = useToast();
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("all");
+  const [complaints, setComplaints] = useState([]);
   const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState(null);
-  const [form, setForm] = useState({ status: "submitted", priority: "normal", adminNote: "" });
+  const [review, setReview] = useState({ status: "in_review", adminNote: "" });
   const [saving, setSaving] = useState(false);
-  const [page, setPage] = useState(1);
 
   const load = async () => {
-    setLoading(true); setError("");
-    try { const data = await api("/admin/complaints", { token }); setItems(data.complaints || []); }
-    catch (loadError) { setError(loadError.message); }
-    finally { setLoading(false); }
+    try {
+      const data = await api("/admin/complaints", { token });
+      setComplaints(data.complaints || []);
+    } catch (error) { toast.error(error.message); }
   };
   useEffect(() => { if (token) load(); }, [token]);
 
-  const filtered = useMemo(() => items.filter((item) => {
-    const statusMatch = status === "all" || item.status === status;
-    const q = search.trim().toLowerCase();
-    const searchMatch = !q || [item.reference_code, item.resident_name, item.complaint_type, item.details].filter(Boolean).some((value) => `${value}`.toLowerCase().includes(q));
-    return statusMatch && searchMatch;
-  }), [items, status, search]);
+  const filtered = useMemo(() => complaints.filter((item) => {
+    const matchesStatus = status === "all" || item.status === status;
+    const haystack = `${item.resident_name} ${item.complaint_type} ${item.details}`.toLowerCase();
+    return matchesStatus && haystack.includes(search.trim().toLowerCase());
+  }), [complaints, search, status]);
 
-  useEffect(() => { setPage(1); }, [status, search]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  const openUpdate = (item) => {
+  const openReview = (item) => {
     setSelected(item);
-    setForm({ status: item.status, priority: item.priority || "normal", adminNote: item.admin_note || "" });
+    setReview({ status: item.status === "pending" ? "in_review" : item.status, adminNote: item.admin_note || "" });
   };
 
-  const save = async () => {
+  const saveReview = async () => {
     setSaving(true);
     try {
-      await api(`/admin/complaints/${selected.id}`, { method: "PATCH", token, body: form });
-      toast.success("Complaint updated and resident notified.");
+      const data = await api(`/admin/complaints/${selected.id}`, { method: "PATCH", token, body: review });
+      toast.success(data.message || "Community concern updated.");
       setSelected(null);
       await load();
-    } catch (saveError) { toast.error(saveError.message); }
+    } catch (error) { toast.error(error.message); }
     finally { setSaving(false); }
   };
 
-  const counts = Object.fromEntries(statusTabs.map((key) => [key, key === "all" ? items.length : items.filter((item) => item.status === key).length]));
-
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Complaint Management" title="Resident complaint desk" description="Review concerns, assign priority, update progress, and give residents clear status notes." />
-      {error ? <PageError message={error} onRetry={load} /> : null}
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={MessageSquareWarning} label="Open Complaints" value={items.filter((item) => !["resolved", "closed"].includes(item.status)).length} hint="Needs staff attention" />
-        <StatCard label="Under Review" value={counts.under_review || 0} />
-        <StatCard label="In Progress" value={counts.in_progress || 0} />
-        <StatCard label="Resolved / Closed" value={(counts.resolved || 0) + (counts.closed || 0)} />
-      </div>
-
+      <PageHeader eyebrow="Resident Support" title="Community concerns" description="Review reports submitted from the resident portal, leave an admin response, and clearly mark progress." />
       <Card>
-        <Tabs tabs={statusTabs.map((value) => ({ value, label: value === "all" ? "All" : value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()), count: counts[value] }))} value={status} onChange={setStatus} />
-        <div className="mt-4 max-w-xl"><TextInput label="Search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Reference, resident, type, or details" /></div>
-        <div className="mt-5">
-          {loading ? <p className="text-sm text-stone-500">Loading complaints...</p> : !filtered.length ? <EmptyState title="No matching complaints" description="Try another status or search term." /> : (
-            <ResponsiveListTable
-              headers={["Reference / Resident", "Concern", "Priority", "Status", "Updated", "Action"]}
-              rows={paginated}
-              renderDesktopRow={(item) => (
-                <tr key={item.id} className="border-t border-stone-100 align-top hover:bg-stone-50/70">
-                  <td className="px-4 py-4"><p className="font-bold text-[var(--brand-900)]">{item.reference_code || String(item.id).slice(0, 8)}</p><p className="mt-1 text-xs text-stone-500">{item.resident_name}</p></td>
-                  <td className="px-4 py-4"><p className="font-semibold text-stone-800">{item.complaint_type}</p><p className="mt-1 max-w-md text-xs text-stone-500">{item.details}</p></td>
-                  <td className="px-4 py-4 capitalize text-stone-600">{item.priority || "normal"}</td>
-                  <td className="px-4 py-4"><StatusBadge status={item.status} /></td>
-                  <td className="px-4 py-4 text-stone-500">{formatDateTime(item.updated_at || item.created_at)}</td>
-                  <td className="px-4 py-4"><Button variant="secondary" onClick={() => openUpdate(item)}>Review</Button></td>
-                </tr>
-              )}
-              renderMobileCard={(item) => (
-                <Card className="p-4">
-                  <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-stone-400">{item.reference_code || String(item.id).slice(0, 8)}</p><h3 className="mt-1 font-bold text-[var(--brand-900)]">{item.complaint_type}</h3><p className="text-sm text-stone-500">{item.resident_name}</p></div><StatusBadge status={item.status} /></div>
-                  <p className="mt-3 line-clamp-3 text-sm text-stone-600">{item.details}</p>
-                  <div className="mt-4 flex items-center justify-between"><span className="text-xs font-semibold capitalize text-stone-500">{item.priority || "normal"} priority</span><Button variant="secondary" onClick={() => openUpdate(item)}>Review</Button></div>
-                </Card>
-              )}
-            />
-          )}
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <div className="grid gap-4 md:grid-cols-[1fr_220px]">
+          <TextInput label="Search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Resident, type, or concern..." />
+          <SelectInput label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="all">All statuses</option><option value="pending">Pending</option><option value="in_review">In review</option><option value="resolved">Resolved</option>
+          </SelectInput>
         </div>
       </Card>
-
-      <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title="Review Complaint" description={selected ? `${selected.reference_code || "Complaint"} • ${selected.resident_name}` : ""} widthClass="max-w-2xl">
-        {selected ? <div className="space-y-5">
-          <div className="rounded-2xl bg-stone-50 p-4"><p className="font-bold text-[var(--brand-900)]">{selected.complaint_type}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-stone-600">{selected.details}</p></div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectInput label="Status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-              <option value="submitted">Submitted</option><option value="under_review">Under Review</option><option value="in_progress">In Progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option>
-            </SelectInput>
-            <SelectInput label="Priority" value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}>
-              <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
-            </SelectInput>
-          </div>
-          <TextArea label="Barangay Note" value={form.adminNote} onChange={(event) => setForm((current) => ({ ...current, adminNote: event.target.value }))} placeholder="Explain the action taken or what the resident should do next." />
-          <div className="flex flex-col-reverse gap-3 sm:flex-row"><Button variant="ghost" onClick={() => setSelected(null)}>Cancel</Button><Button onClick={save} loading={saving}>Save & Notify Resident</Button></div>
-        </div> : null}
+      {filtered.length === 0 ? <EmptyState title="No community concerns found" description="Submitted resident concerns will appear here." /> : (
+        <TableShell><table className="min-w-full text-sm"><thead className="bg-stone-50 text-left text-stone-500"><tr><th className="px-4 py-3">Resident</th><th className="px-4 py-3">Concern</th><th className="px-4 py-3">Submitted</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody>
+          {filtered.map((item) => <tr key={item.id} className="border-t border-stone-100 align-top"><td className="px-4 py-4 font-semibold text-[var(--brand-900)]">{item.resident_name}</td><td className="max-w-lg px-4 py-4"><p className="font-semibold">{item.complaint_type}</p><p className="mt-1 line-clamp-2 text-stone-500">{item.details}</p></td><td className="px-4 py-4 text-stone-500">{formatDateTime(item.created_at)}</td><td className="px-4 py-4"><Badge tone={tone[item.status] || "neutral"}>{`${item.status}`.replace("_", " ")}</Badge></td><td className="px-4 py-4"><Button variant="secondary" onClick={() => openReview(item)}><MessageSquareText className="h-4 w-4" /> Review</Button></td></tr>)}
+        </tbody></table></TableShell>
+      )}
+      <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title="Review community concern" description={selected ? `${selected.resident_name} • ${selected.complaint_type}` : ""}>
+        {selected ? <div className="space-y-5"><div className="rounded-2xl bg-stone-50 p-4 text-sm leading-6 text-stone-700"><div className="mb-2 flex items-center gap-2 font-semibold text-stone-900"><CircleAlert className="h-4 w-4" /> Resident report</div>{selected.details}</div><SelectInput label="Status" value={review.status} onChange={(e) => setReview((v) => ({ ...v, status: e.target.value }))}><option value="pending">Pending</option><option value="in_review">In review</option><option value="resolved">Resolved</option></SelectInput><TextArea label="Admin response / note" value={review.adminNote} onChange={(e) => setReview((v) => ({ ...v, adminNote: e.target.value }))} placeholder="Add an update visible to the resident..." /><div className="flex gap-3"><Button onClick={saveReview} loading={saving}>Save Update</Button><Button variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></div></div> : null}
       </Modal>
     </div>
   );
 };
-
 export default Admin_Complaints;

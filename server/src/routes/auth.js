@@ -7,17 +7,10 @@ import { rateLimit } from "../middleware/rateLimit.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { comparePassword, createCode, normalizeRole, roleMatches, sanitizeUser } from "../utils/helpers.js";
 import { logAudit } from "../utils/audit.js";
-import { synchronizeElectionStatuses } from "../services/electionService.js";
 
 const router = express.Router();
 const SESSION_TIMEOUT_MINUTES = 30;
 const RESET_CODE_MINUTES = 10;
-
-const getPortalSetting = async (db, key, fallback) => {
-  const { data, error } = await db.from("portal_settings").select("value").eq("key_name", key).maybeSingle();
-  if (error) return fallback;
-  return data?.value ?? fallback;
-};
 
 const getUserByIdentifier = async (db, rawIdentifier = "") => {
   const identifier = `${rawIdentifier}`.trim();
@@ -48,6 +41,7 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
     const identifier = rawIdentifier.toLowerCase();
     const password = `${req.body.password || ""}`;
     const adminOnly = Boolean(req.body.adminOnly);
+    const portal = `${req.body.portal || (adminOnly ? "admin" : "resident")}`.trim().toLowerCase();
 
     if (!identifier || !password) {
       throw Object.assign(new Error("Username and password are required."), { status: 400 });
@@ -68,25 +62,16 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       throw Object.assign(new Error("This account is inactive. Please contact the barangay admin."), { status: 403 });
     }
 
-    if (normalizeRole(user.role) === "resident") {
-      const [residentLoginEnabled, maintenanceMode] = await Promise.all([
-        getPortalSetting(db, "resident_login_enabled", true),
-        getPortalSetting(db, "maintenance_mode", false),
-      ]);
-      if (!residentLoginEnabled) {
-        throw Object.assign(new Error("Resident portal login is temporarily disabled by the barangay administrator."), { status: 503 });
-      }
-      if (maintenanceMode) {
-        throw Object.assign(new Error("The resident portal is currently under maintenance. Please try again later."), { status: 503 });
-      }
-    }
-
     if (user.status !== "approved" && normalizeRole(user.role) === "resident") {
       throw Object.assign(new Error("Your account is not active yet. Please contact the barangay admin."), { status: 403 });
     }
 
-    if (adminOnly && !roleMatches(user.role, ["admin"])) {
-      throw Object.assign(new Error("Admin access only."), { status: 403 });
+    if (portal === "admin" && !roleMatches(user.role, ["admin"])) {
+      throw Object.assign(new Error("This account does not have access to the admin portal."), { status: 403 });
+    }
+
+    if (portal === "resident" && normalizeRole(user.role) !== "resident") {
+      throw Object.assign(new Error("This is an administrator account. Please use the Admin Login page."), { status: 403 });
     }
 
     const token = signToken({
@@ -102,7 +87,7 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       action: "login",
       entityType: "user",
       entityId: user.id,
-      details: { adminOnly },
+      details: { portal },
     });
 
     res.json({
@@ -126,6 +111,11 @@ router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-r
     const user = await getUserByIdentifier(db, rawIdentifier);
     if (!user) {
       throw Object.assign(new Error("No account found for that login identifier."), { status: 404 });
+    }
+
+    const portal = `${req.body.portal || "resident"}`.trim().toLowerCase();
+    if (portal === "resident" && normalizeRole(user.role) !== "resident") {
+      throw Object.assign(new Error("Password recovery for administrator accounts is managed through the admin portal."), { status: 403 });
     }
 
     if (!user.email) {
@@ -184,6 +174,11 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
     const user = await getUserByIdentifier(db, rawIdentifier);
     if (!user) {
       throw Object.assign(new Error("No account found for that login identifier."), { status: 404 });
+    }
+
+    const portal = `${req.body.portal || "resident"}`.trim().toLowerCase();
+    if (portal === "resident" && normalizeRole(user.role) !== "resident") {
+      throw Object.assign(new Error("Password recovery for administrator accounts is managed through the admin portal."), { status: 403 });
     }
 
     const codeKey = `${user.email}`.toLowerCase();
@@ -245,26 +240,22 @@ router.get("/me", requireAuth, requireCurrentUser({ allowPasswordChange: true })
   try {
     const db = requireSupabase();
 
-    await synchronizeElectionStatuses(db);
-
-    const { data: liveElections, error: liveElectionError } = await db
+    const { data: liveElection } = await db
       .from("elections")
       .select("id")
       .eq("status", "live")
-      .lte("starts_at", new Date().toISOString())
-      .gt("ends_at", new Date().toISOString());
-    if (liveElectionError) throw liveElectionError;
+      .gt("ends_at", new Date().toISOString())
+      .maybeSingle();
 
     let hasVoted = false;
-    if ((liveElections || []).length) {
-      const { data: votes, error: voteError } = await db
+    if (liveElection) {
+      const { data: vote } = await db
         .from("votes")
-        .select("election_id")
-        .in("election_id", liveElections.map((item) => item.id))
-        .eq("user_id", req.currentUser.id);
-      if (voteError) throw voteError;
-      const votedElectionIds = new Set((votes || []).map((vote) => vote.election_id));
-      hasVoted = liveElections.every((item) => votedElectionIds.has(item.id));
+        .select("id")
+        .eq("election_id", liveElection.id)
+        .eq("user_id", req.currentUser.id)
+        .maybeSingle();
+      hasVoted = Boolean(vote);
     }
 
     const { data: notifications, error: notificationError } = await db

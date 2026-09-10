@@ -1,4 +1,6 @@
-export const createCode = () => `${Math.floor(100000 + Math.random() * 900000)}`;
+import { randomInt } from "node:crypto";
+
+export const createCode = () => `${randomInt(100000, 1000000)}`;
 
 export const hashPassword = async (bcrypt, password) => bcrypt.hash(password, 12);
 
@@ -6,7 +8,7 @@ export const comparePassword = async (bcrypt, password, hash) => bcrypt.compare(
 
 export const createTemporaryPassword = (length = 10) => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
-  return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+  return Array.from({ length }, () => alphabet[randomInt(0, alphabet.length)]).join("");
 };
 
 export const normalizePhoneNumber = (phone = "") =>

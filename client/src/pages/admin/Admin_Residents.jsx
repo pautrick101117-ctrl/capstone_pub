@@ -3,11 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 
 const pageSize = 8;
-const purokOptions = ["Purok 1", "Purok 2", "Purok 3", "Purok 4", "Purok 5", "Purok 6"];
 
 const initialForm = {
   fullName: "",
@@ -35,6 +34,9 @@ const Admin_Residents = () => {
   const [search, setSearch] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [page, setPage] = useState(1);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [credentialResult, setCredentialResult] = useState(null);
 
   const load = async () => {
     const data = await api("/admin/users", { token });
@@ -73,15 +75,10 @@ const Admin_Residents = () => {
     [users, search]
   );
 
-  const totalPages = Math.max(1, Math.ceil(residents.length / pageSize));
   const paginatedResidents = useMemo(
     () => residents.slice((page - 1) * pageSize, page * pageSize),
     [residents, page]
   );
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   const createResident = async (event) => {
     event.preventDefault();
@@ -93,12 +90,17 @@ const Admin_Residents = () => {
 
     setSaving(true);
     try {
-      await api("/admin/users", {
+      const data = await api("/admin/users", {
         method: "POST",
         token,
         body: form,
       });
-      toast.success("Resident account created. Login details were emailed to the resident.");
+      setCredentialResult({ ...data, action: "created" });
+      if (data.emailDelivery?.delivered) {
+        toast.success("Resident account created. Temporary login details were emailed successfully.");
+      } else {
+        toast.info("Resident account created, but email delivery was not confirmed. Copy the temporary password securely.");
+      }
       setForm(initialForm);
       setShowCreateModal(false);
       await load();
@@ -109,22 +111,31 @@ const Admin_Residents = () => {
     }
   };
 
-  const updateResident = async (residentId, updates) => {
+  const runConfirmedAction = async () => {
+    if (!confirmAction) return;
+    const { type, resident } = confirmAction;
+    setActionLoading(true);
     try {
-      await api(`/admin/users/${residentId}`, { method: "PATCH", token, body: updates });
-      toast.success("Resident updated.");
+      if (type === "reset") {
+        const data = await api(`/admin/users/${resident.id}/reset-password`, { method: "POST", token });
+        setCredentialResult({ ...data, action: "reset", user: data.user || resident });
+        if (data.emailDelivery?.delivered) toast.success(data.message);
+        else toast.info(data.message);
+      } else {
+        const isActive = type === "activate";
+        await api(`/admin/users/${resident.id}`, { method: "PATCH", token, body: { isActive } });
+        toast.success(
+          isActive
+            ? `${resident.fullName} has been activated and can sign in again.`
+            : `${resident.fullName} has been deactivated and can no longer sign in.`
+        );
+      }
+      setConfirmAction(null);
       await load();
     } catch (error) {
       toast.error(error.message);
-    }
-  };
-
-  const resetPassword = async (residentId) => {
-    try {
-      await api(`/admin/users/${residentId}/reset-password`, { method: "POST", token });
-      toast.success("Temporary password reset and emailed to the resident.");
-    } catch (error) {
-      toast.error(error.message);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -276,11 +287,11 @@ const Admin_Residents = () => {
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => updateResident(resident.id, { isActive: !resident.isActive })}>
+                      <Button variant="secondary" onClick={() => setConfirmAction({ type: resident.isActive ? "deactivate" : "activate", resident })}>
                         <Power className="h-4 w-4" />
                         {resident.isActive ? "Deactivate" : "Activate"}
                       </Button>
-                      <Button variant="ghost" onClick={() => resetPassword(resident.id)}>
+                      <Button variant="ghost" onClick={() => setConfirmAction({ type: "reset", resident })}>
                         <KeyRound className="h-4 w-4" />
                         Reset Password
                       </Button>
@@ -298,7 +309,7 @@ const Admin_Residents = () => {
             </tbody>
           </table>
         </TableShell>
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(residents.length / pageSize))} onPageChange={setPage} />
       </Card>
 
       <Modal
@@ -311,10 +322,7 @@ const Admin_Residents = () => {
           <TextInput label="Full Name" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} />
           <TextInput label="Birthdate" type="date" value={form.birthdate} onChange={(event) => setForm((current) => ({ ...current, birthdate: event.target.value }))} />
           <TextInput label="Address" className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
-          <SelectInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} required>
-            <option value="">Select a purok</option>
-            {purokOptions.map((purok) => <option key={purok} value={purok}>{purok}</option>)}
-          </SelectInput>
+          <TextInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} />
           <TextInput label="Phone Number" value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
           <TextInput label="Email" type="email" className="sm:col-span-2" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required />
           <div className="sm:col-span-2 flex gap-3">
@@ -326,6 +334,59 @@ const Admin_Residents = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(confirmAction)}
+        onClose={() => !actionLoading && setConfirmAction(null)}
+        title={confirmAction?.type === "reset" ? "Confirm password reset" : confirmAction?.type === "deactivate" ? "Confirm deactivation" : "Confirm activation"}
+        description={confirmAction?.resident?.fullName || "Resident account"}
+        widthClass="max-w-xl"
+      >
+        {confirmAction ? (
+          <div className="space-y-5">
+            <p className="text-sm leading-6 text-stone-600">
+              {confirmAction.type === "reset"
+                ? "This will invalidate the resident's current password, generate a new temporary password, and require a password change on their next login."
+                : confirmAction.type === "deactivate"
+                  ? "The resident will be signed out on the next API check and will not be able to sign in while the account is inactive. Existing records are kept."
+                  : "The resident will be allowed to sign in again using their existing credentials."}
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant={confirmAction.type === "activate" ? "primary" : "danger"}
+                onClick={runConfirmedAction}
+                loading={actionLoading}
+              >
+                {confirmAction.type === "reset" ? "Reset Password" : confirmAction.type === "deactivate" ? "Deactivate Account" : "Activate Account"}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmAction(null)} disabled={actionLoading}>Cancel</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(credentialResult)}
+        onClose={() => setCredentialResult(null)}
+        title={credentialResult?.action === "reset" ? "Password reset complete" : "Resident account created"}
+        description={credentialResult?.emailDelivery?.delivered ? "Email delivery confirmed." : "Email delivery was not confirmed."}
+        widthClass="max-w-xl"
+      >
+        {credentialResult ? (
+          <div className="space-y-4">
+            <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.delivered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+              {credentialResult.emailDelivery?.delivered
+                ? "The resident received the username and temporary password by email. They must change the password on first login."
+                : "The account action succeeded, but email delivery was not confirmed. Give the temporary password to the resident through a secure channel."}
+            </div>
+            <div className="rounded-2xl bg-stone-50 p-4 text-sm">
+              <p><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
+              {!credentialResult.emailDelivery?.delivered ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
+            </div>
+            <Button onClick={() => setCredentialResult(null)}>Done</Button>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

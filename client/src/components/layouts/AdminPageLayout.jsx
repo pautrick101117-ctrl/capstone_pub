@@ -4,13 +4,14 @@ import {
   BellRing,
   CalendarDays,
   ClipboardList,
+  CircleAlert,
+  PackageCheck,
+  Settings,
   Gauge,
   Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
-  MessageSquareWarning,
-  Settings,
   ShieldCheck,
   Users,
   Vote,
@@ -21,37 +22,20 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../ui";
 
-const groups = [
-  {
-    label: "Operations",
-    items: [
-      { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-      { to: "/admin/residents", label: "Residents", icon: Users },
-      { to: "/admin/requests", label: "Requests", icon: ClipboardList },
-      { to: "/admin/complaints", label: "Complaints", icon: MessageSquareWarning },
-    ],
-  },
-  {
-    label: "Community",
-    items: [
-      { to: "/admin/officials", label: "Officials", icon: Landmark },
-      { to: "/admin/news", label: "News", icon: BadgePlus },
-      { to: "/admin/announcements", label: "Announcements", icon: BellRing },
-      { to: "/admin/events", label: "Events", icon: CalendarDays },
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
-      { to: "/admin/funds", label: "Funds & Transparency", icon: Banknote },
-      { to: "/admin/voting", label: "Voting & Projects", icon: Vote },
-      { to: "/admin/census", label: "Census", icon: Gauge },
-    ],
-  },
-  {
-    label: "System",
-    items: [{ to: "/admin/settings", label: "Portal Settings", icon: Settings }],
-  },
+const items = [
+  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/admin/residents", label: "Residents", icon: Users },
+  { to: "/admin/requests", label: "Requests", icon: ClipboardList },
+  { to: "/admin/complaints", label: "Community Concerns", icon: CircleAlert },
+  { to: "/admin/borrowing", label: "Borrowing", icon: PackageCheck },
+  { to: "/admin/officials", label: "Officials", icon: Landmark },
+  { to: "/admin/news", label: "News", icon: BadgePlus },
+  { to: "/admin/announcements", label: "Announcements", icon: BellRing },
+  { to: "/admin/funds", label: "Funds", icon: Banknote },
+  { to: "/admin/events", label: "Events", icon: CalendarDays },
+  { to: "/admin/voting", label: "Voting", icon: Vote },
+  { to: "/admin/census", label: "Census", icon: Gauge },
+  { to: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 const itemClass = ({ isActive }) =>
@@ -62,43 +46,56 @@ const itemClass = ({ isActive }) =>
 const AdminPageLayout = () => {
   const [open, setOpen] = useState(false);
   const { user, logout } = useAuth();
+  const navItems =
+    user?.role === "super_admin"
+      ? [...items, { to: "/admin/user-maintenance", label: "User Maintenance", icon: ShieldCheck }]
+      : items;
 
   return (
     <div className="min-h-screen bg-[var(--surface)]">
-      <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/95 backdrop-blur">
-        <div className="flex w-full items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8 2xl:px-10">
-          <div className="flex min-w-0 items-center gap-3">
-            <button type="button" onClick={() => setOpen((value) => !value)} className="rounded-2xl border border-stone-200 p-2 lg:hidden" aria-label="Open admin navigation">
+      <header className="sticky top-0 z-40 border-b border-stone-200 bg-white">
+        <div className="w-full px-4 py-4 sm:px-6 lg:px-8 2xl:px-10 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setOpen((value) => !value)} className="rounded-2xl border border-stone-200 p-2 lg:hidden">
               {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <img src="/logo.png" alt="Barangay Iba" className="h-11 w-11 rounded-2xl border border-[var(--brand-100)] bg-white p-1 sm:h-12 sm:w-12" />
-            <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--brand-500)] sm:text-xs">Admin Portal</p><h1 className="truncate text-base font-black text-[var(--brand-900)] sm:text-xl">{user?.fullName || "Barangay Admin"}</h1></div>
+            <img src="/logo.png" alt="Barangay Iba" className="h-12 w-12 rounded-2xl border border-[var(--brand-100)] bg-white p-1" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-500)]">Admin Portal</p>
+              <h1 className="text-xl font-black text-[var(--brand-900)]">{user?.fullName || "Barangay Admin"}</h1>
+            </div>
           </div>
-          <Button variant="secondary" onClick={logout}><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Logout</span></Button>
+          <Button variant="secondary" onClick={logout}>
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
         </div>
       </header>
 
-      <div className="flex gap-6 px-4 py-6 sm:px-6 lg:gap-8 lg:px-8 lg:py-8 2xl:px-10">
-        <aside className={`${open ? "fixed inset-0 z-50 bg-black/30 lg:static lg:bg-transparent" : "hidden lg:block"} lg:w-72 xl:w-80`} onClick={() => open && setOpen(false)}>
-          <div className={`${open ? "absolute left-3 top-3 h-[calc(100vh-1.5rem)] w-[min(19rem,calc(100vw-1.5rem))] overflow-y-auto" : "sticky top-28"} rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm`} onClick={(event) => event.stopPropagation()}>
-            <div className="mb-6 flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-stone-500">Navigation</p><h2 className="text-lg font-bold text-[var(--brand-900)]">Administrative tools</h2></div>{open ? <button type="button" onClick={() => setOpen(false)} className="rounded-full border border-stone-200 p-2 lg:hidden"><X className="h-4 w-4" /></button> : null}</div>
-            <nav className="space-y-6">
-              {groups.map((group) => (
-                <div key={group.label}>
-                  <p className="mb-2 px-4 text-[10px] font-bold uppercase tracking-[0.22em] text-stone-400">{group.label}</p>
-                  <div className="space-y-1">
-                    {group.items.map((item) => { const Icon = item.icon; return <NavLink key={item.to} to={item.to} end={item.end} className={itemClass} onClick={() => setOpen(false)}><Icon className="h-4 w-4" />{item.label}</NavLink>; })}
-                    {group.label === "System" && user?.role === "super_admin" ? (
-                      <NavLink to="/admin/user-maintenance" className={itemClass} onClick={() => setOpen(false)}><ShieldCheck className="h-4 w-4" />User Maintenance</NavLink>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+      <div className="flex gap-8 px-4 py-8 sm:px-6 lg:px-8 2xl:px-10">
+        <aside className={`${open ? "fixed inset-0 z-40 bg-black/20 lg:static lg:bg-transparent" : "hidden lg:block"} lg:w-72 xl:w-80`}>
+          <div className={`${open ? "absolute left-4 top-4 h-[calc(100vh-2rem)] w-72" : "sticky top-28"} rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm transition duration-300`}>
+            <div className="mb-6">
+              <p className="text-sm font-semibold text-stone-500">Navigation</p>
+              <h2 className="text-lg font-bold text-[var(--brand-900)]">Administrative tools</h2>
+            </div>
+            <nav className="space-y-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink key={item.to} to={item.to} end={item.end} className={itemClass} onClick={() => setOpen(false)}>
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </NavLink>
+                );
+              })}
             </nav>
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 animate-[fadeIn_.35s_ease]"><Outlet /></main>
+        <main className="min-w-0 flex-1 animate-[fadeIn_.35s_ease]">
+          <Outlet />
+        </main>
       </div>
     </div>
   );

@@ -3,11 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { API_URL, api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, Modal, PageHeader, Pagination, SelectInput, StatusBadge, TableShell, TextInput } from "../../components/ui";
+import { Button, Card, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
 
 const emptyForm = { householdName: "", purok: "", members: 1, houseNumber: "", status: "active" };
 const pageSize = 8;
-const purokOptions = ["Purok 1", "Purok 2", "Purok 3", "Purok 4", "Purok 5", "Purok 6"];
 
 const Admin_Census = () => {
   const { token } = useAuth();
@@ -98,12 +97,7 @@ const Admin_Census = () => {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(households.length / pageSize));
   const paginatedHouseholds = households.slice((page - 1) * pageSize, page * pageSize);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   return (
     <div className="space-y-8">
@@ -162,13 +156,13 @@ const Admin_Census = () => {
                   <td className="px-4 py-4 text-stone-600">{item.purok}</td>
                   <td className="px-4 py-4 text-stone-600">{item.members}</td>
                   <td className="px-4 py-4 text-stone-600">{item.house_number}</td>
-                  <td className="px-4 py-4"><StatusBadge status={item.status} /></td>
+                  <td className="px-4 py-4 text-stone-600">{item.status}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </TableShell>
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(households.length / pageSize))} onPageChange={setPage} />
       </Card>
 
       <Modal
@@ -179,10 +173,7 @@ const Admin_Census = () => {
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={save}>
           <TextInput label="Household Name" className="sm:col-span-2" value={form.householdName} onChange={(event) => setForm((current) => ({ ...current, householdName: event.target.value }))} />
-          <SelectInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} required>
-            <option value="">Select a purok</option>
-            {purokOptions.map((purok) => <option key={purok} value={purok}>{purok}</option>)}
-          </SelectInput>
+          <TextInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} />
           <TextInput label="House Number" value={form.houseNumber} onChange={(event) => setForm((current) => ({ ...current, houseNumber: event.target.value }))} />
           <TextInput
             label="Members"
@@ -200,11 +191,7 @@ const Admin_Census = () => {
               }))
             }
           />
-          <SelectInput label="Status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-            <option value="active">Active</option>
-            <option value="for update">For Update</option>
-            <option value="inactive">Inactive</option>
-          </SelectInput>
+          <TextInput label="Status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} />
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit">Save Household</Button>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
