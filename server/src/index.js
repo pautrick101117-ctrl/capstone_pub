@@ -11,6 +11,7 @@ import publicRoutes from "./routes/public.js";
 import requestRoutes from "./routes/requests.js";
 import suggestionRoutes from "./routes/suggestions.js";
 import borrowingRoutes from "./routes/borrowing.js";
+import masterDataRoutes from "./routes/masterData.js";
 import { env, validateProductionEnv } from "./lib/env.js";
 import { runMaintenance } from "./lib/scheduler.js";
 
@@ -57,6 +58,7 @@ export const createApp = () => {
   app.use("/api/requests", requestRoutes);
   app.use("/api/suggestions", suggestionRoutes);
   app.use("/api/borrowing", borrowingRoutes);
+  app.use("/api/master-data", masterDataRoutes);
 
   app.use((error, _req, res, _next) => {
     const status = error.status || 500;

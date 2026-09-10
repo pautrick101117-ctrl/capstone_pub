@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { API_URL, api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
+import { useMasterData } from "../../hooks/useMasterData";
+import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 
 const emptyForm = { householdName: "", purok: "", members: 1, houseNumber: "", status: "active" };
 const pageSize = 8;
@@ -18,6 +19,7 @@ const Admin_Census = () => {
   const [batchLoading, setBatchLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const fileInputRef = useRef(null);
+  const { options: purokOptions } = useMasterData("purok");
 
   const load = async () => {
     const data = await api("/admin/census_households", { token });
@@ -156,7 +158,7 @@ const Admin_Census = () => {
                   <td className="px-4 py-4 text-stone-600">{item.purok}</td>
                   <td className="px-4 py-4 text-stone-600">{item.members}</td>
                   <td className="px-4 py-4 text-stone-600">{item.house_number}</td>
-                  <td className="px-4 py-4 text-stone-600">{item.status}</td>
+                  <td className="px-4 py-4"><Badge tone={item.status === "active" ? "success" : "warning"}>{item.status === "active" ? "Active" : "For Update"}</Badge></td>
                 </tr>
               ))}
             </tbody>
@@ -172,9 +174,9 @@ const Admin_Census = () => {
         description="Use the modal to keep the main list wide and easier to scan."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={save}>
-          <TextInput label="Household Name" className="sm:col-span-2" value={form.householdName} onChange={(event) => setForm((current) => ({ ...current, householdName: event.target.value }))} />
-          <TextInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} />
-          <TextInput label="House Number" value={form.houseNumber} onChange={(event) => setForm((current) => ({ ...current, houseNumber: event.target.value }))} />
+          <TextInput label="Household Name" required maxLength={120} className="sm:col-span-2" value={form.householdName} onChange={(event) => setForm((current) => ({ ...current, householdName: event.target.value }))} />
+          <SelectInput label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <TextInput label="House Number" required maxLength={40} value={form.houseNumber} onChange={(event) => setForm((current) => ({ ...current, houseNumber: event.target.value }))} />
           <TextInput
             label="Members"
             type="number"
@@ -191,7 +193,7 @@ const Admin_Census = () => {
               }))
             }
           />
-          <TextInput label="Status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} />
+          <SelectInput label="Status" required value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}><option value="active">Active</option><option value="for update">For Update</option></SelectInput>
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit">Save Household</Button>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

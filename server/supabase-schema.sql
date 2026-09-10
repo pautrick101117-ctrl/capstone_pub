@@ -23,6 +23,8 @@ create table if not exists verification_codes (
   id uuid primary key default gen_random_uuid(),
   email text not null,
   code text not null,
+  code_hash text,
+  attempt_count integer not null default 0,
   sent_to text,
   provider text not null default 'gmail_app_password',
   method text not null default 'email',
@@ -34,6 +36,8 @@ create table if not exists verification_codes (
 
 alter table users add column if not exists email_verified_at timestamptz;
 alter table users add column if not exists verification_provider text default 'gmail_app_password';
+alter table verification_codes add column if not exists code_hash text;
+alter table verification_codes add column if not exists attempt_count integer not null default 0;
 alter table verification_codes add column if not exists sent_to text;
 alter table verification_codes add column if not exists provider text default 'gmail_app_password';
 alter table verification_codes add column if not exists method text default 'email';
@@ -610,3 +614,35 @@ values
 on conflict do nothing;
 
 commit;
+
+-- =========================================================
+-- V3 UX/master-data upgrade
+-- =========================================================
+create table if not exists master_data_values (
+  id uuid primary key default gen_random_uuid(),
+  category text not null,
+  value text not null,
+  label text not null,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (category, value),
+  check (category in ('purok', 'administration_term', 'concern_category', 'event_category', 'official_position'))
+);
+create index if not exists master_data_values_lookup_idx on master_data_values (category, is_active, sort_order, label);
+insert into master_data_values (category, value, label, sort_order)
+values
+  ('purok', 'purok_1', 'Purok 1', 10), ('purok', 'purok_2', 'Purok 2', 20), ('purok', 'purok_3', 'Purok 3', 30),
+  ('purok', 'purok_4', 'Purok 4', 40), ('purok', 'purok_5', 'Purok 5', 50), ('purok', 'purok_6', 'Purok 6', 60), ('purok', 'purok_7', 'Purok 7', 70),
+  ('administration_term', '2023_2026', '2023-2026', 10),
+  ('concern_category', 'road_drainage', 'Road / Drainage', 10), ('concern_category', 'noise_disturbance', 'Noise / Disturbance', 20),
+  ('concern_category', 'waste_cleanliness', 'Waste / Cleanliness', 30), ('concern_category', 'street_light_public_facility', 'Street Light / Public Facility', 40),
+  ('concern_category', 'safety_security', 'Safety / Security', 50), ('concern_category', 'other_community_concern', 'Other Community Concern', 100),
+  ('event_category', 'community_meeting', 'Community Meeting', 10), ('event_category', 'health_medical', 'Health / Medical', 20),
+  ('event_category', 'clean_up_environment', 'Clean-up / Environment', 30), ('event_category', 'sports_recreation', 'Sports / Recreation', 40),
+  ('event_category', 'education_youth', 'Education / Youth', 50), ('event_category', 'general', 'General', 100),
+  ('official_position', 'barangay_captain', 'Barangay Captain', 10), ('official_position', 'kagawad', 'Kagawad', 20),
+  ('official_position', 'sk_chairperson', 'SK Chairperson', 30), ('official_position', 'barangay_secretary', 'Barangay Secretary', 40),
+  ('official_position', 'barangay_treasurer', 'Barangay Treasurer', 50)
+on conflict (category, value) do nothing;

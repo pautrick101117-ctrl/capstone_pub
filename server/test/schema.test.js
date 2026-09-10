@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const schema = await readFile(new URL("../supabase-schema.sql", import.meta.url), "utf8");
 const migration = await readFile(new URL("../supabase-feature-upgrade.sql", import.meta.url), "utf8");
 const borrowingUxMigration = await readFile(new URL("../supabase-borrowing-experience-upgrade.sql", import.meta.url), "utf8");
+const v3Migration = await readFile(new URL("../supabase-v3-experience-upgrade.sql", import.meta.url), "utf8");
 
 test("schema supports resident first-login and deactivation", () => {
   assert.match(schema, /must_change_password boolean/i);
@@ -31,4 +32,13 @@ test("borrowing experience migration stores use location, terms acceptance, and 
   assert.match(borrowingUxMigration, /return_condition text/i);
   assert.match(borrowingUxMigration, /return_note text/i);
   assert.match(borrowingUxMigration, /missing_items/i);
+});
+
+
+test("V3 migration adds centralized master data and protected verification code fields", () => {
+  assert.match(v3Migration, /create table if not exists master_data_values/i);
+  assert.match(v3Migration, /'purok'/i);
+  assert.match(v3Migration, /'concern_category'/i);
+  assert.match(v3Migration, /code_hash text/i);
+  assert.match(v3Migration, /attempt_count integer/i);
 });

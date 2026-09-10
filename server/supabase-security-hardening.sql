@@ -18,5 +18,6 @@ alter table census_households enable row level security;
 alter table clearances enable row level security;
 alter table borrowing_requests enable row level security;
 alter table borrowable_assets enable row level security;
+alter table master_data_values enable row level security;
 
 commit;

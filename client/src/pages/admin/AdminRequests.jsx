@@ -22,6 +22,7 @@ const AdminRequests = () => {
   const toast = useToast();
   const [requests, setRequests] = useState([]);
   const [idRequests, setIdRequests] = useState([]);
+  const [idSlots, setIdSlots] = useState([]);
   const [selected, setSelected] = useState(null);
   const [open, setOpen] = useState(false);
   const [filters, setFilters] = useState({ type: "all", status: "all" });
@@ -30,12 +31,14 @@ const AdminRequests = () => {
   const [idRequestPage, setIdRequestPage] = useState(1);
 
   const load = async () => {
-    const [requestData, idData] = await Promise.all([
+    const [requestData, idData, slotData] = await Promise.all([
       api("/admin/requests", { token }),
       api("/admin/id-requests", { token }),
+      api("/admin/id_pickup_slots", { token }),
     ]);
     setRequests(requestData.requests || []);
     setIdRequests(idData.requests || []);
+    setIdSlots(slotData.id_pickup_slots || []);
   };
 
   useEffect(() => {
@@ -70,6 +73,11 @@ const AdminRequests = () => {
       toast.error(error.message);
     }
   };
+
+  const availableTimeSlots = useMemo(
+    () => idSlots.filter((slot) => slot.is_active && slot.slot_date === form.preferredDate).map((slot) => slot.time_slot),
+    [idSlots, form.preferredDate]
+  );
 
   const requestTypes = useMemo(
     () => ["all", ...Array.from(new Set(requests.map((request) => request.request_type).filter(Boolean)))],
@@ -240,8 +248,8 @@ const AdminRequests = () => {
             />
             {selected.mode === "id" ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextInput label="Pickup Date" type="date" value={form.preferredDate} onChange={(event) => setForm((current) => ({ ...current, preferredDate: event.target.value }))} />
-                <TextInput label="Time Slot" value={form.timeSlot} onChange={(event) => setForm((current) => ({ ...current, timeSlot: event.target.value }))} />
+                <TextInput label="Pickup Date" type="date" value={form.preferredDate} onChange={(event) => setForm((current) => ({ ...current, preferredDate: event.target.value, timeSlot: "" }))} />
+                <SelectInput label="Time Slot" value={form.timeSlot} onChange={(event) => setForm((current) => ({ ...current, timeSlot: event.target.value }))} disabled={!form.preferredDate}><option value="">Select configured slot</option>{availableTimeSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}</SelectInput>
               </div>
             ) : null}
             <div className="flex flex-wrap gap-3">

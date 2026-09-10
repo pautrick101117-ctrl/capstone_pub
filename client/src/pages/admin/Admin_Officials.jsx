@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
+import { useMasterData } from "../../hooks/useMasterData";
+import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 
 const pageSize = 8;
 
@@ -16,6 +17,8 @@ const Admin_Officials = () => {
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const { options: positionOptions } = useMasterData("official_position");
+  const { options: termOptions } = useMasterData("administration_term");
 
   const load = async () => {
     const data = await api("/admin/officials", { token });
@@ -124,7 +127,6 @@ const Admin_Officials = () => {
             <tbody>
               {paginatedOfficials.map((official) => {
                 const isActive = official.is_active ?? official.isActive;
-                console.log(official.photo_url)
                 return (
                   <tr key={official.id} className="border-t border-stone-100 transition hover:bg-stone-50/70">
                     <td className="px-4 py-4">
@@ -172,10 +174,10 @@ const Admin_Officials = () => {
         description="Update official details, upload a profile image, and keep the main table uncluttered."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={save}>
-          <TextInput label="Name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-          <TextInput label="Position" value={form.position} onChange={(event) => setForm((current) => ({ ...current, position: event.target.value }))} />
-          <TextInput label="Term" value={form.term} onChange={(event) => setForm((current) => ({ ...current, term: event.target.value }))} />
-          <TextInput label="Contact" value={form.contact} onChange={(event) => setForm((current) => ({ ...current, contact: event.target.value }))} />
+          <TextInput label="Name" required maxLength={120} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+          <SelectInput label="Position" required value={form.position} onChange={(event) => setForm((current) => ({ ...current, position: event.target.value }))}><option value="">Select position</option>{positionOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <SelectInput label="Administration Term" required value={form.term} onChange={(event) => setForm((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{termOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <TextInput label="Contact" type="tel" inputMode="tel" maxLength={20} value={form.contact} onChange={(event) => setForm((current) => ({ ...current, contact: event.target.value }))} />
           <label className="sm:col-span-2 flex flex-col gap-2 text-sm font-medium text-stone-700">
             <span>Photo Upload</span>
             <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">

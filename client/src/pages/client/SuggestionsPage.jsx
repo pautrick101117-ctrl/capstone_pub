@@ -1,4 +1,4 @@
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, Info, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -56,16 +56,27 @@ const SuggestionsPage = () => {
         description="Share an idea that could improve your purok or the wider Barangay Iba community. Approved suggestions can be turned into a voting draft."
       />
 
+      <Card className="bg-[var(--brand-50)]">
+        <div className="flex items-start gap-3"><Info className="mt-0.5 h-5 w-5 shrink-0 text-[var(--brand-600)]" /><div><h2 className="font-bold text-[var(--brand-900)]">What happens after you submit?</h2><p className="mt-1 text-sm leading-6 text-stone-600">Your suggestion goes to barangay review first. Approval does not automatically mean the project will be implemented; approved suggestions may be selected as choices in a future Community Project Voting period. You can track your suggestion status below.</p></div></div>
+      </Card>
+
       <Card>
         <form className="space-y-4" onSubmit={submit}>
           <TextInput
             label="Project Title"
+            required
+            minLength={5}
+            maxLength={120}
             value={form.title}
             onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             placeholder="Example: Solar lights for Purok 3"
           />
           <TextArea
             label="Description"
+            required
+            minLength={20}
+            maxLength={1500}
+            hint="Describe the community problem, who benefits, and the proposed improvement."
             value={form.description}
             onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
             placeholder="Explain the community problem and how your idea helps."

@@ -94,7 +94,7 @@ const VotingResult = () => {
   return (
     <section className="section-shell py-10 sm:py-14">
       <PageHeader
-        eyebrow="Voting Results"
+        eyebrow="Project Voting Results"
         title={election.title}
         description={
           election.description ||

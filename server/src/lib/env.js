@@ -16,8 +16,9 @@ export const env = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET || "resident-valid-ids",
   gmailAppEmail: process.env.GMAIL_APP_EMAIL || "",
-  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || "",
+  gmailAppPassword: (process.env.GMAIL_APP_PASSWORD || "").replace(/\s+/g, ""),
   gmailFromName: process.env.GMAIL_FROM_NAME || "Barangay Iba",
+  emailSendTimeoutMs: Math.max(3000, Number(process.env.EMAIL_SEND_TIMEOUT_MS || 12000)),
 };
 
 export const hasSupabaseConfig = Boolean(env.supabaseUrl && env.supabaseServiceRoleKey);

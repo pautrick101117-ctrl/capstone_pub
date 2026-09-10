@@ -1,10 +1,11 @@
-import { KeyRound, Power, Printer, UserPlus } from "lucide-react";
+import { Copy, KeyRound, Mail, Power, Printer, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
+import { useMasterData } from "../../hooks/useMasterData";
 
 const pageSize = 8;
 
@@ -37,6 +38,8 @@ const Admin_Residents = () => {
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [credentialResult, setCredentialResult] = useState(null);
+  const [retryingEmail, setRetryingEmail] = useState(false);
+  const { options: purokOptions } = useMasterData("purok");
 
   const load = async () => {
     const data = await api("/admin/users", { token });
@@ -108,6 +111,34 @@ const Admin_Residents = () => {
       toast.error(error.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const copyText = async (text, successMessage) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(successMessage);
+    } catch {
+      toast.error("Could not copy automatically. Please select and copy it manually.");
+    }
+  };
+
+  const retryCredentialEmail = async () => {
+    if (!credentialResult?.user?.id || !credentialResult?.temporaryPassword) return;
+    setRetryingEmail(true);
+    try {
+      const data = await api(`/admin/users/${credentialResult.user.id}/resend-temporary-password`, {
+        method: "POST",
+        token,
+        body: { temporaryPassword: credentialResult.temporaryPassword },
+      });
+      setCredentialResult((current) => ({ ...current, emailDelivery: data.emailDelivery }));
+      if (data.emailDelivery?.delivered) toast.success(data.message);
+      else toast.info(data.message);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setRetryingEmail(false);
     }
   };
 
@@ -319,12 +350,15 @@ const Admin_Residents = () => {
         description="Enter the required resident details. Username and temporary password will be generated automatically."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={createResident}>
-          <TextInput label="Full Name" value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} />
-          <TextInput label="Birthdate" type="date" value={form.birthdate} onChange={(event) => setForm((current) => ({ ...current, birthdate: event.target.value }))} />
-          <TextInput label="Address" className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
-          <TextInput label="Purok" value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} />
-          <TextInput label="Phone Number" value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
-          <TextInput label="Email" type="email" className="sm:col-span-2" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required />
+          <TextInput label="Full Name" required autoComplete="name" maxLength={120} value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} />
+          <TextInput label="Birthdate" required type="date" max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().slice(0, 10); })()} hint="Resident must be at least 18 years old." value={form.birthdate} onChange={(event) => setForm((current) => ({ ...current, birthdate: event.target.value }))} />
+          <TextInput label="Address" required autoComplete="street-address" maxLength={180} className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
+          <SelectInput label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))}>
+            <option value="">Select Purok</option>
+            {purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
+          </SelectInput>
+          <TextInput label="Phone Number" required type="tel" inputMode="tel" autoComplete="tel" maxLength={20} placeholder="09XX XXX XXXX" value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
+          <TextInput label="Email" required type="email" autoComplete="email" maxLength={180} className="sm:col-span-2" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit" loading={saving}>
               Create Account
@@ -347,7 +381,7 @@ const Admin_Residents = () => {
           <div className="space-y-5">
             <p className="text-sm leading-6 text-stone-600">
               {confirmAction.type === "reset"
-                ? "This will invalidate the resident's current password, generate a new temporary password, and require a password change on their next login."
+                ? "This will invalidate the resident's current password, generate a new temporary password, and require a password change on their next login. Email delivery is attempted after the reset and will stop waiting after a short timeout instead of leaving this action pending indefinitely."
                 : confirmAction.type === "deactivate"
                   ? "The resident will be signed out on the next API check and will not be able to sign in while the account is inactive. Existing records are kept."
                   : "The resident will be allowed to sign in again using their existing credentials."}
@@ -381,10 +415,16 @@ const Admin_Residents = () => {
                 : "The account action succeeded, but email delivery was not confirmed. Give the temporary password to the resident through a secure channel."}
             </div>
             <div className="rounded-2xl bg-stone-50 p-4 text-sm">
-              <p><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
-              {!credentialResult.emailDelivery?.delivered ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
+              <p><span className="text-stone-500">Resident email:</span> <strong>{credentialResult.user?.email || "Not set"}</strong></p>
+              <p className="mt-2"><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
+              {credentialResult.temporaryPassword ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
             </div>
-            <Button onClick={() => setCredentialResult(null)}>Done</Button>
+            <div className="flex flex-wrap gap-2">
+              {credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(credentialResult.temporaryPassword, "Temporary password copied.")}><Copy className="h-4 w-4" /> Copy Password</Button> : null}
+              {credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(`Username: ${credentialResult.user?.username || ""}\nTemporary password: ${credentialResult.temporaryPassword}`, "Credentials copied.")}><Copy className="h-4 w-4" /> Copy Credentials</Button> : null}
+              {!credentialResult.emailDelivery?.delivered && credentialResult.action === "reset" ? <Button type="button" variant="secondary" loading={retryingEmail} onClick={retryCredentialEmail}><Mail className="h-4 w-4" /> Retry Same Email</Button> : null}
+              <Button onClick={() => setCredentialResult(null)}>Done</Button>
+            </div>
           </div>
         ) : null}
       </Modal>

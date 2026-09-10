@@ -20,12 +20,12 @@ import { formatDateTime } from "../../lib/format";
 const links = [
   { to: "/portal", label: "Dashboard", icon: LayoutDashboard },
   { to: "/portal/requests", label: "Requests", icon: ClipboardList },
-  { to: "/portal/voting", label: "Voting Center", icon: Vote },
+  { to: "/portal/voting", label: "Community Project Voting", icon: Vote },
   { to: "/portal/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/portal/suggestions", label: "Project Suggestions", icon: Lightbulb },
   { to: "/portal/complaints", label: "Community Concerns", icon: CircleAlert },
   { to: "/portal/borrowing", label: "Borrow Facilities & Items", icon: PackageCheck },
-  { to: "/portal/voting-result", label: "Voting Results", icon: CheckSquare },
+  { to: "/portal/voting-result", label: "Project Voting Results", icon: CheckSquare },
   { to: "/portal/settings", label: "Settings", icon: Settings },
 ];
 

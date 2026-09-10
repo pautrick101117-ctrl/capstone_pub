@@ -174,9 +174,9 @@ const AdminContentPage = ({ type = "news" }) => {
         description="Use the modal for focused editing while keeping the listing area spacious."
       >
         <form className="space-y-4" onSubmit={save}>
-          <TextInput label="Title" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+          <TextInput label="Title" required maxLength={140} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
           <TextInput label="Date (optional)" type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
-          <TextArea label="Body" value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
+          <TextArea label="Body" required maxLength={3000} value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
           <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
             <span>Image Upload</span>
             <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">

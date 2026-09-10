@@ -1,4 +1,4 @@
-import { MailCheck, UserRound } from "lucide-react";
+import { MailCheck } from "lucide-react";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -103,22 +103,12 @@ const Login = () => {
           </div>
 
           <form className="space-y-4" onSubmit={onSubmit}>
-            <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-              <span>Username, Email, or Contact Number</span>
-              <div className="flex items-center rounded-2xl border border-stone-200 px-4 py-3 focus-within:border-[var(--brand-400)] focus-within:ring-4 focus-within:ring-[var(--brand-100)]">
-                <UserRound className="h-4 w-4 text-stone-400" />
-                <input
-                  type="text"
-                  value={form.username}
-                  onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-                  className="ml-3 w-full outline-none placeholder:text-stone-400"
-                  placeholder="juan.delacruz"
-                />
-              </div>
-            </label>
+            <TextInput label="Username, Email, or Contact Number" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="juan.delacruz" />
 
             <PasswordInput
               label="Password"
+              required
+              autoComplete="current-password"
               value={form.password}
               onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
               placeholder="Enter your password"
@@ -150,6 +140,9 @@ const Login = () => {
         <form className="space-y-4" onSubmit={submitReset}>
           <TextInput
             label="Username, Email, or Contact Number"
+            required
+            autoComplete="username"
+            maxLength={180}
             value={resetForm.usernameOrEmail}
             onChange={(event) => setResetForm((current) => ({ ...current, usernameOrEmail: event.target.value }))}
             placeholder="Enter your login identifier"
@@ -164,12 +157,21 @@ const Login = () => {
             <>
               <TextInput
                 label="Verification Code"
+                required
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
                 value={resetForm.code}
                 onChange={(event) => setResetForm((current) => ({ ...current, code: event.target.value }))}
                 placeholder="6-digit code"
               />
               <PasswordInput
                 label="New Password"
+                required
+                minLength={8}
+                maxLength={128}
+                autoComplete="new-password"
+                hint="Use at least 8 characters."
                 value={resetForm.newPassword}
                 onChange={(event) => setResetForm((current) => ({ ...current, newPassword: event.target.value }))}
                 placeholder="At least 8 characters"

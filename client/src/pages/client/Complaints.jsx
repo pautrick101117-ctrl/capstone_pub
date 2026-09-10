@@ -5,6 +5,7 @@ import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
 import { Badge, Button, Card, EmptyState, PageHeader, SelectInput, TextArea } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
+import { useMasterData } from "../../hooks/useMasterData";
 
 const INITIAL_FORM = { complaint_type: "", details: "" };
 const tone = { pending: "warning", in_review: "info", resolved: "success" };
@@ -17,6 +18,7 @@ const Complaints = () => {
   const [hotline, setHotline] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const { options: concernOptions } = useMasterData("concern_category");
 
   const load = async () => {
     setLoading(true);
@@ -89,16 +91,11 @@ const Complaints = () => {
           <h2 className="text-xl font-bold text-[var(--brand-900)]">Concern details</h2>
           <p className="mt-1 text-sm text-stone-500">Please be specific so barangay staff can review the concern efficiently.</p>
           <form className="mt-5 space-y-4" onSubmit={submitComplaint}>
-            <SelectInput label="Concern Type" value={form.complaint_type} onChange={(e) => setForm((v) => ({ ...v, complaint_type: e.target.value }))}>
+            <SelectInput label="Concern Type" required value={form.complaint_type} onChange={(e) => setForm((v) => ({ ...v, complaint_type: e.target.value }))}>
               <option value="">Select a concern</option>
-              <option>Road / Drainage</option>
-              <option>Noise / Disturbance</option>
-              <option>Waste / Cleanliness</option>
-              <option>Street Light / Public Facility</option>
-              <option>Safety / Security</option>
-              <option>Other Community Concern</option>
+              {concernOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
             </SelectInput>
-            <TextArea label="Details" value={form.details} onChange={(e) => setForm((v) => ({ ...v, details: e.target.value }))} placeholder="Describe the location, issue, and any useful details..." />
+            <TextArea label="Details" required minLength={10} maxLength={1500} hint="Include the exact location and enough detail for barangay staff to understand what happened." value={form.details} onChange={(e) => setForm((v) => ({ ...v, details: e.target.value }))} placeholder="Describe the location, issue, and any useful details..." />
             <Button type="submit" loading={submitting}><Send className="h-4 w-4" /> Submit Concern</Button>
           </form>
         </Card>

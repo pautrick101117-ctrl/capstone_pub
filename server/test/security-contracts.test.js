@@ -34,3 +34,45 @@ test("reset endpoint validates email before replacing resident password", async 
   const block = admin.slice(resetStart, resetEnd);
   assert.ok(block.indexOf("if (!targetUser.email)") < block.indexOf("bcrypt.hash(tempPassword"));
 });
+
+
+test("email delivery has bounded SMTP and application timeouts", async () => {
+  const env = await read("server/src/lib/env.js");
+  const mailer = await read("server/src/lib/mailer.js");
+  assert.match(env, /emailSendTimeoutMs/);
+  assert.match(env, /replace\(\/\\s\+\/g, ""\)/);
+  assert.match(mailer, /connectionTimeout/);
+  assert.match(mailer, /EMAIL_SEND_TIMEOUT/);
+});
+
+test("V3 resident and census forms use master-data Purok dropdowns", async () => {
+  const residents = await read("client/src/pages/admin/Admin_Residents.jsx");
+  const census = await read("client/src/pages/admin/Admin_Census.jsx");
+  assert.match(residents, /useMasterData\("purok"\)/);
+  assert.match(residents, /<SelectInput label="Purok"/);
+  assert.match(census, /useMasterData\("purok"\)/);
+  assert.match(census, /<SelectInput label="Purok"/);
+});
+
+test("V3 voting explains the complete resident voting process", async () => {
+  const voting = await read("client/src/pages/client/VotingCenter.jsx");
+  assert.match(voting, /How community project voting works/i);
+  assert.match(voting, /Submit Final Vote/);
+  assert.match(voting, /Live vote totals are not shown here while voting is open/i);
+});
+
+test("temporary password email can be retried without generating a new password", async () => {
+  const admin = await read("server/src/routes/admin.js");
+  const residents = await read("client/src/pages/admin/Admin_Residents.jsx");
+  assert.match(admin, /resend-temporary-password/);
+  assert.match(admin, /bcrypt\.compare\(temporaryPassword/);
+  assert.match(residents, /Retry Same Email/);
+});
+
+test("forgot-password verification codes are hashed before storage", async () => {
+  const auth = await read("server/src/routes/auth.js");
+  assert.match(auth, /hashVerificationCode/);
+  assert.match(auth, /code_hash/);
+  assert.match(auth, /attempt_count/);
+  assert.match(auth, /timingSafeEqual/);
+});

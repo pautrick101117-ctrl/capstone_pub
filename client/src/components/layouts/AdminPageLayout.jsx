@@ -33,7 +33,7 @@ const items = [
   { to: "/admin/announcements", label: "Announcements", icon: BellRing },
   { to: "/admin/funds", label: "Funds", icon: Banknote },
   { to: "/admin/events", label: "Events", icon: CalendarDays },
-  { to: "/admin/voting", label: "Voting", icon: Vote },
+  { to: "/admin/voting", label: "Project Voting", icon: Vote },
   { to: "/admin/census", label: "Census", icon: Gauge },
   { to: "/admin/settings", label: "Settings", icon: Settings },
 ];

@@ -179,10 +179,12 @@ router.get("/officials", async (_req, res, next) => {
 router.get("/community-support", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    const { data, error } = await db.from("landing_content").select("value").eq("key_name", "hotline").maybeSingle();
+    const { data, error } = await db.from("landing_content").select("key_name, value").in("key_name", ["hotline", "contact"]);
     if (error) throw error;
+    const content = Object.fromEntries((data || []).map((row) => [row.key_name, row.value]));
     res.json({
-      hotline: data?.value || {
+      contact: content.contact || null,
+      hotline: content.hotline || {
         title: "Barangay Iba Hotline",
         phone: "0917 123 4567",
         hours: "24/7 for urgent community concerns",

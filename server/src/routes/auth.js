@@ -1,4 +1,5 @@
 import express from "express";
+import { createHash, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { requireSupabase } from "../lib/supabase.js";
 import { signToken } from "../lib/jwt.js";
@@ -11,6 +12,18 @@ import { logAudit } from "../utils/audit.js";
 const router = express.Router();
 const SESSION_TIMEOUT_MINUTES = 30;
 const RESET_CODE_MINUTES = 10;
+const RESET_CODE_MAX_ATTEMPTS = 5;
+
+const hashVerificationCode = (code) => createHash("sha256").update(`${code}`).digest("hex");
+const safeHashEqual = (left, right) => {
+  try {
+    const a = Buffer.from(`${left || ""}`, "hex");
+    const b = Buffer.from(`${right || ""}`, "hex");
+    return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+};
 
 const getUserByIdentifier = async (db, rawIdentifier = "") => {
   const identifier = `${rawIdentifier}`.trim();
@@ -127,22 +140,27 @@ router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-r
     const codeKey = `${user.email}`.toLowerCase();
     const expiresAt = new Date(Date.now() + RESET_CODE_MINUTES * 60 * 1000).toISOString();
 
-    const { error } = await db.from("verification_codes").insert({
+    await db.from("verification_codes").update({ verified_at: new Date().toISOString() }).eq("email", codeKey).is("verified_at", null);
+
+    const { data: codeRow, error } = await db.from("verification_codes").insert({
       email: codeKey,
-      code,
+      code: "protected",
+      code_hash: hashVerificationCode(code),
+      attempt_count: 0,
       sent_to: user.email,
       provider: "gmail_app_password",
       method,
       sent_at: new Date().toISOString(),
       expires_at: expiresAt,
-    });
+    }).select("id").single();
     if (error) throw error;
 
-    await sendVerificationEmail({
-      email: user.email,
-      code,
-      fullName: user.full_name || user.first_name,
-    });
+    try {
+      await sendVerificationEmail({ email: user.email, code, fullName: user.full_name || user.first_name });
+    } catch (emailError) {
+      await db.from("verification_codes").update({ verified_at: new Date().toISOString() }).eq("id", codeRow.id);
+      throw Object.assign(new Error("The verification email could not be delivered. Please try again shortly or contact the barangay admin."), { status: 503, code: emailError.code || "EMAIL_DELIVERY_FAILED" });
+    }
 
     console.log(`[FORGOT PASSWORD] Requested reset code for ${user.username || user.id} via email`);
 
@@ -186,7 +204,6 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
       .from("verification_codes")
       .select("*")
       .eq("email", codeKey)
-      .eq("code", code)
       .is("verified_at", null)
       .gte("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
@@ -194,8 +211,18 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
       .maybeSingle();
     if (error) throw error;
 
-    if (!codeRow) {
+    if (!codeRow || Number(codeRow.attempt_count || 0) >= RESET_CODE_MAX_ATTEMPTS) {
       throw Object.assign(new Error("The verification code is invalid or expired."), { status: 400 });
+    }
+
+    const submittedHash = hashVerificationCode(code);
+    const validCode = codeRow.code_hash
+      ? safeHashEqual(codeRow.code_hash, submittedHash)
+      : codeRow.code === code;
+    if (!validCode) {
+      const attempts = Number(codeRow.attempt_count || 0) + 1;
+      await db.from("verification_codes").update({ attempt_count: attempts, ...(attempts >= RESET_CODE_MAX_ATTEMPTS ? { verified_at: new Date().toISOString() } : {}) }).eq("id", codeRow.id);
+      throw Object.assign(new Error(attempts >= RESET_CODE_MAX_ATTEMPTS ? "Too many incorrect verification attempts. Request a new code." : "The verification code is invalid or expired."), { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);

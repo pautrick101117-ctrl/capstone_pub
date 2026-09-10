@@ -3,11 +3,12 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, Modal, PageHeader, TableShell, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, Modal, PageHeader, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
+import { useMasterData } from "../../hooks/useMasterData";
 
 const emptyEvent = { title: "", date: "", time: "", location: "", description: "", type: "" };
-const emptySlot = { slotDate: "", timeSlot: "", capacity: 1 };
+const emptySlot = { slotDate: "", startTime: "", endTime: "", capacity: 1 };
 
 const AdminEvents = () => {
   const { token } = useAuth();
@@ -18,6 +19,7 @@ const AdminEvents = () => {
   const [slotForm, setSlotForm] = useState(emptySlot);
   const [eventOpen, setEventOpen] = useState(false);
   const [slotOpen, setSlotOpen] = useState(false);
+  const { options: eventTypeOptions } = useMasterData("event_category");
 
   const load = async () => {
     const [eventData, slotData] = await Promise.all([
@@ -47,8 +49,10 @@ const AdminEvents = () => {
 
   const saveSlot = async (event) => {
     event.preventDefault();
+    if (!slotForm.slotDate || !slotForm.startTime || !slotForm.endTime) return toast.error("Date, start time, and end time are required.");
+    if (slotForm.endTime <= slotForm.startTime) return toast.error("End time must be after the start time.");
     try {
-      await api("/admin/id_pickup_slots", { method: "POST", token, body: slotForm });
+      await api("/admin/id_pickup_slots", { method: "POST", token, body: { ...slotForm, timeSlot: `${slotForm.startTime} - ${slotForm.endTime}` } });
       toast.success("Pickup slot saved.");
       setSlotForm(emptySlot);
       setSlotOpen(false);
@@ -156,12 +160,12 @@ const AdminEvents = () => {
         description="Create the event here while keeping the list view wide and easy to scan."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveEvent}>
-          <TextInput label="Title" value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} />
-          <TextInput label="Type" value={eventForm.type} onChange={(event) => setEventForm((current) => ({ ...current, type: event.target.value }))} />
-          <TextInput label="Date" type="date" value={eventForm.date} onChange={(event) => setEventForm((current) => ({ ...current, date: event.target.value }))} />
+          <TextInput label="Title" required maxLength={120} value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} />
+          <SelectInput label="Type" required value={eventForm.type} onChange={(event) => setEventForm((current) => ({ ...current, type: event.target.value }))}><option value="">Select event type</option>{eventTypeOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <TextInput label="Date" required type="date" value={eventForm.date} onChange={(event) => setEventForm((current) => ({ ...current, date: event.target.value }))} />
           <TextInput label="Time" type="time" value={eventForm.time} onChange={(event) => setEventForm((current) => ({ ...current, time: event.target.value }))} />
-          <TextInput label="Location" className="sm:col-span-2" value={eventForm.location} onChange={(event) => setEventForm((current) => ({ ...current, location: event.target.value }))} />
-          <TextArea label="Description" className="sm:col-span-2" value={eventForm.description} onChange={(event) => setEventForm((current) => ({ ...current, description: event.target.value }))} />
+          <TextInput label="Location" required maxLength={160} className="sm:col-span-2" value={eventForm.location} onChange={(event) => setEventForm((current) => ({ ...current, location: event.target.value }))} />
+          <TextArea label="Description" maxLength={1200} className="sm:col-span-2" value={eventForm.description} onChange={(event) => setEventForm((current) => ({ ...current, description: event.target.value }))} />
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit">Save Event</Button>
             <Button type="button" variant="ghost" onClick={() => setEventOpen(false)}>
@@ -178,9 +182,10 @@ const AdminEvents = () => {
         description="Create available pickup windows residents can choose from in the portal."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveSlot}>
-          <TextInput label="Date" type="date" value={slotForm.slotDate} onChange={(event) => setSlotForm((current) => ({ ...current, slotDate: event.target.value }))} />
-          <TextInput label="Time Slot" value={slotForm.timeSlot} onChange={(event) => setSlotForm((current) => ({ ...current, timeSlot: event.target.value }))} />
-          <TextInput label="Capacity" type="number" className="sm:col-span-2" value={slotForm.capacity} onChange={(event) => setSlotForm((current) => ({ ...current, capacity: event.target.value }))} />
+          <TextInput label="Date" required type="date" value={slotForm.slotDate} onChange={(event) => setSlotForm((current) => ({ ...current, slotDate: event.target.value }))} />
+          <TextInput label="Start Time" required type="time" value={slotForm.startTime} onChange={(event) => setSlotForm((current) => ({ ...current, startTime: event.target.value }))} />
+          <TextInput label="End Time" required type="time" value={slotForm.endTime} onChange={(event) => setSlotForm((current) => ({ ...current, endTime: event.target.value }))} />
+          <TextInput label="Capacity" required type="number" min="1" step="1" value={slotForm.capacity} onChange={(event) => setSlotForm((current) => ({ ...current, capacity: event.target.value }))} />
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit">Save Slot</Button>
             <Button type="button" variant="ghost" onClick={() => setSlotOpen(false)}>

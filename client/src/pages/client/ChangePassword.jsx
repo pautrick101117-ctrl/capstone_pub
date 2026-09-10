@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Button, Card, PageHeader, TextInput } from "../../components/ui";
+import { Button, Card, PageHeader, PasswordInput } from "../../components/ui";
 
 const ChangePassword = () => {
   const navigate = useNavigate();
@@ -53,18 +53,22 @@ const ChangePassword = () => {
       <Card className="mx-auto mt-8 max-w-xl">
         <form className="space-y-4" onSubmit={onSubmit}>
           {!isPasswordChangeRequired ? (
-            <TextInput
+            <PasswordInput
               label="Current Password"
-              type="password"
+              required
+              autoComplete="current-password"
               name="currentPassword"
               value={form.currentPassword}
               onChange={onChange}
             />
           ) : null}
-          <TextInput label="New Password" type="password" name="newPassword" value={form.newPassword} onChange={onChange} />
-          <TextInput
+          <PasswordInput label="New Password" required minLength={8} maxLength={128} autoComplete="new-password" hint="Use at least 8 characters. A longer unique passphrase is recommended." name="newPassword" value={form.newPassword} onChange={onChange} />
+          <PasswordInput
             label="Confirm New Password"
-            type="password"
+            required
+            minLength={8}
+            maxLength={128}
+            autoComplete="new-password"
             name="confirmPassword"
             value={form.confirmPassword}
             onChange={onChange}

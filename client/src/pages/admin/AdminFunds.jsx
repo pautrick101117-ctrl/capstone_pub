@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import { useMasterData } from "../../hooks/useMasterData";
 import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatCurrency, formatDate } from "../../lib/format";
 
@@ -28,6 +29,7 @@ const AdminFunds = () => {
   const [sourceOpen, setSourceOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectPage, setProjectPage] = useState(1);
+  const { options: termOptions } = useMasterData("administration_term");
 
   const load = async () => {
     const data = await api("/public/funds");
@@ -175,9 +177,9 @@ const AdminFunds = () => {
         description="Record the allocated source first so the transparency summary stays accurate."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveSource}>
-          <TextInput label="Source Name" value={sourceForm.name} onChange={(event) => setSourceForm((current) => ({ ...current, name: event.target.value }))} />
-          <TextInput label="Administration Term" value={sourceForm.term} onChange={(event) => setSourceForm((current) => ({ ...current, term: event.target.value }))} />
-          <TextInput label="Allocated Amount" type="number" className="sm:col-span-2" value={sourceForm.allocatedAmount} onChange={(event) => setSourceForm((current) => ({ ...current, allocatedAmount: event.target.value }))} />
+          <TextInput label="Source Name" required maxLength={120} value={sourceForm.name} onChange={(event) => setSourceForm((current) => ({ ...current, name: event.target.value }))} />
+          <SelectInput label="Administration Term" required value={sourceForm.term} onChange={(event) => setSourceForm((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{termOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <TextInput label="Allocated Amount" required type="number" min="0" step="0.01" className="sm:col-span-2" value={sourceForm.allocatedAmount} onChange={(event) => setSourceForm((current) => ({ ...current, allocatedAmount: event.target.value }))} />
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit">Save Fund Source</Button>
             <Button type="button" variant="ghost" onClick={() => setSourceOpen(false)}>
@@ -194,11 +196,11 @@ const AdminFunds = () => {
         description="Upload the receipt, verify the preview, and publish the spending entry once everything looks right."
       >
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveProject}>
-          <TextInput label="Project Name" value={projectForm.name} onChange={(event) => setProjectForm((current) => ({ ...current, name: event.target.value }))} />
-          <TextInput label="Date" type="date" value={projectForm.date} onChange={(event) => setProjectForm((current) => ({ ...current, date: event.target.value }))} />
-          <TextInput label="Amount" type="number" value={projectForm.amount} onChange={(event) => setProjectForm((current) => ({ ...current, amount: event.target.value }))} />
-          <TextInput label="Administration Term" value={projectForm.term} onChange={(event) => setProjectForm((current) => ({ ...current, term: event.target.value }))} />
-          <SelectInput label="Status" value={projectForm.status} onChange={(event) => setProjectForm((current) => ({ ...current, status: event.target.value }))}>
+          <TextInput label="Project Name" required maxLength={120} value={projectForm.name} onChange={(event) => setProjectForm((current) => ({ ...current, name: event.target.value }))} />
+          <TextInput label="Date" required type="date" value={projectForm.date} onChange={(event) => setProjectForm((current) => ({ ...current, date: event.target.value }))} />
+          <TextInput label="Amount" required type="number" min="0" step="0.01" value={projectForm.amount} onChange={(event) => setProjectForm((current) => ({ ...current, amount: event.target.value }))} />
+          <SelectInput label="Administration Term" required value={projectForm.term} onChange={(event) => setProjectForm((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{termOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <SelectInput label="Status" required value={projectForm.status} onChange={(event) => setProjectForm((current) => ({ ...current, status: event.target.value }))}>
             <option value="ongoing">Ongoing</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
@@ -218,7 +220,7 @@ const AdminFunds = () => {
               }}
             />
           </label>
-          <TextArea label="Description" className="sm:col-span-2" value={projectForm.description} onChange={(event) => setProjectForm((current) => ({ ...current, description: event.target.value }))} />
+          <TextArea label="Description" required maxLength={1500} className="sm:col-span-2" value={projectForm.description} onChange={(event) => setProjectForm((current) => ({ ...current, description: event.target.value }))} />
           {projectForm.preview ? (
             <div className="sm:col-span-2 rounded-3xl border border-stone-200 p-4">
               <p className="mb-3 text-sm font-semibold text-stone-700">Receipt preview</p>

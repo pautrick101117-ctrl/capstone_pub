@@ -3,6 +3,7 @@ import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
+import { assertActiveMasterLabel } from "../lib/masterData.js";
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ router.post("/", async (req, res, next) => {
     }
 
     const db = requireSupabase();
+    await assertActiveMasterLabel(db, "concern_category", complaintType);
     const { data: user, error: userError } = await db
       .from("users")
       .select("id, first_name, last_name")

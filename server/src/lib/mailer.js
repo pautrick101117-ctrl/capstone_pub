@@ -6,6 +6,9 @@ let transporter = null;
 if (hasGmailAppConfig) {
   transporter = nodemailer.createTransport({
     service: "gmail",
+    connectionTimeout: env.emailSendTimeoutMs,
+    greetingTimeout: env.emailSendTimeoutMs,
+    socketTimeout: env.emailSendTimeoutMs,
     auth: {
       user: env.gmailAppEmail,
       pass: env.gmailAppPassword,
@@ -24,7 +27,22 @@ export const sendSystemEmail = async ({ to, subject, text, html }) => {
     return { delivered: false, reason: "email_not_configured" };
   }
 
-  await transporter.sendMail({ from: getFromAddress(), to, subject, text, html });
+  let timeoutId;
+  try {
+    await Promise.race([
+      transporter.sendMail({ from: getFromAddress(), to, subject, text, html }),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = new Error(`Email delivery timed out after ${env.emailSendTimeoutMs}ms.`);
+          error.code = "EMAIL_SEND_TIMEOUT";
+          reject(error);
+        }, env.emailSendTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+
   console.log(`[EMAIL SENT] To: ${to} | Subject: ${subject}`);
   return { delivered: true, provider: "gmail_app_password" };
 };

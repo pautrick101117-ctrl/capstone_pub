@@ -14,6 +14,7 @@ const expected = {
   requests: [],
   suggestions: [],
   borrowing: ["/assets", "/mine", "/requests", "/admin/assets", "/admin/requests"],
+  masterData: ["/", "/admin"],
 };
 
 for (const [name, paths] of Object.entries(expected)) {
@@ -27,7 +28,7 @@ for (const [name, paths] of Object.entries(expected)) {
 
 test("server index mounts all feature routers and exposes health endpoint", async () => {
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
-  for (const mount of ["/api/auth", "/api/public", "/api/voting", "/api/admin", "/api/super-admin", "/api/notifications", "/api/complaints", "/api/requests", "/api/suggestions", "/api/borrowing"]) {
+  for (const mount of ["/api/auth", "/api/public", "/api/voting", "/api/admin", "/api/super-admin", "/api/notifications", "/api/complaints", "/api/requests", "/api/suggestions", "/api/borrowing", "/api/master-data"]) {
     assert.ok(source.includes(`"${mount}"`), `index should mount ${mount}`);
   }
   assert.ok(source.includes('app.get("/api/health"'));

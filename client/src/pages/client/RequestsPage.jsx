@@ -1,4 +1,4 @@
-import { Download, IdCard, SendHorizonal } from "lucide-react";
+import { Download, IdCard, Info, SendHorizonal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, API_URL } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -120,12 +120,18 @@ const RequestsPage = () => {
         description="Track every step of your document requests, receive admin notes, and schedule Barangay ID pickup slots from one place."
       />
 
+      <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]">
+        <div className="flex items-start gap-3"><div className="rounded-2xl bg-[var(--brand-500)]/10 p-3 text-[var(--brand-600)]"><Info className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">How requests work</h2><p className="mt-1 text-sm leading-6 text-stone-600">Choose the correct service, provide complete details, submit once, then follow the Request Timeline. Barangay staff will update the status and add notes when action is needed from you.</p></div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">{["1. Choose service", "2. Submit details", "3. Barangay processes", "4. Track completion"].map((step) => <div key={step} className="rounded-2xl border border-[var(--brand-100)] bg-white p-3 text-sm font-semibold text-[var(--brand-800)]">{step}</div>)}</div>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <h2 className="text-xl font-bold text-[var(--brand-900)]">New Service Request</h2>
           <form className="mt-5 space-y-4" onSubmit={submitRequest}>
             <SelectInput
               label="Request Type"
+              required
               value={requestForm.requestType}
               onChange={(event) => setRequestForm((current) => ({ ...current, requestType: event.target.value }))}
             >
@@ -137,6 +143,10 @@ const RequestsPage = () => {
             </SelectInput>
             <TextArea
               label="Purpose / Details"
+              required
+              minLength={5}
+              maxLength={1000}
+              hint="Include the purpose and any information the barangay needs to process the request."
               value={requestForm.details}
               onChange={(event) => setRequestForm((current) => ({ ...current, details: event.target.value }))}
               placeholder="Explain what document you need and why."
@@ -161,12 +171,15 @@ const RequestsPage = () => {
           <form className="mt-5 space-y-4" onSubmit={submitIdRequest}>
             <TextInput
               label="Purpose"
+              required
+              maxLength={200}
               value={idForm.purpose}
               onChange={(event) => setIdForm((current) => ({ ...current, purpose: event.target.value }))}
               placeholder="Example: employment requirement"
             />
             <SelectInput
               label="Preferred Date"
+              required
               value={idForm.preferredDate}
               onChange={(event) => setIdForm((current) => ({ ...current, preferredDate: event.target.value, timeSlot: "" }))}
             >
@@ -179,6 +192,7 @@ const RequestsPage = () => {
             </SelectInput>
             <SelectInput
               label="Time Slot"
+              required
               value={idForm.timeSlot}
               onChange={(event) => setIdForm((current) => ({ ...current, timeSlot: event.target.value }))}
               disabled={!idForm.preferredDate}

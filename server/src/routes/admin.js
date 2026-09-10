@@ -8,6 +8,7 @@ import { uploadAsset } from "../lib/storage.js";
 import { sendAccountCreatedEmail, sendPasswordResetEmail, sendSystemEmail } from "../lib/mailer.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
+import { assertActiveMasterLabel } from "../lib/masterData.js";
 import {
   buildUsername,
   createTemporaryPassword,
@@ -165,6 +166,7 @@ const buildCensusPayload = (body) => {
   ensure(purok, "Purok is required.");
   ensure(houseNumber, "House number is required.");
   ensure(Number.isInteger(members) && members >= 1, "Members must be a positive whole number.");
+  ensure(["active", "for update"].includes(status), "Status must be Active or For Update.");
 
   return {
     household_name: householdName,
@@ -763,6 +765,7 @@ router.post("/users", async (req, res, next) => {
     ensure(contactNumber, "Phone number is required.");
     ensure(email, "Email is required for resident accounts.");
     if (role === "resident") ensureAdult(birthdate);
+    await assertActiveMasterLabel(db, "purok", purok);
 
     const nameParts = splitName(fullName);
     const usernameBase = buildUsername({
@@ -936,7 +939,7 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
       });
     } catch (emailError) {
       console.warn("[EMAIL RESET ERROR]", emailError.message);
-      emailDelivery = { delivered: false, reason: "send_failed" };
+      emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
     }
 
     await logAudit({
@@ -955,6 +958,61 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
       temporaryPassword: tempPassword,
       emailDelivery,
       user: sanitizeUser(data),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.post("/users/:userId/resend-temporary-password", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const temporaryPassword = `${req.body.temporaryPassword || ""}`;
+    if (!temporaryPassword) throw Object.assign(new Error("Temporary password is required."), { status: 400 });
+
+    const { data: targetUser, error } = await db
+      .from("users")
+      .select("id, role, email, full_name, first_name, username, password_hash, must_change_password")
+      .eq("id", req.params.userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!targetUser) throw Object.assign(new Error("Resident not found."), { status: 404 });
+    if (normalizeRole(targetUser.role) !== "resident") throw Object.assign(new Error("This action is only available for resident accounts."), { status: 403 });
+    if (!targetUser.email) throw Object.assign(new Error("Resident has no email address on file."), { status: 400 });
+    if (!targetUser.must_change_password) throw Object.assign(new Error("The resident has already changed the temporary password. Reset the password again only if access needs to be restored."), { status: 409 });
+
+    const matchesCurrentPassword = await bcrypt.compare(temporaryPassword, targetUser.password_hash);
+    if (!matchesCurrentPassword) throw Object.assign(new Error("The temporary password shown is no longer current. Do not resend stale credentials."), { status: 409 });
+
+    let emailDelivery;
+    try {
+      emailDelivery = await sendPasswordResetEmail({
+        email: targetUser.email,
+        fullName: targetUser.full_name || targetUser.first_name,
+        username: targetUser.username,
+        temporaryPassword,
+        role: "resident",
+      });
+    } catch (emailError) {
+      console.warn("[EMAIL RESEND ERROR]", emailError.message);
+      emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
+    }
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "resend_temporary_password",
+      entityType: "user",
+      entityId: targetUser.id,
+      details: { emailDelivered: Boolean(emailDelivery?.delivered) },
+    });
+
+    res.json({
+      emailDelivery,
+      message: emailDelivery?.delivered
+        ? `Temporary credentials were sent to ${targetUser.email}.`
+        : "Email could not be delivered. The current temporary password has not been changed.",
     });
   } catch (error) {
     next(error);
@@ -1438,6 +1496,7 @@ router.post("/census_households", async (req, res, next) => {
   try {
     const db = requireSupabase();
     const payload = buildCensusPayload(req.body);
+    await assertActiveMasterLabel(db, "purok", payload.purok);
     const result = await saveCensusHousehold(db, payload);
 
     await logAudit({
@@ -1499,6 +1558,13 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
     }
 
     const db = requireSupabase();
+    const { data: activePuroks, error: purokError } = await db.from("master_data_values").select("label").eq("category", "purok").eq("is_active", true);
+    if (purokError) throw purokError;
+    const allowedPuroks = new Set((activePuroks || []).map((item) => `${item.label}`.toLowerCase()));
+    const invalidPurok = payload.find((item) => !allowedPuroks.has(`${item.purok}`.toLowerCase()));
+    if (invalidPurok) throw Object.assign(new Error(`Invalid or inactive Purok: ${invalidPurok.purok}. Update Admin Settings or correct the upload.`), { status: 400 });
+    const invalidStatus = payload.find((item) => !["active", "for update"].includes(item.status));
+    if (invalidStatus) throw Object.assign(new Error(`Invalid census status: ${invalidStatus.status}. Use active or for update.`), { status: 400 });
     const saved = [];
     let inserted = 0;
     let updated = 0;
@@ -1531,15 +1597,20 @@ tableCrud({
   fileField: "photo",
   fileFolder: "officials",
   filePrefix: "official",
-  mapPayload: async ({ body, assetUrl }) => ({
-    name: body.name,
-    position: body.position,
-    term: body.term,
-    contact: body.contact || "",
-    photo_url: assetUrl || body.photoUrl || null,
-    is_active: parseBoolean(body.isActive, true),
-    status: parseBoolean(body.isActive, true) ? "active" : "inactive",
-  }),
+  mapPayload: async ({ body, assetUrl, db }) => {
+    ensure(`${body.name || ""}`.trim(), "Official name is required.");
+    await assertActiveMasterLabel(db, "official_position", body.position);
+    await assertActiveMasterLabel(db, "administration_term", body.term);
+    return {
+      name: `${body.name}`.trim(),
+      position: body.position,
+      term: body.term,
+      contact: body.contact || "",
+      photo_url: assetUrl || body.photoUrl || null,
+      is_active: parseBoolean(body.isActive, true),
+      status: parseBoolean(body.isActive, true) ? "active" : "inactive",
+    };
+  },
 });
 
 tableCrud({
@@ -1575,24 +1646,24 @@ tableCrud({
 tableCrud({
   table: "events",
   label: "event",
-  mapPayload: async ({ body }) => ({
-    title: body.title,
-    date: body.date,
-    time: body.time || null,
-    location: body.location || "",
-    description: body.description || "",
-    type: body.type || "general",
-  }),
+  mapPayload: async ({ body, db }) => {
+    ensure(`${body.title || ""}`.trim(), "Event title is required.");
+    ensure(body.date, "Event date is required.");
+    await assertActiveMasterLabel(db, "event_category", body.type);
+    return { title: `${body.title}`.trim(), date: body.date, time: body.time || null, location: `${body.location || ""}`.trim(), description: `${body.description || ""}`.trim(), type: body.type };
+  },
 });
 
 tableCrud({
   table: "fund_sources",
   label: "fund_source",
-  mapPayload: async ({ body }) => ({
-    name: body.name,
-    term: body.term,
-    allocated_amount: Number(body.allocatedAmount || body.allocated_amount || 0),
-  }),
+  mapPayload: async ({ body, db }) => {
+    await assertActiveMasterLabel(db, "administration_term", body.term);
+    const amount = Number(body.allocatedAmount || body.allocated_amount || 0);
+    ensure(`${body.name || ""}`.trim(), "Fund source name is required.");
+    ensure(Number.isFinite(amount) && amount >= 0, "Allocated amount must be zero or greater.");
+    return { name: `${body.name}`.trim(), term: body.term, allocated_amount: amount };
+  },
 });
 
 tableCrud({
@@ -1601,15 +1672,15 @@ tableCrud({
   fileField: "receipt",
   fileFolder: "receipts",
   filePrefix: "receipt",
-  mapPayload: async ({ body, assetUrl }) => ({
-    name: body.name,
-    date: body.date,
-    amount: Number(body.amount || 0),
-    description: body.description || "",
-    receipt_url: assetUrl || body.receiptUrl || null,
-    term: body.term,
-    status: body.status || "ongoing",
-  }),
+  mapPayload: async ({ body, assetUrl, db }) => {
+    await assertActiveMasterLabel(db, "administration_term", body.term);
+    const amount = Number(body.amount || 0);
+    ensure(`${body.name || ""}`.trim(), "Project name is required.");
+    ensure(body.date, "Project date is required.");
+    ensure(Number.isFinite(amount) && amount >= 0, "Project amount must be zero or greater.");
+    ensure(["ongoing", "completed", "cancelled"].includes(body.status || "ongoing"), "Invalid project status.");
+    return { name: `${body.name}`.trim(), date: body.date, amount, description: `${body.description || ""}`.trim(), receipt_url: assetUrl || body.receiptUrl || null, term: body.term, status: body.status || "ongoing" };
+  },
 });
 
 tableCrud({

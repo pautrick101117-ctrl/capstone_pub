@@ -1,7 +1,6 @@
-import { Shield, UserRound } from "lucide-react";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Button, Card } from "../../components/ui";
+import { Button, Card, PasswordInput, TextInput } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 
@@ -50,32 +49,8 @@ const AdminLogin = () => {
             <h2 className="mt-4 text-3xl font-black text-[var(--brand-900)]">Admin Sign In</h2>
           </div>
           <form className="space-y-4" onSubmit={submit}>
-            <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-              <span>Username</span>
-              <div className="flex items-center rounded-2xl border border-stone-200 px-4 py-3">
-                <UserRound className="h-4 w-4 text-stone-400" />
-                <input
-                  type="text"
-                  value={form.username}
-                  onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-                  className="ml-3 w-full outline-none"
-                  placeholder="admin username"
-                />
-              </div>
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-              <span>Password</span>
-              <div className="flex items-center rounded-2xl border border-stone-200 px-4 py-3">
-                <Shield className="h-4 w-4 text-stone-400" />
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-                  className="ml-3 w-full outline-none"
-                  placeholder="Enter your password"
-                />
-              </div>
-            </label>
+            <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="admin username" />
+            <PasswordInput label="Password" required autoComplete="current-password" maxLength={128} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Enter your password" />
             <Button type="submit" className="w-full justify-center py-3" loading={loading}>
               Access Admin Portal
             </Button>

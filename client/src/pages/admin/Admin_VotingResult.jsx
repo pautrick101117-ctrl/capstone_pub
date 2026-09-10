@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2, ImagePlus, Pencil, Plus, Sparkles, Trophy, Vote, X } from "lucide-react";
+import { CalendarClock, CheckCircle2, ImagePlus, Info, Pencil, Plus, Sparkles, Trophy, Vote, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../lib/api";
@@ -299,6 +299,11 @@ const Admin_VotingResult = () => {
         }
       />
 
+      <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]">
+        <div className="flex items-start gap-3"><div className="rounded-2xl bg-[var(--brand-500)]/10 p-3 text-[var(--brand-600)]"><Info className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Voting publication workflow</h2><p className="mt-1 text-sm leading-6 text-stone-600">Approve resident suggestions first, select the choices for one voting post, set the opening/closing period, preview the ballot, then publish it as Live. Draft stays hidden; Closed is used for final results.</p></div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{["1. Review suggestions", "2. Select choices", "3. Set voting period", "4. Preview & publish", "5. Close & review results"].map((step) => <div key={step} className="rounded-2xl border border-[var(--brand-100)] bg-white p-3 text-sm font-semibold text-[var(--brand-800)]">{step}</div>)}</div>
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-3">
         <Card>
           <div className="flex items-start justify-between gap-4">
@@ -542,7 +547,7 @@ const Admin_VotingResult = () => {
         open={builderOpen}
         onClose={() => setBuilderOpen(false)}
         title="Create Voting From Approved Suggestions"
-        description="Select approved project suggestions, set the voting period, then post it to the resident Voting Center."
+        description="Select approved project suggestions, set the voting period, then post it to the resident Community Project Voting page."
         widthClass="max-w-6xl"
       >
         <form className="space-y-6" onSubmit={saveElection}>
@@ -614,19 +619,23 @@ const Admin_VotingResult = () => {
               <div className="mb-4">
                 <h3 className="text-lg font-bold text-[var(--brand-900)]">2. Voting Post Details</h3>
                 <p className="mt-1 text-sm text-stone-500">
-                  Draft keeps it hidden. Live shows it in Voting Center.
+                  Draft keeps it hidden. Live shows it in Community Project Voting.
                 </p>
               </div>
 
               <div className="grid gap-4">
                 <TextInput
                   label="Voting Title"
+                  required
+                  maxLength={120}
                   value={draftElection.title}
                   onChange={(event) => setDraftElection((current) => ({ ...current, title: event.target.value }))}
                 />
 
                 <TextArea
                   label="Description"
+                  required
+                  maxLength={1200}
                   value={draftElection.description}
                   onChange={(event) =>
                     setDraftElection((current) => ({ ...current, description: event.target.value }))
@@ -636,6 +645,7 @@ const Admin_VotingResult = () => {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <TextInput
                     label="Voting Opens"
+                    required
                     type="datetime-local"
                     value={draftElection.startsAt}
                     onChange={(event) =>
@@ -645,6 +655,7 @@ const Admin_VotingResult = () => {
 
                   <TextInput
                     label="Voting Closes"
+                    required
                     type="datetime-local"
                     value={draftElection.endsAt}
                     onChange={(event) =>
@@ -659,8 +670,8 @@ const Admin_VotingResult = () => {
                   onChange={(event) => setDraftElection((current) => ({ ...current, status: event.target.value }))}
                 >
                   <option value="draft">Draft - hidden from residents</option>
-                  <option value="live">Live - show in Voting Center</option>
-                  <option value="closed">Closed - show in Voting Results</option>
+                  <option value="live">Live - show in Community Project Voting</option>
+                  <option value="closed">Closed - show in Project Voting Results</option>
                 </SelectInput>
 
                 <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
