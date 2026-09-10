@@ -1,50 +1,65 @@
-import nodemailer from "nodemailer";
-import { env, hasGmailAppConfig } from "./env.js";
+import { env, hasResendConfig } from "./env.js";
 
-let transporter = null;
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
-if (hasGmailAppConfig) {
-  transporter = nodemailer.createTransport({
-    service: "gmail",
-    connectionTimeout: env.emailSendTimeoutMs,
-    greetingTimeout: env.emailSendTimeoutMs,
-    socketTimeout: env.emailSendTimeoutMs,
-    auth: {
-      user: env.gmailAppEmail,
-      pass: env.gmailAppPassword,
-    },
-  });
-}
-
-const getFromAddress = () => `"${env.gmailFromName}" <${env.gmailAppEmail}>`;
+const parseResendError = async (response) => {
+  try {
+    const payload = await response.json();
+    return payload?.message || payload?.name || `Resend returned HTTP ${response.status}.`;
+  } catch {
+    return `Resend returned HTTP ${response.status}.`;
+  }
+};
 
 export const sendSystemEmail = async ({ to, subject, text, html }) => {
   if (!to) return { delivered: false, reason: "missing_email" };
 
-  if (!transporter) {
+  if (!hasResendConfig) {
     // Never log message bodies because account emails may contain temporary credentials.
     console.warn(`[EMAIL NOT CONFIGURED] To: ${to} | Subject: ${subject}`);
     return { delivered: false, reason: "email_not_configured" };
   }
 
-  let timeoutId;
-  try {
-    await Promise.race([
-      transporter.sendMail({ from: getFromAddress(), to, subject, text, html }),
-      new Promise((_, reject) => {
-        timeoutId = setTimeout(() => {
-          const error = new Error(`Email delivery timed out after ${env.emailSendTimeoutMs}ms.`);
-          error.code = "EMAIL_SEND_TIMEOUT";
-          reject(error);
-        }, env.emailSendTimeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), env.emailSendTimeoutMs);
 
-  console.log(`[EMAIL SENT] To: ${to} | Subject: ${subject}`);
-  return { delivered: true, provider: "gmail_app_password" };
+  try {
+    const response = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: env.resendFromEmail,
+        to: [to],
+        subject,
+        text: text || undefined,
+        html: html || undefined,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const error = new Error(await parseResendError(response));
+      error.code = "RESEND_API_ERROR";
+      error.status = response.status;
+      throw error;
+    }
+
+    const data = await response.json();
+    console.log(`[EMAIL ACCEPTED] Provider: Resend | To: ${to} | Subject: ${subject} | ID: ${data?.id || "unknown"}`);
+    return { delivered: true, provider: "resend", id: data?.id || null };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(`Email delivery timed out after ${env.emailSendTimeoutMs}ms.`);
+      timeoutError.code = "EMAIL_SEND_TIMEOUT";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 export const sendVerificationEmail = async ({ email, code, fullName }) =>

@@ -14,7 +14,7 @@ create table if not exists users (
   status text not null default 'pending',
   email_verified boolean not null default false,
   email_verified_at timestamptz,
-  verification_provider text default 'gmail_app_password',
+  verification_provider text default 'resend',
   has_voted boolean not null default false,
   created_at timestamptz not null default now()
 );
@@ -26,7 +26,7 @@ create table if not exists verification_codes (
   code_hash text,
   attempt_count integer not null default 0,
   sent_to text,
-  provider text not null default 'gmail_app_password',
+  provider text not null default 'resend',
   method text not null default 'email',
   sent_at timestamptz not null default now(),
   expires_at timestamptz not null,
@@ -35,11 +35,11 @@ create table if not exists verification_codes (
 );
 
 alter table users add column if not exists email_verified_at timestamptz;
-alter table users add column if not exists verification_provider text default 'gmail_app_password';
+alter table users add column if not exists verification_provider text default 'resend';
 alter table verification_codes add column if not exists code_hash text;
 alter table verification_codes add column if not exists attempt_count integer not null default 0;
 alter table verification_codes add column if not exists sent_to text;
-alter table verification_codes add column if not exists provider text default 'gmail_app_password';
+alter table verification_codes add column if not exists provider text default 'resend';
 alter table verification_codes add column if not exists method text default 'email';
 alter table verification_codes add column if not exists sent_at timestamptz not null default now();
 alter table verification_codes add column if not exists verified_at timestamptz;

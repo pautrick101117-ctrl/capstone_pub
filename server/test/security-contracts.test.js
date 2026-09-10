@@ -36,13 +36,18 @@ test("reset endpoint validates email before replacing resident password", async 
 });
 
 
-test("email delivery has bounded SMTP and application timeouts", async () => {
+test("email delivery uses Resend HTTPS API with a bounded timeout", async () => {
   const env = await read("server/src/lib/env.js");
   const mailer = await read("server/src/lib/mailer.js");
+  const packageJson = await read("server/package.json");
+  assert.match(env, /resendApiKey/);
+  assert.match(env, /resendFromEmail/);
   assert.match(env, /emailSendTimeoutMs/);
-  assert.match(env, /replace\(\/\\s\+\/g, ""\)/);
-  assert.match(mailer, /connectionTimeout/);
+  assert.match(mailer, /https:\/\/api\.resend\.com\/emails/);
+  assert.match(mailer, /Authorization: `Bearer \${env\.resendApiKey}`/);
+  assert.match(mailer, /AbortController/);
   assert.match(mailer, /EMAIL_SEND_TIMEOUT/);
+  assert.doesNotMatch(packageJson, /nodemailer/);
 });
 
 test("V3 resident and census forms use master-data Purok dropdowns", async () => {

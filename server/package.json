@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "email:test": "node scripts/send-test-email.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -16,7 +17,9 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "nodemailer": "^7.0.6",
     "pdfkit": "^0.17.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

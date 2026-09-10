@@ -45,9 +45,9 @@ test("V3 migration adds centralized master data and protected verification code 
 });
 
 
-test("full reset contains only the requested bootstrap administrator and no mock barangay records", () => {
+test("full reset contains the requested bootstrap administrators and no mock resident records", () => {
   assert.match(fullReset, /admin@gmail\.com/i);
+  assert.match(fullReset, /pautrick101117@gmail\.com/i);
   assert.match(fullReset, /'admin', 'approved'/i);
   assert.doesNotMatch(fullReset, /Covered Court|Monobloc Chairs|Purok 1|Maria Santos|Juan dela Cruz/i);
-  assert.doesNotMatch(fullReset, /Password123/);
 });

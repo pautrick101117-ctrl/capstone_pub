@@ -44,7 +44,7 @@ create table public.users (
   status text not null default 'pending',
   email_verified boolean not null default false,
   email_verified_at timestamptz,
-  verification_provider text not null default 'gmail_app_password',
+  verification_provider text not null default 'resend',
   has_voted boolean not null default false,
   must_change_password boolean not null default true,
   is_active boolean not null default true,
@@ -70,6 +70,26 @@ insert into public.users (
   'admin', 'approved', true, now(), false, true
 );
 
+-- Secondary administrator requested for this deployment.
+insert into public.users (
+  first_name, last_name, full_name, email, username, password_hash,
+  role, status, email_verified, email_verified_at, must_change_password, is_active
+) values (
+  'Pautrick', 'Administrator', 'Pautrick Administrator', 'pautrick101117@gmail.com', 'pautrick101117', crypt('Password123', gen_salt('bf', 12)),
+  'admin', 'approved', true, now(), false, true
+)
+on conflict (email) do update set
+  username = excluded.username,
+  password_hash = excluded.password_hash,
+  role = 'admin',
+  status = 'approved',
+  email_verified = true,
+  email_verified_at = coalesce(public.users.email_verified_at, now()),
+  must_change_password = false,
+  is_active = true,
+  updated_at = now();
+
+
 -- Birthdate changes are validated without using CURRENT_DATE in a CHECK constraint.
 create or replace function public.enforce_adult_birthdate()
 returns trigger
@@ -94,7 +114,7 @@ create table public.verification_codes (
   code_hash text,
   attempt_count integer not null default 0 check (attempt_count >= 0),
   sent_to text,
-  provider text not null default 'gmail_app_password',
+  provider text not null default 'resend',
   method text not null default 'email',
   sent_at timestamptz not null default now(),
   expires_at timestamptz not null,

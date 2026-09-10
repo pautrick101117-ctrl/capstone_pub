@@ -1,7 +1,7 @@
 -- Barangay Iba Portal - FULL DATABASE RESET / REBUILD (V3)
 -- WARNING: DESTRUCTIVE. This removes ALL application data in the public schema.
 -- It does NOT drop Supabase system schemas such as auth, storage, extensions, realtime, etc.
--- No mock/sample barangay records are inserted. Only the requested bootstrap admin account is created.
+-- Rebuilds the full application schema, creates the requested bootstrap admin account, and loads demo data for testing.
 
 begin;
 
@@ -44,7 +44,7 @@ create table public.users (
   status text not null default 'pending',
   email_verified boolean not null default false,
   email_verified_at timestamptz,
-  verification_provider text not null default 'gmail_app_password',
+  verification_provider text not null default 'resend',
   has_voted boolean not null default false,
   must_change_password boolean not null default true,
   is_active boolean not null default true,
@@ -70,6 +70,26 @@ insert into public.users (
   'admin', 'approved', true, now(), false, true
 );
 
+-- Secondary administrator requested for this deployment.
+insert into public.users (
+  first_name, last_name, full_name, email, username, password_hash,
+  role, status, email_verified, email_verified_at, must_change_password, is_active
+) values (
+  'Pautrick', 'Administrator', 'Pautrick Administrator', 'pautrick101117@gmail.com', 'pautrick101117', crypt('Password123', gen_salt('bf', 12)),
+  'admin', 'approved', true, now(), false, true
+)
+on conflict (email) do update set
+  username = excluded.username,
+  password_hash = excluded.password_hash,
+  role = 'admin',
+  status = 'approved',
+  email_verified = true,
+  email_verified_at = coalesce(public.users.email_verified_at, now()),
+  must_change_password = false,
+  is_active = true,
+  updated_at = now();
+
+
 -- Birthdate changes are validated without using CURRENT_DATE in a CHECK constraint.
 create or replace function public.enforce_adult_birthdate()
 returns trigger
@@ -94,7 +114,7 @@ create table public.verification_codes (
   code_hash text,
   attempt_count integer not null default 0 check (attempt_count >= 0),
   sent_to text,
-  provider text not null default 'gmail_app_password',
+  provider text not null default 'resend',
   method text not null default 'email',
   sent_at timestamptz not null default now(),
   expires_at timestamptz not null,
@@ -975,11 +995,11 @@ insert into public.borrowing_requests (
   ((select id from public.users where username='resident16'), (select id from public.borrowable_assets where name='Sound System'), 1, 'Community meeting', 'Purok 4 meeting area', now() - interval '2 days', now() - interval '1 day', 'borrowed', 'Past return deadline - follow-up required.', now() - interval '5 days', (select id from public.users where email='admin@gmail.com'), now() - interval '4 days', now() - interval '2 days', null, null, null, '', now() - interval '6 days', now() - interval '1 day'),
   ((select id from public.users where username='resident20'), (select id from public.borrowable_assets where name='Monobloc Chairs'), 30, 'Wake assistance', 'Purok 2 residence', now() - interval '12 days', now() - interval '11 days', 'returned', 'Completed.', now() - interval '15 days', (select id from public.users where email='admin@gmail.com'), now() - interval '14 days', now() - interval '12 days', now() - interval '11 days', 30, 'good', 'All chairs returned in good condition.', now() - interval '16 days', now() - interval '11 days'),
   ((select id from public.users where username='resident25'), (select id from public.borrowable_assets where name='Folding Tables'), 5, 'Graduation celebration', 'Purok 1 residence', now() - interval '18 days', now() - interval '17 days', 'returned', 'Completed with minor damage noted.', now() - interval '21 days', (select id from public.users where email='admin@gmail.com'), now() - interval '20 days', now() - interval '18 days', now() - interval '17 days', 5, 'minor_damage', 'One table has a loose folding leg and was moved for maintenance.', now() - interval '22 days', now() - interval '17 days'),
-  ((select id from public.users where username='resident29'), (select id from public.borrowable_assets where name='Projector'), 1, 'School presentation', 'Purok 5 learning session', now() + interval '9 days', now() + interval '9 days 6 hours', 'rejected', 'Projector is reserved for a barangay training on the same date.', now() - interval '2 days', null, null, null, null, null, null, null, '', now() - interval '3 days', now() - interval '2 days'),
-  ((select id from public.users where username='resident33'), (select id from public.borrowable_assets where name='Multipurpose Hall'), 1, 'Homeowners meeting', 'Barangay Multipurpose Hall', now() + interval '10 days', now() + interval '10 days 4 hours', 'pending', '', now() - interval '1 day', null, null, null, null, null, null, null, '', now() - interval '1 day', now() - interval '1 day'),
-  ((select id from public.users where username='resident36'), (select id from public.borrowable_assets where name='Event Tent'), 1, 'Birthday celebration', 'Purok 6 residence', now() + interval '12 days', now() + interval '13 days', 'cancelled', 'Cancelled by resident.', now() - interval '5 days', null, null, null, null, null, null, null, '', now() - interval '6 days', now() - interval '2 days'),
+  ((select id from public.users where username='resident29'), (select id from public.borrowable_assets where name='Projector'), 1, 'School presentation', 'Purok 5 learning session', now() + interval '9 days', now() + interval '9 days 6 hours', 'rejected', 'Projector is reserved for a barangay training on the same date.', now() - interval '2 days', null, null, null, null, null, null, '', now() - interval '3 days', now() - interval '2 days'),
+  ((select id from public.users where username='resident33'), (select id from public.borrowable_assets where name='Multipurpose Hall'), 1, 'Homeowners meeting', 'Barangay Multipurpose Hall', now() + interval '10 days', now() + interval '10 days 4 hours', 'pending', '', now() - interval '1 day', null, null, null, null, null, null, '', now() - interval '1 day', now() - interval '1 day'),
+  ((select id from public.users where username='resident36'), (select id from public.borrowable_assets where name='Event Tent'), 1, 'Birthday celebration', 'Purok 6 residence', now() + interval '12 days', now() + interval '13 days', 'cancelled', 'Cancelled by resident.', now() - interval '5 days', null, null, null, null, null, null, '', now() - interval '6 days', now() - interval '2 days'),
   ((select id from public.users where username='resident40'), (select id from public.borrowable_assets where name='Monobloc Chairs'), 80, 'Wedding reception', 'Purok 4 event area', now() + interval '15 days', now() + interval '16 days', 'approved', 'Approved. Confirm pickup details one day before.', now() - interval '5 days', (select id from public.users where email='admin@gmail.com'), now() - interval '3 days', null, null, null, null, '', now() - interval '7 days', now() - interval '3 days'),
-  ((select id from public.users where username='resident46'), (select id from public.borrowable_assets where name='Folding Tables'), 10, 'Family gathering', 'Purok 4 residence', now() + interval '18 days', now() + interval '19 days', 'pending', '', now(), null, null, null, null, null, null, null, '', now(), now());
+  ((select id from public.users where username='resident46'), (select id from public.borrowable_assets where name='Folding Tables'), 10, 'Family gathering', 'Purok 4 residence', now() + interval '18 days', now() + interval '19 days', 'pending', '', now(), null, null, null, null, null, null, '', now(), now());
 
 -- =========================================================
 -- 14) NOTIFICATIONS / AUDIT TRAIL

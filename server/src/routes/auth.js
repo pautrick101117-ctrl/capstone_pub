@@ -148,7 +148,7 @@ router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-r
       code_hash: hashVerificationCode(code),
       attempt_count: 0,
       sent_to: user.email,
-      provider: "gmail_app_password",
+      provider: "resend",
       method,
       sent_at: new Date().toISOString(),
       expires_at: expiresAt,
