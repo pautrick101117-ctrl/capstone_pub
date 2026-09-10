@@ -325,6 +325,10 @@ end $$;
 alter table elections add column if not exists image_url text;
 alter table elections add column if not exists source_suggestion_id uuid references project_suggestions(id) on delete set null;
 alter table elections add column if not exists closing_soon_notified_at timestamptz;
+-- Election option metadata used by Admin voting UI/API.
+alter table election_options add column if not exists source_suggestion_id uuid references project_suggestions(id) on delete set null;
+alter table election_options add column if not exists image_url text;
+
 
 create table if not exists project_completions (
   id uuid primary key default gen_random_uuid(),

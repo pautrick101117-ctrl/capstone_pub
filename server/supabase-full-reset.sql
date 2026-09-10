@@ -317,6 +317,8 @@ create table public.election_options (
   election_id uuid not null references public.elections(id) on delete cascade,
   name text not null,
   description text not null default '',
+  source_suggestion_id uuid references public.project_suggestions(id) on delete set null,
+  image_url text,
   votes_count integer not null default 0 check (votes_count >= 0),
   created_at timestamptz not null default now()
 );
