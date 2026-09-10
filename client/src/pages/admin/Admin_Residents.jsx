@@ -408,8 +408,8 @@ const Admin_Residents = () => {
             <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.delivered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
               {credentialResult.action === "reset"
                 ? (credentialResult.emailDelivery?.delivered
-                    ? "The resident received the reset credentials by email. The temporary password is also shown below for this administrator-initiated recovery action."
-                    : "The password was reset, but email delivery was not confirmed. Use the temporary password below as the recovery fallback or retry the same email.")
+                    ? "The reset credentials were sent to the resident by email. For security, the temporary password is not displayed when email delivery is confirmed."
+                    : "The password was reset, but email delivery was not confirmed. The temporary password is shown below only as an administrator recovery fallback, or you can retry the same email.")
                 : "The resident account was created and the temporary login credentials were sent by email. For security, the temporary password is never displayed after account creation."}
             </div>
             <div className="rounded-2xl bg-stone-50 p-4 text-sm">

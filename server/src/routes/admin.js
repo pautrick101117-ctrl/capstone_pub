@@ -969,7 +969,9 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
       message: emailDelivery.delivered
         ? "Password reset successful. The temporary password was emailed to the resident."
         : "Password reset successful, but the email could not be delivered. Copy the temporary password and provide it securely to the resident.",
-      temporaryPassword: tempPassword,
+      // Only return the temporary password when email delivery failed so the admin
+      // has a recovery fallback. Successful delivery keeps the credential out of the browser.
+      temporaryPassword: emailDelivery.delivered ? undefined : tempPassword,
       emailDelivery,
       user: sanitizeUser(data),
     });
