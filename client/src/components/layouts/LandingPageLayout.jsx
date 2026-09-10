@@ -1,4 +1,4 @@
-import { Menu, Shield, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -43,7 +43,7 @@ const LandingPageLayout = () => {
           <div className="hidden items-center gap-3 lg:flex">
             {isAuthenticated ? (
               <>
-                <NavLink to={user?.role === "admin" ? "/admin" : "/portal"} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">
+                <NavLink to={["admin", "super_admin"].includes(user?.role) ? "/admin" : "/portal"} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">
                   Open Portal
                 </NavLink>
                 <button onClick={logout} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">
@@ -51,15 +51,9 @@ const LandingPageLayout = () => {
                 </button>
               </>
             ) : (
-              <>
-                <NavLink to="/login" className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">
-                  Resident Login
-                </NavLink>
-                <NavLink to="/admin/login" className="inline-flex items-center gap-2 rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">
-                  <Shield className="h-4 w-4" />
-                  Admin
-                </NavLink>
-              </>
+              <NavLink to="/login" className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">
+                Resident Login
+              </NavLink>
             )}
           </div>
 
@@ -80,7 +74,7 @@ const LandingPageLayout = () => {
             <div className="flex flex-col gap-3">
               {isAuthenticated ? (
                 <>
-                  <NavLink to={user?.role === "admin" ? "/admin" : "/portal"} onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-center text-sm font-semibold text-white">
+                  <NavLink to={["admin", "super_admin"].includes(user?.role) ? "/admin" : "/portal"} onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-center text-sm font-semibold text-white">
                     Open Portal
                   </NavLink>
                   <button onClick={logout} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">
@@ -88,14 +82,9 @@ const LandingPageLayout = () => {
                   </button>
                 </>
               ) : (
-                <>
-                  <NavLink to="/login" onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-center text-sm font-semibold text-white">
-                    Resident Login
-                  </NavLink>
-                  <NavLink to="/admin/login" onClick={() => setOpen(false)} className="rounded-full border border-stone-200 px-4 py-2 text-center text-sm font-semibold text-stone-700">
-                    Admin Login
-                  </NavLink>
-                </>
+                <NavLink to="/login" onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-center text-sm font-semibold text-white">
+                  Resident Login
+                </NavLink>
               )}
             </div>
           </div>

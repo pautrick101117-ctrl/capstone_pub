@@ -151,30 +151,9 @@ create table if not exists census_households (
   created_at timestamptz not null default now()
 );
 
-insert into officials (name, position, term, contact, status)
-values
-  ('Brgy. Capt. Jose Magtoto', 'Barangay Captain', '2023-2026', '09182000000', 'active'),
-  ('Kagawad Maria Lim', 'Kagawad', '2023-2026', '09182000001', 'active')
-on conflict do nothing;
 
-insert into clearances (resident_name, type, request_date, issued_date, status, notes)
-values
-  ('Maria Santos', 'Business Permit', current_date - interval '2 day', current_date - interval '1 day', 'approved', ''),
-  ('Juan dela Cruz', 'Barangay ID', current_date - interval '1 day', null, 'pending', '')
-on conflict do nothing;
 
-insert into census_households (household_name, purok, members, house_number, status)
-values
-  ('Santos Household', 'Purok 1', 6, '#70', 'active'),
-  ('Dela Cruz Household', 'Purok 2', 4, '#71', 'for update')
-on conflict do nothing;
 
-insert into landing_content (key_name, value)
-values
-  ('hero', '{"title":"Welcome to Barangay Iba!","description":"A Barangay Portal System is an online platform designed to optimize services and transactions within local barangay."}'),
-  ('fund_projects', '["Project: Preparation for the Upcoming Basketball and Volleyball League","Project: Kontra Dengue Clean-Up Drive","Project: Nutrisyon para sa Kabataan","Project: Medical Mission and Free Check-Up"]'),
-  ('contact', '{"phone":"639123456789","email":"barangayiba@gmail.com","facebook":"fb.com/BarangayIBAOfficialPage","address":"Barangay Iba, Silang, Cavite"}')
-on conflict (key_name) do nothing;
 
 -- =========================================================
 -- Barangay Iba Portal System feature expansion migration
@@ -208,6 +187,16 @@ where username is null;
 
 create unique index if not exists users_username_unique_idx on users (lower(username));
 create index if not exists users_role_idx on users (role);
+
+-- Initial administrator requested for this deployment. No mock/demo records are seeded.
+insert into users (
+  first_name, last_name, full_name, email, username, password_hash,
+  role, status, email_verified, email_verified_at, must_change_password, is_active
+) values (
+  'System', 'Administrator', 'System Administrator', 'admin@gmail.com', 'admin', '$2b$12$um1OPS7mXR.EXp6i6Q0CF.Xv4Hn.LC0TzfdJN/qd7QjaGsKs2a37a',
+  'admin', 'approved', true, now(), false, true
+)
+on conflict (email) do nothing;
 create index if not exists users_is_active_idx on users (is_active);
 
 do $$
@@ -535,14 +524,6 @@ begin
   end if;
 end $$;
 
--- Editable hotline shown on the resident community-concern page.
-insert into landing_content (key_name, value, updated_at)
-values (
-  'hotline',
-  '{"title":"Barangay Iba Hotline","phone":"0917 123 4567","hours":"24/7 for urgent community concerns","note":"Sample hotline number — update this in Admin Portal > Settings."}'::jsonb,
-  now()
-)
-on conflict (key_name) do nothing;
 
 -- Inventory of facilities/items available for residents to borrow.
 create table if not exists borrowable_assets (
@@ -605,13 +586,6 @@ end $$;
 
 create index if not exists borrowing_requests_due_active_idx on borrowing_requests (due_at) where status = 'borrowed';
 
-insert into borrowable_assets (name, category, description, total_quantity, is_active)
-values
-  ('Covered Court', 'facility', 'Barangay covered court for approved community and private activities.', 1, true),
-  ('Event Tent', 'item', 'Barangay event tents available by quantity.', 4, true),
-  ('Monobloc Chairs', 'item', 'Plastic chairs available for approved barangay/resident events.', 120, true),
-  ('Folding Tables', 'item', 'Folding tables available for approved events.', 20, true)
-on conflict do nothing;
 
 commit;
 
@@ -631,18 +605,3 @@ create table if not exists master_data_values (
   check (category in ('purok', 'administration_term', 'concern_category', 'event_category', 'official_position'))
 );
 create index if not exists master_data_values_lookup_idx on master_data_values (category, is_active, sort_order, label);
-insert into master_data_values (category, value, label, sort_order)
-values
-  ('purok', 'purok_1', 'Purok 1', 10), ('purok', 'purok_2', 'Purok 2', 20), ('purok', 'purok_3', 'Purok 3', 30),
-  ('purok', 'purok_4', 'Purok 4', 40), ('purok', 'purok_5', 'Purok 5', 50), ('purok', 'purok_6', 'Purok 6', 60), ('purok', 'purok_7', 'Purok 7', 70),
-  ('administration_term', '2023_2026', '2023-2026', 10),
-  ('concern_category', 'road_drainage', 'Road / Drainage', 10), ('concern_category', 'noise_disturbance', 'Noise / Disturbance', 20),
-  ('concern_category', 'waste_cleanliness', 'Waste / Cleanliness', 30), ('concern_category', 'street_light_public_facility', 'Street Light / Public Facility', 40),
-  ('concern_category', 'safety_security', 'Safety / Security', 50), ('concern_category', 'other_community_concern', 'Other Community Concern', 100),
-  ('event_category', 'community_meeting', 'Community Meeting', 10), ('event_category', 'health_medical', 'Health / Medical', 20),
-  ('event_category', 'clean_up_environment', 'Clean-up / Environment', 30), ('event_category', 'sports_recreation', 'Sports / Recreation', 40),
-  ('event_category', 'education_youth', 'Education / Youth', 50), ('event_category', 'general', 'General', 100),
-  ('official_position', 'barangay_captain', 'Barangay Captain', 10), ('official_position', 'kagawad', 'Kagawad', 20),
-  ('official_position', 'sk_chairperson', 'SK Chairperson', 30), ('official_position', 'barangay_secretary', 'Barangay Secretary', 40),
-  ('official_position', 'barangay_treasurer', 'Barangay Treasurer', 50)
-on conflict (category, value) do nothing;

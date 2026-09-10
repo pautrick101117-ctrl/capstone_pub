@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Button, Card, PageHeader, PasswordInput } from "../../components/ui";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 
 const ChangePassword = () => {
   const navigate = useNavigate();
@@ -18,6 +19,11 @@ const ChangePassword = () => {
 
   const onSubmit = async (event) => {
     event.preventDefault();
+    if (!isStrongPassword(form.newPassword)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
+      return;
+    }
+
     if (form.newPassword !== form.confirmPassword) {
       toast.error("Passwords do not match.");
       return;
@@ -62,7 +68,7 @@ const ChangePassword = () => {
               onChange={onChange}
             />
           ) : null}
-          <PasswordInput label="New Password" required minLength={8} maxLength={128} autoComplete="new-password" hint="Use at least 8 characters. A longer unique passphrase is recommended." name="newPassword" value={form.newPassword} onChange={onChange} />
+          <PasswordInput label="New Password" required minLength={8} maxLength={128} autoComplete="new-password" hint={PASSWORD_POLICY_MESSAGE} name="newPassword" value={form.newPassword} onChange={onChange} />
           <PasswordInput
             label="Confirm New Password"
             required

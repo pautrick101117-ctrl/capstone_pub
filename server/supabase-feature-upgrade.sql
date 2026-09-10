@@ -13,14 +13,7 @@ begin
   end if;
 end $$;
 
--- Editable hotline shown on the resident community-concern page.
-insert into landing_content (key_name, value, updated_at)
-values (
-  'hotline',
-  '{"title":"Barangay Iba Hotline","phone":"0917 123 4567","hours":"24/7 for urgent community concerns","note":"Sample hotline number — update this in Admin Portal > Settings."}'::jsonb,
-  now()
-)
-on conflict (key_name) do nothing;
+-- No hotline seed data. Configure real hotline details from Admin Settings.
 
 -- Inventory of facilities/items available for residents to borrow.
 create table if not exists borrowable_assets (
@@ -83,12 +76,6 @@ end $$;
 
 create index if not exists borrowing_requests_due_active_idx on borrowing_requests (due_at) where status = 'borrowed';
 
-insert into borrowable_assets (name, category, description, total_quantity, is_active)
-values
-  ('Covered Court', 'facility', 'Barangay covered court for approved community and private activities.', 1, true),
-  ('Event Tent', 'item', 'Barangay event tents available by quantity.', 4, true),
-  ('Monobloc Chairs', 'item', 'Plastic chairs available for approved barangay/resident events.', 120, true),
-  ('Folding Tables', 'item', 'Folding tables available for approved events.', 20, true)
-on conflict do nothing;
+-- No facility/item seed data. Add real inventory from Admin > Borrowing.
 
 commit;

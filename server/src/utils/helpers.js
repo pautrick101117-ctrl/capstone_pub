@@ -6,9 +6,40 @@ export const hashPassword = async (bcrypt, password) => bcrypt.hash(password, 12
 
 export const comparePassword = async (bcrypt, password, hash) => bcrypt.compare(password, hash);
 
-export const createTemporaryPassword = (length = 10) => {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
-  return Array.from({ length }, () => alphabet[randomInt(0, alphabet.length)]).join("");
+export const PASSWORD_POLICY_MESSAGE = "Password must be at least 8 characters and include at least one uppercase letter and one number.";
+
+export const isStrongPassword = (password = "") => {
+  const value = `${password}`;
+  return value.length >= 8 && value.length <= 128 && /[A-Z]/.test(value) && /[0-9]/.test(value);
+};
+
+export const ensureStrongPassword = (password = "") => {
+  if (!isStrongPassword(password)) {
+    throw Object.assign(new Error(PASSWORD_POLICY_MESSAGE), { status: 400 });
+  }
+  return true;
+};
+
+const securePick = (characters) => characters[randomInt(0, characters.length)];
+
+export const createTemporaryPassword = (length = 12) => {
+  const targetLength = Math.max(8, Number(length) || 12);
+  const uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lowercase = "abcdefghijkmnopqrstuvwxyz";
+  const numbers = "23456789";
+  const symbols = "!@#$";
+  const alphabet = `${uppercase}${lowercase}${numbers}${symbols}`;
+
+  const characters = [securePick(uppercase), securePick(numbers), securePick(lowercase), securePick(symbols)];
+  while (characters.length < targetLength) characters.push(securePick(alphabet));
+
+  // Fisher-Yates shuffle using crypto-backed randomInt so required characters are not predictable by position.
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(0, index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+
+  return characters.join("");
 };
 
 export const normalizePhoneNumber = (phone = "") =>

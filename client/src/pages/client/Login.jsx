@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
 import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 
 const initialResetForm = {
   usernameOrEmail: "",
@@ -55,6 +56,10 @@ const Login = () => {
 
   const submitReset = async (event) => {
     event.preventDefault();
+    if (!isStrongPassword(resetForm.newPassword)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
+      return;
+    }
     setResetLoading(true);
     try {
       const data = await api("/auth/forgot-password/reset", {
@@ -171,10 +176,10 @@ const Login = () => {
                 minLength={8}
                 maxLength={128}
                 autoComplete="new-password"
-                hint="Use at least 8 characters."
+                hint={PASSWORD_POLICY_MESSAGE}
                 value={resetForm.newPassword}
                 onChange={(event) => setResetForm((current) => ({ ...current, newPassword: event.target.value }))}
-                placeholder="At least 8 characters"
+                placeholder="8+ characters, uppercase + number"
               />
               <div className="flex flex-wrap gap-3">
                 <Button type="submit" loading={resetLoading}>

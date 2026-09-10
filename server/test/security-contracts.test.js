@@ -76,3 +76,19 @@ test("forgot-password verification codes are hashed before storage", async () =>
   assert.match(auth, /attempt_count/);
   assert.match(auth, /timingSafeEqual/);
 });
+
+
+test("public navigation does not expose the admin login route", async () => {
+  const landing = await read("client/src/components/layouts/LandingPageLayout.jsx");
+  const app = await read("client/src/App.jsx");
+  assert.doesNotMatch(landing, /\/admin\/login/);
+  assert.match(app, /path="admin\/login"/);
+});
+
+test("password changes enforce uppercase and numeric password policy on the server", async () => {
+  const auth = await read("server/src/routes/auth.js");
+  const helpers = await read("server/src/utils/helpers.js");
+  assert.match(auth, /ensureStrongPassword\(newPassword\)/);
+  assert.match(helpers, /\/\[A-Z\]\//);
+  assert.match(helpers, /\/\[0-9\]\//);
+});

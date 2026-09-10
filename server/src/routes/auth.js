@@ -6,7 +6,7 @@ import { signToken } from "../lib/jwt.js";
 import { sendVerificationEmail } from "../lib/mailer.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
-import { comparePassword, createCode, normalizeRole, roleMatches, sanitizeUser } from "../utils/helpers.js";
+import { comparePassword, createCode, ensureStrongPassword, normalizeRole, roleMatches, sanitizeUser } from "../utils/helpers.js";
 import { logAudit } from "../utils/audit.js";
 
 const router = express.Router();
@@ -185,9 +185,7 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
       throw Object.assign(new Error("Identifier, verification code, and new password are required."), { status: 400 });
     }
 
-    if (newPassword.length < 8) {
-      throw Object.assign(new Error("New password must be at least 8 characters long."), { status: 400 });
-    }
+    ensureStrongPassword(newPassword);
 
     const user = await getUserByIdentifier(db, rawIdentifier);
     if (!user) {
@@ -306,9 +304,7 @@ router.get("/me", requireAuth, requireCurrentUser({ allowPasswordChange: true })
 router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordChange: true }), async (req, res, next) => {
   try {
     const { currentPassword = "", newPassword = "" } = req.body;
-    if (!newPassword || newPassword.length < 8) {
-      throw Object.assign(new Error("New password must be at least 8 characters long."), { status: 400 });
-    }
+    ensureStrongPassword(newPassword);
 
     if (!req.currentUser.must_change_password) {
       const validCurrent = await comparePassword(bcrypt, currentPassword, req.currentUser.password_hash);

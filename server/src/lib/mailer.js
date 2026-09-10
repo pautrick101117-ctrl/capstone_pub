@@ -66,7 +66,7 @@ const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = 
     `Username: ${username}`,
     `Temporary password: ${temporaryPassword}`,
     "",
-    "For security, sign in using this temporary password and create a new password immediately. The resident portal will remain locked until the password is changed.",
+    "For security, sign in using this temporary password and create a new password immediately. Your new password must be at least 8 characters and include at least one uppercase letter and one number. The resident portal will remain locked until the password is changed.",
     "",
     "If you did not expect this message, please contact the Barangay Iba office.",
   ].join("\n");
@@ -80,7 +80,7 @@ const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = 
         <strong>Username:</strong> ${username}<br/>
         <strong>Temporary password:</strong> ${temporaryPassword}
       </div>
-      <p><strong>Required on first login:</strong> create a new password before using the resident portal.</p>
+      <p><strong>Required on first login:</strong> create a new password with at least 8 characters, at least one uppercase letter, and at least one number before using the resident portal.</p>
       <p style="font-size:13px;color:#64748b">If you did not expect this message, please contact the Barangay Iba office.</p>
     </div>`;
   return { text, html };

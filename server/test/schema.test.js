@@ -6,6 +6,7 @@ const schema = await readFile(new URL("../supabase-schema.sql", import.meta.url)
 const migration = await readFile(new URL("../supabase-feature-upgrade.sql", import.meta.url), "utf8");
 const borrowingUxMigration = await readFile(new URL("../supabase-borrowing-experience-upgrade.sql", import.meta.url), "utf8");
 const v3Migration = await readFile(new URL("../supabase-v3-experience-upgrade.sql", import.meta.url), "utf8");
+const fullReset = await readFile(new URL("../supabase-full-reset.sql", import.meta.url), "utf8");
 
 test("schema supports resident first-login and deactivation", () => {
   assert.match(schema, /must_change_password boolean/i);
@@ -14,15 +15,15 @@ test("schema supports resident first-login and deactivation", () => {
 
 test("schema supports complaint admin notes and editable hotline", () => {
   assert.match(migration, /alter table complaints add column if not exists admin_note/i);
-  assert.match(migration, /'hotline'/i);
+  assert.match(migration, /hotline/i);
 });
 
-test("schema contains borrowing inventory and lifecycle fields", () => {
+test("schema contains borrowing inventory and lifecycle fields without mock inventory", () => {
   assert.match(migration, /create table if not exists borrowable_assets/i);
   assert.match(migration, /create table if not exists borrowing_requests/i);
   assert.match(migration, /approved_at timestamptz/i);
   assert.match(migration, /returned_at timestamptz/i);
-  assert.match(migration, /Covered Court/i);
+  assert.doesNotMatch(migration, /Covered Court/i);
 });
 
 test("borrowing experience migration stores use location, terms acceptance, and return inspection", () => {
@@ -41,4 +42,12 @@ test("V3 migration adds centralized master data and protected verification code 
   assert.match(v3Migration, /'concern_category'/i);
   assert.match(v3Migration, /code_hash text/i);
   assert.match(v3Migration, /attempt_count integer/i);
+});
+
+
+test("full reset contains only the requested bootstrap administrator and no mock barangay records", () => {
+  assert.match(fullReset, /admin@gmail\.com/i);
+  assert.match(fullReset, /'admin', 'approved'/i);
+  assert.doesNotMatch(fullReset, /Covered Court|Monobloc Chairs|Purok 1|Maria Santos|Juan dela Cruz/i);
+  assert.doesNotMatch(fullReset, /Password123/);
 });
