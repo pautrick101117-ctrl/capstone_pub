@@ -191,3 +191,4 @@ router.get("/document/:requestId/clearance", async (req, res, next) => {
 });
 
 export default router;
+

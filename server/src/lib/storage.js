@@ -26,3 +26,4 @@ export const uploadAsset = async ({ file, folder = "uploads", prefix = "asset" }
   );
   return fallbackUrl;
 };
+

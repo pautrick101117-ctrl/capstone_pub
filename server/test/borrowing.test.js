@@ -68,3 +68,4 @@ test("return inspection requires missing-items status and a note for shortages",
     { returnedQuantity: 28, returnCondition: "missing_items", returnNote: "Two chairs were not returned." }
   );
 });
+

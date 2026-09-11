@@ -35,3 +35,4 @@ export const countdownText = (endDate) => {
   if (days >= 1) return `${days} day${days === 1 ? "" : "s"} left`;
   return `${hours} hour${hours === 1 ? "" : "s"} left`;
 };
+

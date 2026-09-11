@@ -1,4 +1,4 @@
-import { RouterProvider, createBrowserRouter, createRoutesFromElements, Route } from "react-router-dom";
+import { Navigate, RouterProvider, createBrowserRouter, createRoutesFromElements, Route } from "react-router-dom";
 import LandingPageLayout from "./components/layouts/LandingPageLayout";
 import Home from "./pages/client/Home";
 import FundTransparency from "./pages/client/FundTransparency";
@@ -6,7 +6,7 @@ import Officials from "./pages/client/Officials";
 import Login from "./pages/client/Login";
 import HelpCenter from "./pages/client/HelpCenter";
 import TermsOfUse from "./pages/client/TermsOfUse";
-import ProvicyPolicy from "./pages/client/ProvicyPolicy";
+import PrivacyPolicy from "./pages/client/PrivacyPolicy";
 import VotingResult from "./pages/client/VotingResult";
 import PublicFeedPage from "./pages/client/PublicFeedPage";
 import CalendarPage from "./pages/client/CalendarPage";
@@ -35,6 +35,8 @@ import Admin_UserMaintenance from "./pages/admin/Admin_UserMaintenance";
 import Admin_Complaints from "./pages/admin/Admin_Complaints";
 import Admin_Settings from "./pages/admin/Admin_Settings";
 import Admin_Borrowing from "./pages/admin/Admin_Borrowing";
+import AdminBroadcast from "./pages/admin/AdminBroadcast";
+import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -48,12 +50,16 @@ const router = createBrowserRouter(
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="help-center" element={<HelpCenter />} />
         <Route path="terms-of-use" element={<TermsOfUse />} />
-        <Route path="privacy-policy" element={<ProvicyPolicy />} />
+        <Route path="privacy-policy" element={<PrivacyPolicy />} />
         <Route path="voting-result" element={<VotingResult />} />
         <Route path="login" element={<Login />} />
       </Route>
 
       <Route path="admin/login" element={<AdminLogin />} />
+
+      <Route element={<ProtectedRoute redirectTo="/login" />}>
+        <Route path="change-password" element={<ChangePassword />} />
+      </Route>
 
       <Route element={<ProtectedRoute roles={["resident"]} redirectTo="/login" />}>
         <Route path="/" element={<UserPortalLayout />}>
@@ -62,13 +68,12 @@ const router = createBrowserRouter(
           <Route path="portal/voting" element={<VotingCenter />} />
           <Route path="portal/calendar" element={<CalendarPage />} />
           <Route path="portal/suggestions" element={<SuggestionsPage />} />
-          <Route path="portal/results" element={<VotingResult />} />
+          <Route path="portal/results" element={<Navigate to="/portal/voting-result" replace />} />
           <Route path="portal/voting-result" element={<VotingResult />} />
           <Route path="portal/complaints" element={<Complaints />} />
           <Route path="portal/borrowing" element={<BorrowingPage />} />
           <Route path="portal/settings" element={<SettingsPage />} />
         </Route>
-        <Route path="change-password" element={<ChangePassword />} />
       </Route>
 
       <Route element={<ProtectedRoute roles={["admin"]} redirectTo="/admin/login" />}>
@@ -85,8 +90,12 @@ const router = createBrowserRouter(
           <Route path="census" element={<Admin_Census />} />
           <Route path="complaints" element={<Admin_Complaints />} />
           <Route path="borrowing" element={<Admin_Borrowing />} />
+          <Route path="broadcasts" element={<AdminBroadcast />} />
           <Route path="settings" element={<Admin_Settings />} />
-          <Route path="user-maintenance" element={<Admin_UserMaintenance />} />
+          <Route element={<ProtectedRoute roles={["super_admin"]} redirectTo="/admin" />}>
+            <Route path="user-maintenance" element={<Admin_UserMaintenance />} />
+            <Route path="audit-logs" element={<AdminAuditLogs />} />
+          </Route>
         </Route>
       </Route>
     </>
@@ -96,3 +105,4 @@ const router = createBrowserRouter(
 const App = () => <RouterProvider router={router} />;
 
 export default App;
+

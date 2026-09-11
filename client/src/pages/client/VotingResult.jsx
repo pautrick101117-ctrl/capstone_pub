@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, EmptyState, PageHeader } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
 import { countdownText, formatDateTime } from "../../lib/format";
 
 const clampPercentage = (value) => Math.min(100, Math.max(0, Number(value || 0)));
@@ -21,6 +21,7 @@ const VotingResult = () => {
 
   const [election, setElection] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [completionSaving, setCompletionSaving] = useState(false);
   const [hasConfirmedCompletion, setHasConfirmedCompletion] = useState(false);
 
@@ -28,11 +29,13 @@ const VotingResult = () => {
 
   const load = async () => {
     setLoading(true);
+    setError("");
 
     try {
       const data = await api("/voting/results/latest");
       setElection(data.election || null);
-    } catch {
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load voting results.");
       setElection(null);
     } finally {
       setLoading(false);
@@ -66,11 +69,11 @@ const VotingResult = () => {
   };
 
   if (loading) {
-    return (
-      <section className="section-shell py-10">
-        <p className="text-sm text-stone-500">Loading voting results...</p>
-      </section>
-    );
+    return <section className="section-shell py-10"><LoadingState rows={4} /></section>;
+  }
+
+  if (error) {
+    return <section className="section-shell py-10"><ErrorState description={error} onRetry={load} /></section>;
   }
 
   if (!election) {
@@ -253,3 +256,4 @@ const VotingResult = () => {
 };
 
 export default VotingResult;
+

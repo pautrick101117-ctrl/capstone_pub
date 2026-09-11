@@ -11,3 +11,4 @@ export const logAudit = async ({ actorId, actorRole, action, entityType, entityI
     details,
   });
 };
+

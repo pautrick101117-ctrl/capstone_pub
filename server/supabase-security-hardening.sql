@@ -21,3 +21,4 @@ alter table borrowable_assets enable row level security;
 alter table master_data_values enable row level security;
 
 commit;
+

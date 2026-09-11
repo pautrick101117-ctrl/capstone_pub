@@ -23,3 +23,4 @@ export const useMasterData = (category) => {
   const options = useMemo(() => items.map((item) => ({ ...item, optionValue: item.label })), [items]);
   return { items, options, loading, reload: load };
 };
+

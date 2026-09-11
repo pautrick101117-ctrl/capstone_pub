@@ -19,3 +19,4 @@ export const rateLimit = ({ key = "global", windowMs = 60_000, max = 10 } = {}) 
   entry.count += 1;
   next();
 };
+

@@ -136,6 +136,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => clearSession();
+  const keepSessionAlive = () => extendSession();
 
   const refreshProfile = async () => {
     if (!session.token) return null;
@@ -210,11 +211,13 @@ export const AuthProvider = ({ children }) => {
       user: session.user,
       notifications: session.notifications,
       unreadCount: session.notifications.filter((note) => !note.is_read).length,
+      sessionExpiresAt: session.expiresAt,
       isAuthenticated: Boolean(session.token && session.user),
-      isPasswordChangeRequired: Boolean(session.user?.mustChangePassword && session.user?.role === "resident"),
+      isPasswordChangeRequired: Boolean(session.user?.mustChangePassword),
       loading,
       login,
       logout,
+      keepSessionAlive,
       refreshProfile,
       refreshNotifications,
       changePassword,
@@ -228,3 +231,4 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => useContext(AuthContext);
+

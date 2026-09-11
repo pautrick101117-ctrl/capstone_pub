@@ -1,3 +1,4 @@
+import { LOGO_URL } from "../../lib/assets";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Button, Card, PasswordInput, TextInput } from "../../components/ui";
@@ -20,14 +21,14 @@ const AdminLogin = () => {
         password: form.password,
         adminOnly: true,
       });
-      navigate(isAdminRole(loggedInUser.role) ? "/admin" : "/");
+      navigate(loggedInUser.mustChangePassword ? "/change-password" : isAdminRole(loggedInUser.role) ? "/admin" : "/");
     } catch (error) {
       toast.error(error.message);
     }
   };
 
   if (isAuthenticated && isAdminRole(user?.role)) {
-    return <Navigate to="/admin" replace />;
+    return <Navigate to={user?.mustChangePassword ? "/change-password" : "/admin"} replace />;
   }
 
   return (
@@ -45,7 +46,7 @@ const AdminLogin = () => {
 
         <Card className="mx-auto w-full max-w-lg p-6 sm:p-8">
           <div className="mb-6 text-center">
-            <img src="/logo.png" alt="Barangay Iba" className="mx-auto h-20 w-20 rounded-3xl border border-[var(--brand-100)] bg-white p-2" />
+            <img src={LOGO_URL} alt="Barangay Iba" className="mx-auto h-20 w-20 rounded-3xl border border-[var(--brand-100)] bg-white p-2" />
             <h2 className="mt-4 text-3xl font-black text-[var(--brand-900)]">Admin Sign In</h2>
           </div>
           <form className="space-y-4" onSubmit={submit}>
@@ -62,3 +63,4 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
+

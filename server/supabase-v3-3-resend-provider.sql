@@ -9,3 +9,4 @@ alter table public.verification_codes
   alter column provider set default 'resend';
 
 commit;
+

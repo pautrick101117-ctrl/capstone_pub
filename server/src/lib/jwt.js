@@ -4,3 +4,4 @@ import { env } from "./env.js";
 export const signToken = (payload) => jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
 
 export const verifyToken = (token) => jwt.verify(token, env.jwtSecret);
+

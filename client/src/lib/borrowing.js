@@ -54,3 +54,4 @@ export const getBorrowingStatusMeta = (status, isLate = false) => {
 };
 
 export const isFacility = (asset) => asset?.category === "facility";
+

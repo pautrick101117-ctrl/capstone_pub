@@ -20,3 +20,4 @@ on conflict (email) do update set
   must_change_password = false,
   is_active = true,
   updated_at = now();
+

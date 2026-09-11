@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { useMasterData } from "../../hooks/useMasterData";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 
 const pageSize = 8;
 
@@ -17,12 +17,24 @@ const Admin_Officials = () => {
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toggleTarget, setToggleTarget] = useState(null);
   const { options: positionOptions } = useMasterData("official_position");
   const { options: termOptions } = useMasterData("administration_term");
 
   const load = async () => {
-    const data = await api("/admin/officials", { token });
-    setOfficials(data.officials || []);
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/admin/officials", { token });
+      setOfficials(data.officials || []);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load officials.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -50,6 +62,7 @@ const Admin_Officials = () => {
 
   const save = async (event) => {
     event.preventDefault();
+    setSaving(true);
     const formData = new FormData();
     Object.entries(form).forEach(([key, value]) => {
       if (key === "preview") return;
@@ -69,25 +82,32 @@ const Admin_Officials = () => {
       setForm(emptyForm);
       setOpen(false);
       await load();
-    } catch (error) {
-      toast.error(error.message);
+    } catch (saveError) {
+      toast.error(saveError.message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const toggle = async (official) => {
+  const toggle = async () => {
+    if (!toggleTarget) return;
+    setSaving(true);
     try {
       const formData = new FormData();
-      formData.append("name", official.name);
-      formData.append("position", official.position);
-      formData.append("term", official.term);
-      formData.append("contact", official.contact || "");
-      formData.append("photoUrl", official.photo_url || "");
-      formData.append("isActive", `${!(official.is_active ?? official.isActive)}`);
-      await api(`/admin/officials/${official.id}`, { method: "PATCH", token, body: formData });
+      formData.append("name", toggleTarget.name);
+      formData.append("position", toggleTarget.position);
+      formData.append("term", toggleTarget.term);
+      formData.append("contact", toggleTarget.contact || "");
+      formData.append("photoUrl", toggleTarget.photo_url || "");
+      formData.append("isActive", `${!(toggleTarget.is_active ?? toggleTarget.isActive)}`);
+      await api(`/admin/officials/${toggleTarget.id}`, { method: "PATCH", token, body: formData });
       toast.success("Official status updated.");
+      setToggleTarget(null);
       await load();
-    } catch (error) {
-      toast.error(error.message);
+    } catch (toggleError) {
+      toast.error(toggleError.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -107,12 +127,15 @@ const Admin_Officials = () => {
         }
       />
 
-      <Card>
+      {error ? <ErrorState description={error} onRetry={load} /> : null}
+      {!error && loading ? <LoadingState rows={5} /> : null}
+      {!error && !loading ? <Card>
         <div className="mb-5">
           <h2 className="text-xl font-bold text-[var(--brand-900)]">Official Directory</h2>
           <p className="mt-1 text-sm text-stone-500">The list stays spacious, while create and edit actions open in a focused modal.</p>
         </div>
 
+        {officials.length === 0 ? <EmptyState title="No officials configured" description="Add the first official profile to publish the barangay directory." action={<Button onClick={openCreate}>Add Official</Button>} /> : <>
         <TableShell>
           <table className="min-w-full text-sm">
             <thead className="bg-stone-50 text-left text-stone-500">
@@ -153,7 +176,7 @@ const Admin_Officials = () => {
                           <Edit3 className="h-4 w-4" />
                           Edit
                         </Button>
-                        <Button variant="ghost" onClick={() => toggle(official)}>
+                        <Button variant="ghost" onClick={() => setToggleTarget(official)}>
                           {isActive ? "Deactivate" : "Activate"}
                         </Button>
                       </div>
@@ -165,7 +188,8 @@ const Admin_Officials = () => {
           </table>
         </TableShell>
         <Pagination page={page} totalPages={Math.max(1, Math.ceil(officials.length / pageSize))} onPageChange={setPage} />
-      </Card>
+        </>}
+      </Card> : null}
 
       <Modal
         open={open}
@@ -200,15 +224,18 @@ const Admin_Officials = () => {
           </label>
           {form.preview ? <img src={form.preview} alt="Official preview" className="sm:col-span-2 h-56 w-full rounded-3xl object-cover" /> : null}
           <div className="sm:col-span-2 flex gap-3">
-            <Button type="submit">{form.id ? "Save Changes" : "Save Official"}</Button>
+            <Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Save Official"}</Button>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog open={Boolean(toggleTarget)} onClose={() => !saving && setToggleTarget(null)} onConfirm={toggle} loading={saving} tone={(toggleTarget?.is_active ?? toggleTarget?.isActive) ? "danger" : "info"} title={(toggleTarget?.is_active ?? toggleTarget?.isActive) ? `Deactivate ${toggleTarget?.name || "this official"}?` : `Activate ${toggleTarget?.name || "this official"}?`} description={(toggleTarget?.is_active ?? toggleTarget?.isActive) ? "This profile will no longer appear as an active official on the public directory. Historical records remain unchanged." : "This profile will become active and visible in the public directory again."} confirmLabel={(toggleTarget?.is_active ?? toggleTarget?.isActive) ? "Deactivate Official" : "Activate Official"} />
     </div>
   );
 };
 
 export default Admin_Officials;
+

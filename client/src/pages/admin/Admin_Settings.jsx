@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
-import { Badge, Button, Card, Modal, PageHeader, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 
 const defaultHotline = {
   title: "Barangay Iba Hotline",
@@ -32,10 +32,14 @@ const Admin_Settings = () => {
   const [optionForm, setOptionForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("public");
+  const [toggleTarget, setToggleTarget] = useState(null);
 
   const load = async () => {
     if (!token) return;
     setLoading(true);
+    setError("");
     try {
       const [contentData, masterData] = await Promise.all([
         api("/admin/content", { token }),
@@ -44,8 +48,8 @@ const Admin_Settings = () => {
       setHotline({ ...defaultHotline, ...(contentData.content?.hotline || {}) });
       setContact({ phone: "", email: "", address: "", facebook: "", ...(contentData.content?.contact || {}) });
       setMasterItems(masterData.items || []);
-    } catch (error) {
-      toast.error(error.message);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load portal settings.");
     } finally {
       setLoading(false);
     }
@@ -93,23 +97,28 @@ const Admin_Settings = () => {
     }
   };
 
-  const toggleOption = async (item) => {
+  const toggleOption = async () => {
+    if (!toggleTarget) return;
+    setSaving(true);
     try {
-      await api(`/master-data/admin/${item.id}`, { method: "PATCH", token, body: { isActive: !item.is_active } });
-      toast.success(`${item.label} ${item.is_active ? "disabled" : "enabled"}. Historical records are unchanged.`);
+      await api(`/master-data/admin/${toggleTarget.id}`, { method: "PATCH", token, body: { isActive: !toggleTarget.is_active } });
+      toast.success(`${toggleTarget.label} ${toggleTarget.is_active ? "disabled" : "enabled"}. Historical records are unchanged.`);
+      setToggleTarget(null);
       await load();
-    } catch (error) {
-      toast.error(error.message);
+    } catch (toggleError) {
+      toast.error(toggleError.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Portal Configuration" title="Settings" description="Manage the contact information and controlled lists used by live portal forms. Disable options instead of deleting them so historical records remain readable." />
-
-      {loading ? <Card><p className="text-sm text-stone-500">Loading settings...</p></Card> : (
+      <PageHeader eyebrow="Portal Configuration" title="Settings" description="Manage public contact information and controlled lists used across resident and admin forms." />
+      <SegmentedTabs value={activeTab} onChange={setActiveTab} items={[{ value: "public", label: "Public Information" }, { value: "master", label: "Master Data" }]} />
+      {loading ? <LoadingState rows={5} /> : error ? <ErrorState description={error} onRetry={load} /> : (
         <>
-          <form className="grid gap-6 xl:grid-cols-2" onSubmit={savePortalSettings}>
+          {activeTab === "public" ? <form className="grid gap-6 xl:grid-cols-2" onSubmit={savePortalSettings}>
             <Card>
               <div className="mb-5 flex items-center gap-3">
                 <div className="rounded-2xl bg-rose-100 p-3 text-rose-700"><Phone className="h-5 w-5" /></div>
@@ -135,9 +144,9 @@ const Admin_Settings = () => {
               </div>
             </Card>
             <div className="xl:col-span-2 flex justify-end"><Button type="submit" loading={saving}><Save className="h-4 w-4" /> Save Contact Settings</Button></div>
-          </form>
+          </form> : null}
 
-          <Card>
+          {activeTab === "master" ? <Card>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <h2 className="text-xl font-bold text-[var(--brand-900)]">Controlled Form Options</h2>
@@ -161,13 +170,13 @@ const Admin_Settings = () => {
                   </div>
                   <div className="mt-4 flex gap-2">
                     <Button type="button" variant="secondary" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /> Edit</Button>
-                    <Button type="button" variant="ghost" onClick={() => toggleOption(item)}>{item.is_active ? "Disable" : "Enable"}</Button>
+                    <Button type="button" variant="ghost" onClick={() => setToggleTarget(item)}>{item.is_active ? "Disable" : "Enable"}</Button>
                   </div>
                 </div>
               ))}
               {!visibleOptions.length ? <p className="text-sm text-stone-500">No options configured for this list yet.</p> : null}
             </div>
-          </Card>
+          </Card> : null}
         </>
       )}
 
@@ -184,8 +193,20 @@ const Admin_Settings = () => {
           </form>
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(toggleTarget)}
+        onClose={() => !saving && setToggleTarget(null)}
+        onConfirm={toggleOption}
+        loading={saving}
+        tone={toggleTarget?.is_active ? "danger" : "info"}
+        title={toggleTarget?.is_active ? `Disable ${toggleTarget?.label || "this option"}?` : `Enable ${toggleTarget?.label || "this option"}?`}
+        description={toggleTarget?.is_active ? "It will disappear from new forms, while historical records that already use it will remain unchanged." : "This option will become available in new forms again."}
+        confirmLabel={toggleTarget?.is_active ? "Disable Option" : "Enable Option"}
+      />
     </div>
   );
 };
 
 export default Admin_Settings;
+

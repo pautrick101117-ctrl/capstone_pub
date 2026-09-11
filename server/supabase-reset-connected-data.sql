@@ -29,3 +29,4 @@ set has_voted = false,
 where role = 'admin';
 
 commit;
+

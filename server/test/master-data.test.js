@@ -12,3 +12,4 @@ test("master-data category normalization is predictable", () => {
   assert.equal(normalizeMasterCategory("Administration-Term"), "administration_term");
   assert.equal(normalizeMasterCategory(" concern category "), "concern_category");
 });
+

@@ -79,3 +79,4 @@ create index if not exists borrowing_requests_due_active_idx on borrowing_reques
 -- No facility/item seed data. Add real inventory from Admin > Borrowing.
 
 commit;
+

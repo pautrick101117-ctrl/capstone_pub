@@ -1034,3 +1034,4 @@ from (values
 ) as demo(action, entity_type, entity_id, details, created_at);
 
 commit;
+

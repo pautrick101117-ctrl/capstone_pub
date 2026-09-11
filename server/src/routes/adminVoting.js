@@ -518,3 +518,4 @@ router.get("/election-results", async (_req, res, next) => {
 });
 
 export default router;
+

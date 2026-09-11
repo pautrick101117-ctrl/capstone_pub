@@ -32,3 +32,4 @@ export const validateProductionEnv = () => {
     throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production.");
   }
 };
+

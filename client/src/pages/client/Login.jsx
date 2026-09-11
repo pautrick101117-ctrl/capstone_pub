@@ -1,3 +1,4 @@
+import { LOGO_URL } from "../../lib/assets";
 import { MailCheck } from "lucide-react";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
@@ -5,7 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
 import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
-import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
+import { isStrongPassword, passwordPolicyChecks, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 
 const initialResetForm = {
   usernameOrEmail: "",
@@ -24,6 +25,7 @@ const Login = () => {
   const [resetForm, setResetForm] = useState(initialResetForm);
   const [codeRequested, setCodeRequested] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const resetChecks = passwordPolicyChecks(resetForm.newPassword);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -102,7 +104,7 @@ const Login = () => {
 
         <Card className="mx-auto w-full max-w-lg p-6 sm:p-8">
           <div className="mb-6 text-center">
-            <img src="/logo.png" alt="Barangay Iba" className="mx-auto h-20 w-20 rounded-3xl border border-[var(--brand-100)] bg-white p-2" />
+            <img src={LOGO_URL} alt="Barangay Iba" className="mx-auto h-20 w-20 rounded-3xl border border-[var(--brand-100)] bg-white p-2" />
             <h2 className="mt-4 text-3xl font-black text-[var(--brand-900)]">Sign in</h2>
             <p className="mt-2 text-sm text-stone-500">Use your username, email, or registered contact number.</p>
           </div>
@@ -181,6 +183,11 @@ const Login = () => {
                 onChange={(event) => setResetForm((current) => ({ ...current, newPassword: event.target.value }))}
                 placeholder="8+ characters, uppercase + number"
               />
+              <div className="grid gap-2 rounded-2xl bg-stone-50 p-4 text-sm">
+                <p className={resetChecks.length ? "font-semibold text-emerald-700" : "text-stone-500"}>{resetChecks.length ? "✓" : "○"} At least 8 characters</p>
+                <p className={resetChecks.uppercase ? "font-semibold text-emerald-700" : "text-stone-500"}>{resetChecks.uppercase ? "✓" : "○"} At least 1 uppercase letter</p>
+                <p className={resetChecks.number ? "font-semibold text-emerald-700" : "text-stone-500"}>{resetChecks.number ? "✓" : "○"} At least 1 number</p>
+              </div>
               <div className="flex flex-wrap gap-3">
                 <Button type="submit" loading={resetLoading}>
                   Reset Password
@@ -198,3 +205,4 @@ const Login = () => {
 };
 
 export default Login;
+

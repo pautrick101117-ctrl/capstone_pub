@@ -26,3 +26,4 @@ test("full reset includes election option metadata required by voting API", () =
   assert.match(fullReset, /create table public\.election_options[\s\S]*source_suggestion_id uuid/i);
   assert.match(fullReset, /create table public\.election_options[\s\S]*image_url text/i);
 });
+

@@ -30,3 +30,4 @@ create index if not exists borrowing_requests_due_active_idx
   where status = 'borrowed';
 
 commit;
+

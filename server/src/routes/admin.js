@@ -650,12 +650,15 @@ const tableCrud = ({ table, label, fileField, fileFolder, filePrefix, mapPayload
 router.get("/dashboard", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    const [users, requests, officials, elections, logs] = await Promise.all([
+    const [users, requests, officials, elections, logs, complaints, idRequests, borrowingRequests] = await Promise.all([
       db.from("users").select("*").order("created_at", { ascending: false }),
       db.from("requests").select("*").order("created_at", { ascending: false }),
       db.from("officials").select("*"),
       db.from("elections").select("*").order("created_at", { ascending: false }),
       db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(30),
+      db.from("complaints").select("id, status, created_at"),
+      db.from("id_requests").select("id, status, preferred_date, time_slot, created_at"),
+      db.from("borrowing_requests").select("id, status, due_at, created_at"),
     ]);
 
     if (users.error) throw users.error;
@@ -663,12 +666,21 @@ router.get("/dashboard", async (_req, res, next) => {
     if (officials.error) throw officials.error;
     if (elections.error) throw elections.error;
     if (logs.error) throw logs.error;
+    if (complaints.error) throw complaints.error;
+    if (idRequests.error) throw idRequests.error;
+    if (borrowingRequests.error) throw borrowingRequests.error;
 
     const residents = (users.data || []).filter((user) => normalizeRole(user.role) === "resident");
     const activeResidents = residents.filter((user) => user.is_active);
     const pendingRequests = (requests.data || []).filter((item) => item.status !== "completed").length;
     const activeOfficials = (officials.data || []).filter((item) => item.is_active).length;
     const openElections = (elections.data || []).filter((item) => item.status === "live").length;
+    const pendingConcerns = (complaints.data || []).filter((item) => item.status === "pending").length;
+    const pendingBorrowing = (borrowingRequests.data || []).filter((item) => item.status === "pending").length;
+    const now = Date.now();
+    const overdueBorrowing = (borrowingRequests.data || []).filter((item) => item.status === "borrowed" && item.due_at && new Date(item.due_at).getTime() < now).length;
+    const today = new Date().toISOString().slice(0, 10);
+    const idPickupsToday = (idRequests.data || []).filter((item) => ["confirmed", "rescheduled"].includes(item.status) && item.preferred_date === today).length;
 
     const requestsByDateMap = new Map();
     for (const item of requests.data || []) {
@@ -712,6 +724,10 @@ router.get("/dashboard", async (_req, res, next) => {
         pendingRequests,
         activeOfficials,
         openElections,
+        pendingConcerns,
+        pendingBorrowing,
+        overdueBorrowing,
+        idPickupsToday,
       },
       charts: {
         requestsByType: Array.from(requestsByDateMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
@@ -1451,12 +1467,20 @@ router.post("/broadcast", async (req, res, next) => {
   }
 });
 
-router.get("/audit-logs", async (_req, res, next) => {
+router.get("/audit-logs", async (req, res, next) => {
   try {
+    if (normalizeRole(req.currentUser.role) !== "super_admin") {
+      throw Object.assign(new Error("Only super admins can view audit logs."), { status: 403 });
+    }
     const db = requireSupabase();
-    const { data, error } = await db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100);
+    const [{ data, error }, users] = await Promise.all([
+      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100),
+      db.from("users").select("id, full_name, first_name, last_name, username"),
+    ]);
     if (error) throw error;
-    res.json({ logs: data || [] });
+    if (users.error) throw users.error;
+    const names = new Map((users.data || []).map((user) => [user.id, user.full_name || [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || null]));
+    res.json({ logs: (data || []).map((item) => ({ ...item, actor_name: names.get(item.actor_id) || null })) });
   } catch (error) {
     next(error);
   }
@@ -1581,6 +1605,16 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
     if (invalidPurok) throw Object.assign(new Error(`Invalid or inactive Purok: ${invalidPurok.purok}. Update Admin Settings or correct the upload.`), { status: 400 });
     const invalidStatus = payload.find((item) => !["active", "for update"].includes(item.status));
     if (invalidStatus) throw Object.assign(new Error(`Invalid census status: ${invalidStatus.status}. Use active or for update.`), { status: 400 });
+
+    if (`${req.query.validateOnly || ""}`.toLowerCase() === "true") {
+      return res.json({
+        valid: true,
+        rowCount: payload.length,
+        preview: payload.slice(0, 5),
+        message: `${payload.length} household row${payload.length === 1 ? "" : "s"} passed validation.`,
+      });
+    }
+
     const saved = [];
     let inserted = 0;
     let updated = 0;
@@ -1711,3 +1745,4 @@ tableCrud({
 });
 
 export default router;
+

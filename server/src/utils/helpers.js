@@ -125,3 +125,4 @@ export const sanitizeUser = (user) => ({
   hasVoted: Boolean(user.has_voted),
   createdAt: user.created_at,
 });
+

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, EmptyState, Modal, PageHeader } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../../components/ui";
 import { countdownText, formatDateTime } from "../../lib/format";
 
 const guideSteps = [
@@ -24,11 +24,13 @@ const VotingCenter = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const isResident = user?.role === "resident";
 
   const load = async () => {
     setLoading(true);
+    setError("");
     try {
       const [electionData, statusData] = await Promise.all([
         api("/voting/current", { token }),
@@ -38,8 +40,8 @@ const VotingCenter = () => {
       setElection(activeElection);
       setHasVoted(Boolean(activeElection && statusData.electionId === activeElection.id && statusData.hasVoted));
       setSelectedOptionId("");
-    } catch (error) {
-      toast.error(error.message);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load the current voting period.");
       setElection(null);
       setHasVoted(false);
     } finally {
@@ -68,7 +70,8 @@ const VotingCenter = () => {
     }
   };
 
-  if (loading) return <Card><p className="text-sm text-stone-500">Loading active community project voting...</p></Card>;
+  if (loading) return <div className="space-y-8"><PageHeader eyebrow="Resident Participation" title="Community Project Voting" description="Loading the current voting period and your participation status." /><LoadingState rows={4} /></div>;
+  if (error) return <div className="space-y-8"><PageHeader eyebrow="Resident Participation" title="Community Project Voting" description="Registered residents can help prioritize approved community projects." /><ErrorState description={error} onRetry={load} /></div>;
 
   return (
     <div className="space-y-8">
@@ -168,3 +171,4 @@ const VotingCenter = () => {
 };
 
 export default VotingCenter;
+

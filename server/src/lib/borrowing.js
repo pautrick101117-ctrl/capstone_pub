@@ -81,3 +81,4 @@ export const validateReturnInspection = ({ requestedQuantity, returnedQuantity, 
 
   return { returnedQuantity: returned, returnCondition: condition, returnNote: note };
 };
+

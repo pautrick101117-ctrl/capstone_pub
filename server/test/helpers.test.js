@@ -39,3 +39,4 @@ test("adult validation rejects underage resident", () => {
   nextYear.setFullYear(nextYear.getFullYear() - 17);
   assert.throws(() => ensureAdult(nextYear.toISOString().slice(0, 10)), /at least 18/i);
 });
+

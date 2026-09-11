@@ -8,7 +8,7 @@ import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 const ChangePassword = () => {
   const navigate = useNavigate();
   const toast = useToast();
-  const { changePassword, isPasswordChangeRequired } = useAuth();
+  const { changePassword, isPasswordChangeRequired, user } = useAuth();
   const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [saving, setSaving] = useState(false);
 
@@ -36,7 +36,7 @@ const ChangePassword = () => {
         newPassword: form.newPassword,
       });
       toast.success("Password updated successfully.");
-      navigate("/portal");
+      navigate(["admin", "super_admin"].includes(user?.role) ? "/admin" : "/portal");
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -51,7 +51,7 @@ const ChangePassword = () => {
         title="Change your password"
         description={
           isPasswordChangeRequired
-            ? "Your temporary password must be replaced before you can use the resident portal."
+            ? "Your temporary password must be replaced before you can continue to the portal."
             : "Keep your account secure with a fresh password."
         }
       />
@@ -89,3 +89,4 @@ const ChangePassword = () => {
 };
 
 export default ChangePassword;
+

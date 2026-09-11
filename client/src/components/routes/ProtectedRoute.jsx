@@ -22,3 +22,4 @@ export const ProtectedRoute = ({ roles, redirectTo = "/login" }) => {
 
   return <Outlet />;
 };
+

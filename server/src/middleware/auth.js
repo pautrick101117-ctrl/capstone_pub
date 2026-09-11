@@ -55,3 +55,4 @@ export const requireCurrentUser =
       next(error);
     }
   };
+

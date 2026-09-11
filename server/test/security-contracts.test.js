@@ -109,3 +109,4 @@ test("password changes enforce uppercase and numeric password policy on the serv
   assert.match(helpers, /\/\[A-Z\]\//);
   assert.match(helpers, /\/\[0-9\]\//);
 });
+

@@ -8,3 +8,4 @@ alter table public.election_options
   add column if not exists image_url text;
 
 commit;
+

@@ -17,6 +17,8 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorState,
+  LoadingState,
   Modal,
   PageHeader,
   SelectInput,
@@ -69,12 +71,23 @@ const BorrowingPage = () => {
   const [availabilityChecked, setAvailabilityChecked] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [cancelRequest, setCancelRequest] = useState(null);
+  const [mineLoading, setMineLoading] = useState(true);
+  const [mineError, setMineError] = useState("");
+  const [availabilityError, setAvailabilityError] = useState("");
 
   const minimumDateTime = useMemo(() => toLocalInput(new Date()), []);
 
   const loadMine = async () => {
-    const data = await api("/borrowing/mine", { token });
-    setRequests(data.requests || []);
+    setMineLoading(true);
+    setMineError("");
+    try {
+      const data = await api("/borrowing/mine", { token });
+      setRequests(data.requests || []);
+    } catch (loadError) {
+      setMineError(loadError.message || "Unable to load your borrowing requests.");
+    } finally {
+      setMineLoading(false);
+    }
   };
 
   const validateWindow = () => {
@@ -98,6 +111,7 @@ const BorrowingPage = () => {
   const checkAvailability = async () => {
     if (!validateWindow()) return;
     setChecking(true);
+    setAvailabilityError("");
     try {
       const params = new URLSearchParams({
         startAt: new Date(windowForm.startAt).toISOString(),
@@ -111,7 +125,7 @@ const BorrowingPage = () => {
       }
     } catch (error) {
       setAvailabilityChecked(false);
-      toast.error(error.message);
+      setAvailabilityError(error.message || "Unable to check resource availability.");
     } finally {
       setChecking(false);
     }
@@ -119,7 +133,7 @@ const BorrowingPage = () => {
 
   useEffect(() => {
     if (!token) return;
-    loadMine().catch((error) => toast.error(error.message));
+    loadMine();
     checkAvailability();
   }, [token]);
 
@@ -314,17 +328,18 @@ const BorrowingPage = () => {
             <CalendarClock className="h-4 w-4" /> Check Availability
           </Button>
         </div>
-        {!availabilityChecked ? (
+        {!availabilityChecked && !availabilityError ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             Schedule changed. Check availability before selecting a resource.
           </div>
-        ) : (
+        ) : availabilityChecked ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             Availability shown below is for {formatDateTime(new Date(windowForm.startAt).toISOString())} to {formatDateTime(new Date(windowForm.dueAt).toISOString())}.
           </div>
-        )}
+        ) : null}
       </Card>
 
+      {availabilityError ? <ErrorState title="We couldn't check resource availability" description={availabilityError} onRetry={checkAvailability} /> : null}
       {availabilityChecked ? (
         <div className="space-y-8">
           {resourceSection("Facilities", "Facilities are reserved as one whole resource for the selected schedule.", facilities)}
@@ -448,7 +463,11 @@ const BorrowingPage = () => {
             <p className="mt-1 text-sm text-stone-500">Track approval, release, return deadlines, and any notes from the barangay.</p>
           </div>
 
-          {requests.length === 0 ? (
+          {mineLoading ? (
+            <LoadingState rows={3} compact />
+          ) : mineError ? (
+            <ErrorState description={mineError} onRetry={loadMine} />
+          ) : requests.length === 0 ? (
             <EmptyState title="No borrowing requests" description="Your borrowing history and request status will appear here." />
           ) : requests.map((item) => {
             const meta = getBorrowingStatusMeta(item.status, item.isLate);
@@ -539,3 +558,4 @@ const BorrowingPage = () => {
 };
 
 export default BorrowingPage;
+

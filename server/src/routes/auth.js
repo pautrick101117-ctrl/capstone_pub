@@ -346,3 +346,4 @@ router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordC
 });
 
 export default router;
+

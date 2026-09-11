@@ -1,6 +1,6 @@
 import { KeyRound, Power, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Modal, PageHeader, StatCard, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, StatCard, TableShell, TextInput } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { formatDate } from "../../lib/format";
@@ -25,15 +25,19 @@ const Admin_UserMaintenance = () => {
   const [form, setForm] = useState(initialForm);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [credential, setCredential] = useState(null);
+  const [error, setError] = useState("");
+  const [pendingAction, setPendingAction] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const loadUsers = async () => {
     if (!token) return;
     setLoading(true);
+    setError("");
     try {
       const data = await api("/super-admin/users", { token });
       setUsers(data.users || []);
-    } catch (error) {
-      toast.error(error.message);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load user accounts.");
     } finally {
       setLoading(false);
     }
@@ -127,6 +131,22 @@ const Admin_UserMaintenance = () => {
     }
   };
 
+  const runPendingAction = async () => {
+    if (!pendingAction) return;
+    const { type, account, updates } = pendingAction;
+    setActionLoading(true);
+    try {
+      if (type === "reset") {
+        await resetPassword(account);
+      } else {
+        await updateUser(account, updates);
+      }
+      setPendingAction(null);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const copyCredential = async () => {
     if (!credential) return;
     try {
@@ -181,7 +201,10 @@ const Admin_UserMaintenance = () => {
         <StatCard icon={Power} label="Inactive" value={counts.inactive} />
       </div>
 
-      <Card>
+      {error ? <ErrorState description={error} onRetry={loadUsers} /> : null}
+      {loading && !users.length ? <LoadingState rows={5} /> : null}
+
+      {!error && (!loading || users.length) ? <Card>
         <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-xl font-bold text-[var(--brand-900)]">Accounts</h2>
@@ -242,7 +265,7 @@ const Admin_UserMaintenance = () => {
                       <select
                         value={account.role}
                         disabled={isSelf}
-                        onChange={(event) => updateUser(account, { role: event.target.value })}
+                        onChange={(event) => setPendingAction({ type: "role", account, updates: { role: event.target.value }, nextRole: event.target.value })}
                         className="rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none transition disabled:bg-stone-100 disabled:text-stone-500 focus:border-[var(--brand-400)] focus:ring-4 focus:ring-[var(--brand-100)]"
                       >
                         <option value="resident">Resident</option>
@@ -264,17 +287,17 @@ const Admin_UserMaintenance = () => {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant={account.isActive ? "secondary" : "primary"}
-                          onClick={() => updateUser(account, { isActive: !account.isActive })}
+                          onClick={() => setPendingAction({ type: account.isActive ? "deactivate" : "activate", account, updates: { isActive: !account.isActive } })}
                           disabled={isSelf}
                         >
                           <Power className="h-4 w-4" />
                           {account.isActive ? "Deactivate" : "Activate"}
                         </Button>
-                        <Button variant="ghost" onClick={() => updateUser(account, { mustChangePassword: !account.mustChangePassword })} disabled={isSelf}>
+                        <Button variant="ghost" onClick={() => setPendingAction({ type: "passwordFlag", account, updates: { mustChangePassword: !account.mustChangePassword } })} disabled={isSelf}>
                           <RefreshCw className="h-4 w-4" />
                           {account.mustChangePassword ? "Clear Flag" : "Require Change"}
                         </Button>
-                        <Button variant="ghost" onClick={() => resetPassword(account)}>
+                        <Button variant="ghost" onClick={() => setPendingAction({ type: "reset", account })}>
                           <KeyRound className="h-4 w-4" />
                           Reset
                         </Button>
@@ -293,7 +316,7 @@ const Admin_UserMaintenance = () => {
             </tbody>
           </table>
         </TableShell>
-      </Card>
+      </Card> : null}
 
       <Modal
         open={showCreateModal}
@@ -359,8 +382,20 @@ const Admin_UserMaintenance = () => {
           </div>
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        onClose={() => !actionLoading && setPendingAction(null)}
+        onConfirm={runPendingAction}
+        loading={actionLoading}
+        tone={["deactivate", "reset", "role"].includes(pendingAction?.type) ? "danger" : "info"}
+        title={pendingAction?.type === "deactivate" ? `Deactivate ${pendingAction?.account?.fullName || "this account"}?` : pendingAction?.type === "activate" ? `Activate ${pendingAction?.account?.fullName || "this account"}?` : pendingAction?.type === "reset" ? `Reset ${pendingAction?.account?.fullName || "this account"}'s password?` : pendingAction?.type === "role" ? `Change role to ${pendingAction?.nextRole?.replace(/_/g, " ")}?` : "Change password requirement?"}
+        description={pendingAction?.type === "deactivate" ? "This user will no longer be able to sign in. Their historical records remain available." : pendingAction?.type === "activate" ? "This user will be able to sign in again." : pendingAction?.type === "reset" ? "A new temporary password will be generated and the user will be required to change it after signing in." : pendingAction?.type === "role" ? "Role changes can grant or remove administrative access. Confirm that this access level is intended." : "This changes whether the account must update its password at the next protected access."}
+        confirmLabel={pendingAction?.type === "deactivate" ? "Deactivate Account" : pendingAction?.type === "activate" ? "Activate Account" : pendingAction?.type === "reset" ? "Reset Password" : pendingAction?.type === "role" ? "Change Role" : "Confirm Change"}
+      />
     </div>
   );
 };
 
 export default Admin_UserMaintenance;
+

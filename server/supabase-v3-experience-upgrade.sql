@@ -58,3 +58,4 @@ on conflict (category, value) do nothing;
 -- No master-data seed values. Add real Puroks/categories/positions from Admin Settings.
 
 commit;
+

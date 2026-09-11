@@ -24,3 +24,4 @@ export const assertActiveMasterLabel = async (db, category, label) => {
   if (!data) throw Object.assign(new Error(`${normalizedLabel} is not an active ${normalizedCategory.replace(/_/g, " ")} option.`), { status: 400 });
   return data.label;
 };
+

@@ -10,3 +10,4 @@ export const isStrongPassword = (password = "") => {
   const checks = passwordPolicyChecks(password);
   return checks.length && checks.uppercase && checks.number && `${password}`.length <= 128;
 };
+

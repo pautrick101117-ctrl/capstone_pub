@@ -34,3 +34,4 @@ export const api = async (path, { method = "GET", body, token, headers = {} } = 
 };
 
 export { API_URL };
+

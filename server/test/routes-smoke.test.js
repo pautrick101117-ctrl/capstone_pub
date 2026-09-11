@@ -34,3 +34,4 @@ test("server index mounts all feature routers and exposes health endpoint", asyn
   assert.ok(source.includes('app.get("/api/health"'));
   assert.match(source, /export const createApp/);
 });
+

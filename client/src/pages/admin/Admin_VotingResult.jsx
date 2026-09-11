@@ -9,6 +9,8 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorState,
+  LoadingState,
   Modal,
   PageHeader,
   SelectInput,
@@ -92,6 +94,7 @@ const Admin_VotingResult = () => {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const approvedSuggestions = useMemo(
     () => suggestions.filter((suggestion) => suggestion.status === "approved"),
@@ -100,6 +103,7 @@ const Admin_VotingResult = () => {
 
   const load = async () => {
     setDataLoaded(false);
+    setError("");
 
     try {
       const [suggestionData, electionData, resultData] = await Promise.all([
@@ -149,8 +153,8 @@ const Admin_VotingResult = () => {
         setDraftOptions([]);
         setSelectedSuggestionIds([]);
       }
-    } catch (error) {
-      toast.error(error.message);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load voting management data.");
       setSuggestions([]);
       setElections([]);
       setSelectedElectionId("");
@@ -275,7 +279,11 @@ const Admin_VotingResult = () => {
   };
 
   if (!dataLoaded) {
-    return <div className="text-sm text-stone-500">Loading...</div>;
+    return <div className="space-y-8"><PageHeader eyebrow="Voting Management" title="Recommended project voting" description="Loading suggestions, voting posts and results." /><LoadingState rows={5} /></div>;
+  }
+
+  if (error) {
+    return <div className="space-y-8"><PageHeader eyebrow="Voting Management" title="Recommended project voting" description="Create voting posts from approved resident project suggestions and review results." /><ErrorState description={error} onRetry={load} /></div>;
   }
 
   return (
@@ -789,3 +797,4 @@ const Admin_VotingResult = () => {
 };
 
 export default Admin_VotingResult;
+
