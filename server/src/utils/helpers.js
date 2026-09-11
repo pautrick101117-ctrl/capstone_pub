@@ -124,5 +124,6 @@ export const sanitizeUser = (user) => ({
   verificationProvider: user.verification_provider,
   hasVoted: Boolean(user.has_voted),
   createdAt: user.created_at,
+  updatedAt: user.updated_at,
 });
 

@@ -1507,6 +1507,93 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
   }
 });
 
+
+router.patch("/projects/:projectId/updates/:updateId", upload.single("image"), async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const [{ data: project, error: projectError }, { data: existing, error: updateError }] = await Promise.all([
+      db.from("community_projects").select("*").eq("id", req.params.projectId).single(),
+      db.from("project_updates").select("*").eq("id", req.params.updateId).eq("project_id", req.params.projectId).maybeSingle(),
+    ]);
+    if (projectError) throw projectError;
+    if (updateError) throw updateError;
+    if (!existing) throw Object.assign(new Error("Project update not found."), { status: 404 });
+
+    const title = `${req.body.title ?? existing.title ?? ""}`.trim();
+    const description = `${req.body.description ?? existing.description ?? ""}`.trim();
+    ensure(title, "Update title is required.");
+    ensure(description, "Update description is required.");
+
+    let progress = req.body.progressPercentage === undefined || req.body.progressPercentage === ""
+      ? existing.progress_percentage
+      : Number(req.body.progressPercentage);
+    if (progress !== null && progress !== undefined && (!Number.isInteger(progress) || progress < 0 || progress > 100)) {
+      throw Object.assign(new Error("Progress must be a whole number from 0 to 100."), { status: 400 });
+    }
+
+    const status = req.body.projectStatus || existing.project_status || null;
+    if (status && !PROJECT_STATUSES.has(status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
+    const imageUrl = req.file
+      ? await uploadAsset({ file: req.file, folder: "project-updates", prefix: `${project.id}-${title}` })
+      : existing.image_url;
+
+    const payload = {
+      title,
+      description,
+      image_url: imageUrl,
+      progress_percentage: progress ?? null,
+      project_status: status,
+      update_date: req.body.updateDate || existing.update_date,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: savedUpdate, error } = await db
+      .from("project_updates")
+      .update(payload)
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+
+    const projectChanges = { updated_at: new Date().toISOString() };
+    if (progress !== null && progress !== undefined) projectChanges.progress_percentage = progress;
+    if (status) projectChanges.status = status;
+    if (status === "ongoing" && !project.actual_start_date) projectChanges.actual_start_date = payload.update_date;
+    if (status === "completed") {
+      projectChanges.status = "completed";
+      projectChanges.progress_percentage = 100;
+      projectChanges.completed_at = project.completed_at || new Date().toISOString();
+    } else if (status) {
+      projectChanges.completed_at = null;
+    }
+
+    const { data: savedProject, error: projectSaveError } = await db
+      .from("community_projects")
+      .update(projectChanges)
+      .eq("id", project.id)
+      .select("*")
+      .single();
+    if (projectSaveError) throw projectSaveError;
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "edit_project_update",
+      entityType: "project_update",
+      entityId: savedUpdate.id,
+      module: "projects",
+      beforeData: existing,
+      afterData: savedUpdate,
+      details: { projectId: project.id },
+      req,
+    });
+
+    res.json({ update: savedUpdate, project: savedProject, message: "Project update corrected successfully." });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/census_households", async (_req, res, next) => {
   try {
     const db = requireSupabase();

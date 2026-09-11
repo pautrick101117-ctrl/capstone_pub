@@ -1,10 +1,10 @@
-import { ImagePlus, Info, Lightbulb, Send, Trophy, Vote, X } from "lucide-react";
+import { ImagePlus, Info, Lightbulb, Pencil, Send, Trophy, Vote, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, TextArea, TextInput } from "../../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
@@ -36,6 +36,8 @@ const SuggestionsPage = () => {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [success, setSuccess] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [editForm, setEditForm] = useState({ title: "", description: "", image: null, preview: "", removeImage: false });
 
   const load = async () => {
     setLoading(true); setError("");
@@ -46,6 +48,40 @@ const SuggestionsPage = () => {
   };
   useEffect(() => { if (token && activeTab === "mine") load(); }, [token, activeTab, filter, page]);
   useEffect(() => { setPage(1); }, [filter]);
+
+
+  const openEdit = (item) => {
+    setEditItem(item);
+    setEditForm({
+      title: item.title || "",
+      description: item.description || "",
+      image: null,
+      preview: item.image_url || "",
+      removeImage: false,
+    });
+  };
+
+  const saveEdit = async (event) => {
+    event.preventDefault();
+    if (!editItem) return;
+    setSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("title", editForm.title);
+      formData.append("description", editForm.description);
+      if (editForm.image) formData.append("image", editForm.image);
+      if (editForm.removeImage) formData.append("removeImage", "true");
+      const data = await api(`/suggestions/${editItem.id}`, { method: "PATCH", token, body: formData });
+      toast.success(data.message || "Project suggestion updated.");
+      setEditItem(null);
+      setEditForm({ title: "", description: "", image: null, preview: "", removeImage: false });
+      await load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const submit = async (event) => {
     event.preventDefault(); setSaving(true);
@@ -77,12 +113,21 @@ const SuggestionsPage = () => {
               const meta = getStatusMeta(item.status, "suggestion");
               const outcome = outcomeMeta[item.votingOutcome];
               const projectMeta = item.project ? getStatusMeta(item.project.status) : null;
-              return <Card key={item.id}>{item.image_url ? <img src={item.image_url} alt={item.title} className="mb-4 h-52 w-full rounded-2xl object-cover" /> : null}<div className="flex flex-wrap items-center gap-2"><Badge tone={meta.tone}>{meta.label}</Badge>{outcome ? <Badge tone={outcome.tone}>{outcome.label}</Badge> : null}{item.project ? <Badge tone={projectMeta.tone}>{projectMeta.label} · {item.project.progress_percentage || 0}%</Badge> : null}</div><h3 className="mt-3 text-lg font-bold text-[var(--brand-900)]">{item.title}</h3><p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p>{item.review_note ? <div className="mt-4 rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">Barangay review note</p><p className="mt-1 text-sm text-stone-700">{item.review_note}</p></div> : null}<div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-stone-400">Submitted {formatDateTime(item.created_at)}</p>{item.project ? <NavLink to={`/project-updates/${item.project.id}`} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Trophy className="h-4 w-4" /> View Project Updates</NavLink> : item.votingOutcome === "in_voting" ? <NavLink to="/portal/voting" className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Vote className="h-4 w-4" /> View Voting</NavLink> : null}</div></Card>;
+              return <Card key={item.id}>{item.image_url ? <img src={item.image_url} alt={item.title} className="mb-4 h-52 w-full rounded-2xl object-cover" /> : null}<div className="flex flex-wrap items-center gap-2"><Badge tone={meta.tone}>{meta.label}</Badge>{outcome ? <Badge tone={outcome.tone}>{outcome.label}</Badge> : null}{item.project ? <Badge tone={projectMeta.tone}>{projectMeta.label} · {item.project.progress_percentage || 0}%</Badge> : null}</div><h3 className="mt-3 text-lg font-bold text-[var(--brand-900)]">{item.title}</h3><p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p>{item.review_note ? <div className="mt-4 rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">Barangay review note</p><p className="mt-1 text-sm text-stone-700">{item.review_note}</p></div> : null}<div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-stone-400">Submitted {formatDateTime(item.created_at)}</p><div className="flex flex-wrap items-center gap-2">{item.status === "pending" && !item.votingOutcome ? <Button type="button" variant="secondary" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /> Edit</Button> : null}{item.project ? <NavLink to={`/project-updates/${item.project.id}`} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Trophy className="h-4 w-4" /> View Project Updates</NavLink> : item.votingOutcome === "in_voting" ? <NavLink to="/portal/voting" className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Vote className="h-4 w-4" /> View Voting</NavLink> : null}</div></div></Card>;
             })}
           </div>
         )}
         {!loading && !error && pagination.totalPages > 1 ? <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} /> : null}
       </>}
+
+      <Modal open={Boolean(editItem)} onClose={() => !saving && setEditItem(null)} title="Edit project suggestion" description="You can edit a suggestion only while it is still under barangay review. Once approved, rejected, or linked to voting, it is locked for history and transparency." closeDisabled={saving}>
+        {editItem ? <form className="space-y-5" onSubmit={saveEdit}>
+          <TextInput label="Project Title" required minLength={5} maxLength={120} value={editForm.title} onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))} />
+          <TextArea label="Description" required minLength={20} maxLength={1500} value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
+          <label className="flex flex-col gap-2 text-sm font-medium text-stone-700"><span>Project Image <span className="font-normal text-stone-400">(optional)</span></span><div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-4"><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0] || null; setEditForm((current) => ({ ...current, image: file, preview: file ? URL.createObjectURL(file) : current.preview, removeImage: false })); }} />{editForm.preview && !editForm.removeImage ? <div className="relative mt-3"><img src={editForm.preview} alt="Project suggestion" className="h-56 w-full rounded-2xl object-cover" /><button type="button" onClick={() => setEditForm((current) => ({ ...current, image: null, preview: "", removeImage: true }))} className="absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow" aria-label="Remove image"><X className="h-4 w-4" /></button></div> : null}</div></label>
+          <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setEditItem(null)}>Cancel</Button></div>
+        </form> : null}
+      </Modal>
     </div>
   );
 };

@@ -141,5 +141,77 @@ router.post("/", upload.single("image"), async (req, res, next) => {
   }
 });
 
+router.patch("/:suggestionId", upload.single("image"), async (req, res, next) => {
+  try {
+    if (normalizeRole(req.currentUser.role) !== "resident") {
+      throw Object.assign(new Error("Only resident accounts can edit their suggestions."), { status: 403 });
+    }
+
+    const db = requireSupabase();
+    const { data: existing, error: findError } = await db
+      .from("project_suggestions")
+      .select("*")
+      .eq("id", req.params.suggestionId)
+      .eq("user_id", req.currentUser.id)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!existing) throw Object.assign(new Error("Project suggestion not found."), { status: 404 });
+    if (existing.status !== "pending") {
+      throw Object.assign(new Error("Only suggestions that are still under review can be edited."), { status: 409 });
+    }
+
+    const { count: optionCount, error: optionError } = await db
+      .from("election_options")
+      .select("id", { count: "exact", head: true })
+      .eq("source_suggestion_id", existing.id);
+    if (optionError) throw optionError;
+    if (optionCount) {
+      throw Object.assign(new Error("This suggestion is already linked to a voting post and can no longer be edited."), { status: 409 });
+    }
+
+    const title = `${req.body.title ?? existing.title}`.trim();
+    const description = `${req.body.description ?? existing.description}`.trim();
+    if (!title || !description) {
+      throw Object.assign(new Error("Title and description are required."), { status: 400 });
+    }
+    if (req.file && !`${req.file.mimetype}`.startsWith("image/")) {
+      throw Object.assign(new Error("Suggestion attachment must be an image file."), { status: 400 });
+    }
+
+    let imageUrl = existing.image_url;
+    if (req.file) {
+      imageUrl = await uploadAsset({
+        file: req.file,
+        folder: "project-suggestions",
+        prefix: `${req.currentUser.id}-suggestion`,
+      });
+    } else if (`${req.body.removeImage || ""}`.toLowerCase() === "true") {
+      imageUrl = null;
+    }
+
+    const updates = { title, description, image_url: imageUrl };
+    const { data, error } = await db
+      .from("project_suggestions")
+      .update(updates)
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "edit_project_suggestion",
+      entityType: "project_suggestion",
+      entityId: existing.id,
+      details: { before: { title: existing.title, description: existing.description, image_url: existing.image_url }, after: updates },
+    });
+
+    res.json({ suggestion: data, message: "Project suggestion updated." });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
 

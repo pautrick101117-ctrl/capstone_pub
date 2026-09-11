@@ -10,6 +10,7 @@ import PrivacyPolicy from "./pages/client/PrivacyPolicy";
 import VotingResult from "./pages/client/VotingResult";
 import ProjectUpdatesPage from "./pages/client/ProjectUpdatesPage";
 import PublicFeedPage from "./pages/client/PublicFeedPage";
+import NewsArticlePage from "./pages/client/NewsArticlePage";
 import CalendarPage from "./pages/client/CalendarPage";
 import VotingCenter from "./pages/client/VotingCenter";
 import UserDashboard from "./pages/client/UserDashboard";
@@ -47,6 +48,7 @@ const router = createBrowserRouter(
       <Route path="/" element={<LandingPageLayout />}>
         <Route index element={<Home />} />
         <Route path="news" element={<PublicFeedPage type="news" />} />
+        <Route path="news/:id" element={<NewsArticlePage />} />
         <Route path="announcements" element={<PublicFeedPage type="announcement" />} />
         <Route path="fund_transparency" element={<FundTransparency />} />
         <Route path="officials" element={<Officials />} />

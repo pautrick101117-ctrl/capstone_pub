@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
-import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 
 const defaultHotline = {
   title: "Barangay Iba Hotline",
@@ -21,6 +21,7 @@ const categories = [
 ];
 
 const blankOption = { id: "", category: "purok", label: "", value: "", sortOrder: 0, isActive: true };
+const optionPageSize = 9;
 
 const Admin_Settings = () => {
   const { token } = useAuth();
@@ -35,6 +36,7 @@ const Admin_Settings = () => {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("public");
   const [toggleTarget, setToggleTarget] = useState(null);
+  const [optionPage, setOptionPage] = useState(1);
 
   const load = async () => {
     if (!token) return;
@@ -75,6 +77,19 @@ const Admin_Settings = () => {
     () => masterItems.filter((item) => item.category === selectedCategory),
     [masterItems, selectedCategory]
   );
+  const optionTotalPages = Math.max(1, Math.ceil(visibleOptions.length / optionPageSize));
+  const pagedOptions = useMemo(
+    () => visibleOptions.slice((optionPage - 1) * optionPageSize, optionPage * optionPageSize),
+    [visibleOptions, optionPage]
+  );
+
+  useEffect(() => {
+    setOptionPage(1);
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    if (optionPage > optionTotalPages) setOptionPage(optionTotalPages);
+  }, [optionPage, optionTotalPages]);
 
   const openCreate = () => setOptionForm({ ...blankOption, category: selectedCategory });
   const openEdit = (item) => setOptionForm({ id: item.id, category: item.category, label: item.label, value: item.value, sortOrder: item.sort_order, isActive: item.is_active });
@@ -162,7 +177,7 @@ const Admin_Settings = () => {
 
             <p className="mt-4 text-sm text-stone-500">{categories.find(([value]) => value === selectedCategory)?.[2]}</p>
             <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {visibleOptions.map((item) => (
+              {pagedOptions.map((item) => (
                 <div key={item.id} className="rounded-2xl border border-stone-200 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div><p className="font-semibold text-[var(--brand-900)]">{item.label}</p><p className="mt-1 text-xs text-stone-400">Order {item.sort_order}</p></div>
@@ -176,6 +191,7 @@ const Admin_Settings = () => {
               ))}
               {!visibleOptions.length ? <p className="text-sm text-stone-500">No options configured for this list yet.</p> : null}
             </div>
+            {optionTotalPages > 1 ? <div className="mt-5"><Pagination page={optionPage} totalPages={optionTotalPages} onPageChange={setOptionPage} /></div> : null}
           </Card> : null}
         </>
       )}

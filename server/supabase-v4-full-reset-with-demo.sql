@@ -1103,8 +1103,9 @@ create table if not exists public.community_projects (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists community_projects_election_uidx
-  on public.community_projects (election_id) where election_id is not null;
+drop index if exists public.community_projects_election_uidx;
+create unique index community_projects_election_uidx
+  on public.community_projects (election_id);
 create index if not exists community_projects_status_idx
   on public.community_projects (status, updated_at desc);
 create index if not exists community_projects_suggestion_idx

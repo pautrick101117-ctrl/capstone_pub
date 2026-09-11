@@ -1,4 +1,4 @@
-import { Copy, KeyRound, Mail, Power, Printer, UserPlus } from "lucide-react";
+import { Copy, Eye, KeyRound, Mail, Pencil, Power, Printer, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -39,6 +39,8 @@ const Admin_Residents = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [credentialResult, setCredentialResult] = useState(null);
   const [retryingEmail, setRetryingEmail] = useState(false);
+  const [selectedResident, setSelectedResident] = useState(null);
+  const [editResident, setEditResident] = useState(null);
   const { options: purokOptions } = useMasterData("purok");
 
   const load = async () => {
@@ -166,6 +168,47 @@ const Admin_Residents = () => {
     }
   };
 
+
+  const openEditResident = (resident) => {
+    setEditResident({
+      id: resident.id,
+      fullName: resident.fullName || "",
+      birthdate: resident.birthdate || "",
+      address: resident.address || "",
+      purok: resident.purok || "",
+      contactNumber: resident.contactNumber || "",
+      email: resident.email || "",
+    });
+  };
+
+  const saveResidentEdit = async (event) => {
+    event.preventDefault();
+    if (!editResident) return;
+    setSaving(true);
+    try {
+      const data = await api(`/admin/users/${editResident.id}`, {
+        method: "PATCH",
+        token,
+        body: {
+          fullName: editResident.fullName,
+          birthdate: editResident.birthdate,
+          address: editResident.address,
+          purok: editResident.purok,
+          contactNumber: editResident.contactNumber,
+          email: editResident.email,
+        },
+      });
+      toast.success("Resident information updated.");
+      setEditResident(null);
+      setSelectedResident((current) => current?.id === data.user?.id ? data.user : current);
+      await load();
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const printResidents = () => {
     if (!residents.length) {
       toast.error("No residents to print.");
@@ -286,8 +329,9 @@ const Admin_Residents = () => {
                 <th className="px-4 py-3 font-semibold">Resident</th>
                 <th className="px-4 py-3 font-semibold">Username</th>
                 <th className="px-4 py-3 font-semibold">Contact</th>
-                <th className="px-4 py-3 font-semibold">Birthdate</th>
+                <th className="px-4 py-3 font-semibold">Purok</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Updated</th>
                 <th className="px-4 py-3 font-semibold">Actions</th>
               </tr>
             </thead>
@@ -303,7 +347,7 @@ const Admin_Residents = () => {
                     <p>{resident.contactNumber || "Not set"}</p>
                     <p className="mt-1 text-xs text-stone-500">{resident.email || "No email"}</p>
                   </td>
-                  <td className="px-4 py-4 text-stone-600">{resident.birthdate ? formatDate(resident.birthdate) : "Not set"}</td>
+                  <td className="px-4 py-4 text-stone-600">{resident.purok || "Not set"}</td>
                   <td className="px-4 py-4">
                     <div className="space-y-2">
                       <Badge tone={resident.isActive ? "success" : "danger"}>{resident.isActive ? "Active" : "Inactive"}</Badge>
@@ -312,23 +356,20 @@ const Admin_Residents = () => {
                       </Badge>
                     </div>
                   </td>
+                  <td className="px-4 py-4 text-stone-600">{formatDate(resident.updatedAt || resident.createdAt)}</td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => setConfirmAction({ type: resident.isActive ? "deactivate" : "activate", resident })}>
-                        <Power className="h-4 w-4" />
-                        {resident.isActive ? "Deactivate" : "Activate"}
-                      </Button>
-                      <Button variant="ghost" onClick={() => setConfirmAction({ type: "reset", resident })}>
-                        <KeyRound className="h-4 w-4" />
-                        Reset Password
-                      </Button>
+                      <Button variant="secondary" onClick={() => setSelectedResident(resident)}><Eye className="h-4 w-4" /> View</Button>
+                      <Button variant="secondary" onClick={() => openEditResident(resident)}><Pencil className="h-4 w-4" /> Edit</Button>
+                      <Button variant="ghost" onClick={() => setConfirmAction({ type: "reset", resident })}><KeyRound className="h-4 w-4" /> Reset</Button>
+                      <Button variant={resident.isActive ? "danger" : "primary"} onClick={() => setConfirmAction({ type: resident.isActive ? "deactivate" : "activate", resident })}><Power className="h-4 w-4" /> {resident.isActive ? "Deactivate" : "Activate"}</Button>
                     </div>
                   </td>
                 </tr>
               ))}
               {!paginatedResidents.length ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-sm text-stone-500" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-sm text-stone-500" colSpan={7}>
                     No residents match the current search.
                   </td>
                 </tr>
@@ -364,6 +405,33 @@ const Admin_Residents = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={Boolean(selectedResident)} onClose={() => setSelectedResident(null)} title={selectedResident?.fullName || "Resident Profile"} description="Resident record and account information." widthClass="max-w-3xl">
+        {selectedResident ? <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["Full Name", selectedResident.fullName], ["Username", selectedResident.username],
+              ["Birthdate", selectedResident.birthdate ? formatDate(selectedResident.birthdate) : "Not set"], ["Purok", selectedResident.purok || "Not set"],
+              ["Address", selectedResident.address || "Not set"], ["Contact", selectedResident.contactNumber || "Not set"],
+              ["Email", selectedResident.email || "Not set"], ["Created", formatDate(selectedResident.createdAt)],
+              ["Last Updated", formatDate(selectedResident.updatedAt || selectedResident.createdAt)], ["Account", selectedResident.isActive ? "Active" : "Inactive"],
+            ].map(([label, value]) => <div key={label} className="rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">{label}</p><p className="mt-2 text-sm font-semibold text-stone-700">{value}</p></div>)}
+          </div>
+          <div className="flex flex-wrap gap-2"><Button onClick={() => { openEditResident(selectedResident); setSelectedResident(null); }}><Pencil className="h-4 w-4" /> Edit Resident</Button><Button variant="secondary" onClick={() => setConfirmAction({ type: "reset", resident: selectedResident })}><KeyRound className="h-4 w-4" /> Reset Password</Button></div>
+        </div> : null}
+      </Modal>
+
+      <Modal open={Boolean(editResident)} onClose={() => !saving && setEditResident(null)} title="Edit Resident" description="Update resident profile information. Password changes remain a separate security action." widthClass="max-w-3xl" closeDisabled={saving}>
+        {editResident ? <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveResidentEdit}>
+          <TextInput label="Full Name" required value={editResident.fullName} onChange={(e) => setEditResident((v) => ({ ...v, fullName: e.target.value }))} />
+          <TextInput label="Birthdate" required type="date" value={editResident.birthdate} onChange={(e) => setEditResident((v) => ({ ...v, birthdate: e.target.value }))} />
+          <TextInput label="Address" required className="sm:col-span-2" value={editResident.address} onChange={(e) => setEditResident((v) => ({ ...v, address: e.target.value }))} />
+          <SelectInput label="Purok" required value={editResident.purok} onChange={(e) => setEditResident((v) => ({ ...v, purok: e.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <TextInput label="Contact Number" required value={editResident.contactNumber} onChange={(e) => setEditResident((v) => ({ ...v, contactNumber: e.target.value }))} />
+          <TextInput label="Email" required type="email" className="sm:col-span-2" value={editResident.email} onChange={(e) => setEditResident((v) => ({ ...v, email: e.target.value }))} />
+          <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" onClick={() => setEditResident(null)} disabled={saving}>Cancel</Button></div>
+        </form> : null}
       </Modal>
 
       <Modal

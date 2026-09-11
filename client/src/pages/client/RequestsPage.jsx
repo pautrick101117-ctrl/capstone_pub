@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import { api, API_URL } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
 const requestTypes = ["Barangay Clearance", "Certificate of Residency", "Certificate of Indigency", "Other"];
+const pageSize = 5;
 
 const RequestStatus = ({ status, feature = "request" }) => {
   const meta = getStatusMeta(status, feature);
@@ -54,6 +55,8 @@ const RequestsPage = () => {
   const [savingId, setSavingId] = useState(false);
   const [success, setSuccess] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [requestPage, setRequestPage] = useState(1);
+  const [idPage, setIdPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
@@ -92,6 +95,11 @@ const RequestsPage = () => {
     if (filter === "completed") return requests.filter((item) => item.status === "completed");
     return requests;
   }, [requests, filter]);
+
+  useEffect(() => { setRequestPage(1); }, [filter]);
+
+  const paginatedRequests = useMemo(() => filteredRequests.slice((requestPage - 1) * pageSize, requestPage * pageSize), [filteredRequests, requestPage]);
+  const paginatedIdRequests = useMemo(() => idRequests.slice((idPage - 1) * pageSize, idPage * pageSize), [idRequests, idPage]);
 
   const submitRequest = async (event) => {
     event.preventDefault();
@@ -169,7 +177,7 @@ const RequestsPage = () => {
             <EmptyState title={filter === "all" ? "No document requests yet" : "No requests in this status"} description={filter === "all" ? "Start a new request for a Barangay Clearance, Residency Certificate, Indigency Certificate or another service." : "Try another status filter or start a new request."} action={filter === "all" ? <Button type="button" onClick={() => setActiveTab("new")}>Start a Request</Button> : null} />
           ) : (
             <div className="space-y-4">
-              {filteredRequests.map((request) => (
+              {paginatedRequests.map((request) => (
                 <Card key={request.id}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
@@ -185,18 +193,20 @@ const RequestsPage = () => {
               ))}
             </div>
           )}
+          {!loading && !error ? <Pagination page={requestPage} totalPages={Math.max(1, Math.ceil(filteredRequests.length / pageSize))} onPageChange={setRequestPage} /> : null}
 
           {!loading && !error && idRequests.length ? (
             <Card>
               <div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Barangay ID appointments</h2><p className="mt-1 text-sm text-stone-500">Schedule confirmations and changes appear here.</p></div><Button type="button" variant="secondary" onClick={() => setActiveTab("id")}>Manage ID Request</Button></div>
               <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                {idRequests.map((request) => (
+                {paginatedIdRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-stone-200 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-[var(--brand-900)]">{request.purpose}</p><p className="mt-1 text-sm text-stone-500">{request.preferred_date ? formatDate(request.preferred_date) : "Date pending"}{request.time_slot ? ` · ${request.time_slot}` : ""}</p></div><RequestStatus status={request.status} feature="id_request" /></div>
                     {request.admin_note ? <p className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-600">Barangay note: {request.admin_note}</p> : null}
                   </div>
                 ))}
               </div>
+              <Pagination page={idPage} totalPages={Math.max(1, Math.ceil(idRequests.length / pageSize))} onPageChange={setIdPage} />
             </Card>
           ) : null}
         </div>

@@ -300,14 +300,24 @@ export const ConfirmDialog = ({ open, onClose, onConfirm, title, description, co
 
 export const Pagination = ({ page, totalPages, onPageChange, className = "" }) => {
   if (totalPages <= 1) return null;
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = Math.max(1, Math.min(safePage - 2, totalPages - 4));
+  const end = Math.min(totalPages, Math.max(5, safePage + 2));
+  const pages = [];
+  for (let value = start; value <= end; value += 1) pages.push(value);
 
   return (
-    <div className={`mt-5 flex flex-wrap items-center justify-between gap-3 ${className}`}>
-      <p className="text-sm text-stone-500">Page {page} of {totalPages}</p>
-      <div className="flex gap-2">
-        <Button type="button" variant="secondary" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>Previous</Button>
-        <Button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>Next</Button>
+    <nav className={`mt-5 flex flex-wrap items-center justify-between gap-3 ${className}`} aria-label="Pagination">
+      <p className="text-sm text-stone-500">Page {safePage} of {totalPages}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" onClick={() => onPageChange(1)} disabled={safePage <= 1}>First</Button>
+        <Button type="button" variant="secondary" onClick={() => onPageChange(safePage - 1)} disabled={safePage <= 1}>Previous</Button>
+        {pages.map((value) => (
+          <button key={value} type="button" aria-current={value === safePage ? "page" : undefined} onClick={() => onPageChange(value)} className={`min-h-10 min-w-10 rounded-full px-3 text-sm font-semibold transition ${value === safePage ? "bg-[var(--brand-500)] text-white" : "border border-stone-200 bg-white text-stone-700 hover:bg-[var(--brand-50)]"}`}>{value}</button>
+        ))}
+        <Button type="button" variant="secondary" onClick={() => onPageChange(safePage + 1)} disabled={safePage >= totalPages}>Next</Button>
+        <Button type="button" variant="secondary" onClick={() => onPageChange(totalPages)} disabled={safePage >= totalPages}>Last</Button>
       </div>
-    </div>
+    </nav>
   );
 };

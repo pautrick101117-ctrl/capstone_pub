@@ -21,6 +21,7 @@ import {
   EmptyState,
   Modal,
   PageHeader,
+  Pagination,
   SelectInput,
   TableShell,
   TextArea,
@@ -31,6 +32,8 @@ import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS } from "../
 
 const blankAsset = { name: "", category: "item", description: "", totalQuantity: 1, isActive: true };
 const blankInspection = { returnedQuantity: 1, returnCondition: "good", returnNote: "" };
+const pageSize = 8;
+const calendarPageSize = 5;
 
 const startOfDay = (date = new Date()) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 const dateKey = (value) => {
@@ -52,6 +55,9 @@ const Admin_Borrowing = () => {
   const [adminNote, setAdminNote] = useState("");
   const [inspection, setInspection] = useState(blankInspection);
   const [saving, setSaving] = useState(false);
+  const [requestPage, setRequestPage] = useState(1);
+  const [assetPage, setAssetPage] = useState(1);
+  const [calendarPage, setCalendarPage] = useState(1);
 
   const load = async () => {
     try {
@@ -113,6 +119,13 @@ const Admin_Borrowing = () => {
       return groups;
     }, {});
   }, [requests]);
+
+  useEffect(() => { setRequestPage(1); }, [status, search]);
+
+  const paginatedRequests = useMemo(() => filteredRequests.slice((requestPage - 1) * pageSize, requestPage * pageSize), [filteredRequests, requestPage]);
+  const paginatedAssets = useMemo(() => assets.slice((assetPage - 1) * pageSize, assetPage * pageSize), [assets, assetPage]);
+  const calendarEntries = useMemo(() => Object.entries(calendarGroups), [calendarGroups]);
+  const paginatedCalendarEntries = useMemo(() => calendarEntries.slice((calendarPage - 1) * calendarPageSize, calendarPage * calendarPageSize), [calendarEntries, calendarPage]);
 
   const saveAsset = async (event) => {
     event.preventDefault();
@@ -291,7 +304,7 @@ const Admin_Borrowing = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRequests.map((request) => {
+                  {paginatedRequests.map((request) => {
                     const meta = requestStatus(request);
                     const facility = isFacility(request.asset);
                     return (
@@ -325,6 +338,7 @@ const Admin_Borrowing = () => {
               </table>
             </TableShell>
           )}
+          <Pagination page={requestPage} totalPages={Math.max(1, Math.ceil(filteredRequests.length / pageSize))} onPageChange={setRequestPage} />
         </section>
       ) : null}
 
@@ -336,7 +350,7 @@ const Admin_Borrowing = () => {
           </div>
           {!Object.keys(calendarGroups).length ? (
             <EmptyState title="No active reservations" description="Approved reservations and currently borrowed resources will appear here." />
-          ) : Object.entries(calendarGroups).map(([day, dayRequests]) => (
+          ) : paginatedCalendarEntries.map(([day, dayRequests]) => (
             <Card key={day}>
               <div className="mb-4 flex items-center gap-3">
                 <CalendarDays className="h-5 w-5 text-[var(--brand-600)]" />
@@ -357,6 +371,7 @@ const Admin_Borrowing = () => {
               </div>
             </Card>
           ))}
+          <Pagination page={calendarPage} totalPages={Math.max(1, Math.ceil(calendarEntries.length / calendarPageSize))} onPageChange={setCalendarPage} />
         </section>
       ) : null}
 
@@ -371,7 +386,7 @@ const Admin_Borrowing = () => {
           </div>
           {!assets.length ? <EmptyState title="No resources configured" description="Add a facility or item residents can request to borrow." /> : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {assets.map((asset) => (
+              {paginatedAssets.map((asset) => (
                 <Card key={asset.id}>
                   <div className="flex justify-between gap-2"><PackageCheck className="h-5 w-5 text-[var(--brand-600)]" /><Badge tone={asset.is_active ? "success" : "danger"}>{asset.is_active ? "Active" : "Inactive"}</Badge></div>
                   <h3 className="mt-3 font-bold text-[var(--brand-900)]">{asset.name}</h3>
@@ -382,6 +397,7 @@ const Admin_Borrowing = () => {
               ))}
             </div>
           )}
+          <Pagination page={assetPage} totalPages={Math.max(1, Math.ceil(assets.length / pageSize))} onPageChange={setAssetPage} />
         </section>
       ) : null}
 

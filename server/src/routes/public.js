@@ -111,6 +111,34 @@ router.get("/announcements", async (req, res, next) => {
   }
 });
 
+
+router.get("/news/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data, error } = await db
+      .from("announcements")
+      .select("id, title, body, image_url, type, created_at")
+      .eq("id", req.params.id)
+      .eq("type", "news")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw Object.assign(new Error("News article not found."), { status: 404 });
+
+    const { data: related, error: relatedError } = await db
+      .from("announcements")
+      .select("id, title, body, image_url, type, created_at")
+      .eq("type", "news")
+      .neq("id", data.id)
+      .order("created_at", { ascending: false })
+      .limit(3);
+    if (relatedError) throw relatedError;
+
+    res.json({ article: mapAnnouncement(data), related: (related || []).map(mapAnnouncement) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/funds", async (_req, res, next) => {
   try {
     const db = requireSupabase();
@@ -148,6 +176,7 @@ router.get("/events", async (req, res, next) => {
     if (req.query.upcomingOnly === "true") {
       query = query.gte("date", new Date().toISOString().slice(0, 10));
     }
+    if (req.query.type && req.query.type !== "all") query = query.eq("type", req.query.type);
     const { data, error, count } = await query.order("date").order("time").range(from, to);
     if (error) throw error;
 
@@ -165,10 +194,11 @@ router.get("/officials", async (_req, res, next) => {
     const db = requireSupabase();
     const { data, error } = await db
       .from("officials")
-      .select("*")
+      .select("id, name, position, term, photo_url, created_at")
       .eq("is_active", true)
       .order("created_at");
     if (error) throw error;
+    // Public directory intentionally excludes direct phone/email fields.
     res.json({ officials: data || [] });
   } catch (error) {
     next(error);

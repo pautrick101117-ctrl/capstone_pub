@@ -21,6 +21,7 @@ import {
   LoadingState,
   Modal,
   PageHeader,
+  Pagination,
   SelectInput,
   TextArea,
   TextInput,
@@ -40,6 +41,8 @@ const initialWindow = () => {
   const due = new Date(start.getTime() + 8 * 60 * 60 * 1000);
   return { startAt: toLocalInput(start), dueAt: toLocalInput(due) };
 };
+
+const pageSize = 5;
 
 const blankRequest = {
   assetId: "",
@@ -74,8 +77,10 @@ const BorrowingPage = () => {
   const [mineLoading, setMineLoading] = useState(true);
   const [mineError, setMineError] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
+  const [minePage, setMinePage] = useState(1);
 
   const minimumDateTime = useMemo(() => toLocalInput(new Date()), []);
+  const visibleRequests = useMemo(() => requests.slice((minePage - 1) * pageSize, minePage * pageSize), [requests, minePage]);
 
   const loadMine = async () => {
     setMineLoading(true);
@@ -469,7 +474,7 @@ const BorrowingPage = () => {
             <ErrorState description={mineError} onRetry={loadMine} />
           ) : requests.length === 0 ? (
             <EmptyState title="No borrowing requests" description="Your borrowing history and request status will appear here." />
-          ) : requests.map((item) => {
+          ) : visibleRequests.map((item) => {
             const meta = getBorrowingStatusMeta(item.status, item.isLate);
             const facility = isFacility(item.asset);
             return (
@@ -504,6 +509,7 @@ const BorrowingPage = () => {
               </Card>
             );
           })}
+          {!mineLoading && !mineError ? <Pagination page={minePage} totalPages={Math.max(1, Math.ceil(requests.length / pageSize))} onPageChange={setMinePage} /> : null}
         </div>
       </div>
 

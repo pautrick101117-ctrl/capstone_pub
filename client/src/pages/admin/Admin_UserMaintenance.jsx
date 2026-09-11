@@ -1,10 +1,12 @@
 import { KeyRound, Power, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, StatCard, TableShell, TextInput } from "../../components/ui";
+import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, Pagination, StatCard, TableShell, TextInput } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { formatDate } from "../../lib/format";
 import { api } from "../../lib/api";
+
+const pageSize = 10;
 
 const initialForm = {
   fullName: "",
@@ -28,6 +30,7 @@ const Admin_UserMaintenance = () => {
   const [error, setError] = useState("");
   const [pendingAction, setPendingAction] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [page, setPage] = useState(1);
 
   const loadUsers = async () => {
     if (!token) return;
@@ -59,6 +62,10 @@ const Admin_UserMaintenance = () => {
           .some((value) => `${value}`.toLowerCase().includes(term));
       });
   }, [users, search, roleFilter, activeFilter]);
+
+  useEffect(() => { setPage(1); }, [search, roleFilter, activeFilter]);
+
+  const paginatedUsers = useMemo(() => filteredUsers.slice((page - 1) * pageSize, page * pageSize), [filteredUsers, page]);
 
   const counts = useMemo(
     () => ({
@@ -252,7 +259,7 @@ const Admin_UserMaintenance = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((account) => {
+              {paginatedUsers.map((account) => {
                 const isSelf = account.id === user.id;
                 return (
                   <tr key={account.id} className="border-t border-stone-100 align-top transition hover:bg-stone-50/70">
@@ -316,6 +323,7 @@ const Admin_UserMaintenance = () => {
             </tbody>
           </table>
         </TableShell>
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredUsers.length / pageSize))} onPageChange={setPage} />
       </Card> : null}
 
       <Modal

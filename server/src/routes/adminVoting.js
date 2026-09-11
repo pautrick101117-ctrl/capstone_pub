@@ -368,6 +368,29 @@ router.get("/election", async (_req, res, next) => {
   }
 });
 
+
+router.get("/election/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    await closeExpiredLiveElections(db);
+
+    const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!election) throw Object.assign(new Error("Voting post not found."), { status: 404 });
+
+    const [options, votes] = await Promise.all([
+      db.from("election_options").select("*").eq("election_id", election.id).order("created_at"),
+      db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", election.id),
+    ]);
+    if (options.error) throw options.error;
+    if (votes.error) throw votes.error;
+
+    res.json({ election, options: options.data || [], totalVotes: votes.count || 0 });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.put("/election", upload.single("image"), async (req, res, next) => {
   try {
     const db = requireSupabase();
@@ -570,26 +593,107 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
   }
 });
 
-router.get("/election-results", async (_req, res, next) => {
+
+router.post("/election/:id/close", async (req, res, next) => {
   try {
     const db = requireSupabase();
+    const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!election) throw Object.assign(new Error("Voting post not found."), { status: 404 });
+    if (election.status !== "live") throw Object.assign(new Error("Only an open voting period can be closed."), { status: 409 });
 
+    const closedAt = new Date().toISOString();
+    const { data: savedElection, error: updateError } = await db
+      .from("elections")
+      .update({ status: "closed", ends_at: closedAt })
+      .eq("id", election.id)
+      .select("*")
+      .single();
+    if (updateError) throw updateError;
+
+    await ensureCommunityProjectForElection(db, savedElection.id, { createdBy: req.currentUser.id }).catch((projectError) => {
+      if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
+    });
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorName: req.currentUser.full_name || req.currentUser.fullName,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "close_election",
+      module: "project_voting",
+      entityType: "election",
+      entityId: savedElection.id,
+      beforeData: election,
+      afterData: savedElection,
+      details: { reason: `${req.body.reason || ""}`.trim() || null },
+      req,
+    });
+
+    res.json({ election: savedElection, message: "Voting has been closed. Final results are now locked." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/election/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!election) throw Object.assign(new Error("Voting post not found."), { status: 404 });
+    if (election.status !== "draft") {
+      throw Object.assign(new Error("Only draft voting posts can be deleted. Open or closed elections must be preserved for transparency."), { status: 409 });
+    }
+
+    const { count: voteCount, error: voteError } = await db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", election.id);
+    if (voteError) throw voteError;
+    if ((voteCount || 0) > 0) throw Object.assign(new Error("A voting post with recorded votes cannot be deleted."), { status: 409 });
+
+    const { error: deleteError } = await db.from("elections").delete().eq("id", election.id);
+    if (deleteError) throw deleteError;
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorName: req.currentUser.full_name || req.currentUser.fullName,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "delete_draft_election",
+      module: "project_voting",
+      entityType: "election",
+      entityId: election.id,
+      beforeData: election,
+      details: { title: election.title },
+      req,
+    });
+
+    res.json({ message: "Draft voting post deleted." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/election-results", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
     await closeExpiredLiveElections(db);
 
-    const { data: elections, error } = await db
-      .from("elections")
-      .select("id")
-      .order("created_at", { ascending: false });
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit || 6)));
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const status = `${req.query.status || "all"}`.trim().toLowerCase();
 
+    let query = db.from("elections").select("id", { count: "exact" }).order("created_at", { ascending: false });
+    if (["draft", "live", "closed"].includes(status)) query = query.eq("status", status);
+    const { data: elections, error, count } = await query.range(from, to);
     if (error) throw error;
 
     const items = [];
+    for (const election of elections || []) items.push(await getElectionMetrics(db, election.id));
 
-    for (const election of elections || []) {
-      items.push(await getElectionMetrics(db, election.id));
-    }
-
-    res.json({ elections: items });
+    res.json({
+      elections: items,
+      pagination: { page, limit, total: count || 0, totalPages: Math.max(1, Math.ceil((count || 0) / limit)) },
+    });
   } catch (error) {
     next(error);
   }

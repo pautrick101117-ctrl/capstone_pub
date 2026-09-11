@@ -1,14 +1,15 @@
 import { Clock3, Phone, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, SegmentedTabs, SelectInput, TextArea } from "../../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { useMasterData } from "../../hooks/useMasterData";
 import { getStatusMeta } from "../../lib/status";
 
 const INITIAL_FORM = { complaint_type: "", details: "" };
+const pageSize = 6;
 
 const Complaints = () => {
   const { token, refreshNotifications } = useAuth();
@@ -21,6 +22,7 @@ const Complaints = () => {
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("mine");
   const [success, setSuccess] = useState(null);
+  const [page, setPage] = useState(1);
   const { options: concernOptions } = useMasterData("concern_category");
 
   const load = async () => {
@@ -38,6 +40,8 @@ const Complaints = () => {
   };
 
   useEffect(() => { if (token) load(); }, [token]);
+
+  const visibleComplaints = useMemo(() => complaints.slice((page - 1) * pageSize, page * pageSize), [complaints, page]);
 
   const submitComplaint = async (event) => {
     event.preventDefault();
@@ -93,7 +97,7 @@ const Complaints = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {loading ? <LoadingState rows={3} /> : error ? <ErrorState description={error} onRetry={load} /> : complaints.length === 0 ? <EmptyState title="No concerns submitted" description="If you notice a non-emergency issue in the community, submit a report and track the barangay response here." action={<Button type="button" onClick={() => setActiveTab("report")}>Report a Concern</Button>} /> : complaints.map((complaint) => {
+          {loading ? <LoadingState rows={3} /> : error ? <ErrorState description={error} onRetry={load} /> : complaints.length === 0 ? <EmptyState title="No concerns submitted" description="If you notice a non-emergency issue in the community, submit a report and track the barangay response here." action={<Button type="button" onClick={() => setActiveTab("report")}>Report a Concern</Button>} /> : visibleComplaints.map((complaint) => {
             const meta = getStatusMeta(complaint.status || "pending", "complaint");
             return (
               <Card key={complaint.id}>
@@ -106,6 +110,7 @@ const Complaints = () => {
               </Card>
             );
           })}
+          {!loading && !error ? <Pagination page={page} totalPages={Math.max(1, Math.ceil(complaints.length / pageSize))} onPageChange={setPage} /> : null}
         </div>
       )}
     </div>

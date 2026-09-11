@@ -7,6 +7,14 @@
 
 begin;
 
+-- Repair V4.0 partial unique index from the initial release.
+-- PostgreSQL cannot infer a partial unique index for ON CONFLICT (election_id)
+-- unless the same predicate is supplied. A normal UNIQUE index already permits
+-- multiple NULL election_id values, so the partial predicate is unnecessary.
+drop index if exists public.community_projects_election_uidx;
+create unique index community_projects_election_uidx
+  on public.community_projects (election_id);
+
 -- =========================================================
 -- 1) CENSUS: REALISTIC ADDRESS-STYLE DEMO DATA
 -- =========================================================
