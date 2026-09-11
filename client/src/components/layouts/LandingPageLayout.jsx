@@ -16,7 +16,7 @@ const menuGroups = [
       { label: "Community Project Voting", to: "/login" },
     ],
   },
-  { label: "Updates", items: [{ label: "Announcements", to: "/announcements" }, { label: "News", to: "/news" }, { label: "Calendar", to: "/calendar" }] },
+  { label: "Updates", items: [{ label: "Announcements", to: "/announcements" }, { label: "News", to: "/news" }, { label: "Project Updates", to: "/project-updates" }, { label: "Calendar", to: "/calendar" }] },
   { label: "Transparency", items: [{ label: "Fund Transparency", to: "/fund_transparency" }, { label: "Voting Results", to: "/voting-result" }] },
   { label: "Community", items: [{ label: "Barangay Officials", to: "/officials" }, { label: "Project Suggestions", to: "/login" }] },
 ];

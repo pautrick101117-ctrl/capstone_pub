@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { requireSupabase } from "../lib/supabase.js";
 import { sendAccountCreatedEmail } from "../lib/mailer.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
-import { logAudit } from "../utils/audit.js";
+import { adminActivityMiddleware, logAudit } from "../utils/audit.js";
 import {
   buildUsername,
   createTemporaryPassword,
@@ -18,6 +18,7 @@ const USER_SELECT =
   "id, first_name, middle_name, last_name, full_name, username, email, role, status, is_active, must_change_password, contact_number, address, purok, birthdate, created_at, updated_at, email_verified, email_verified_at, verification_provider, has_voted";
 
 router.use(requireAuth, requireCurrentUser({ allowPasswordChange: true }), requireRole("super_admin"));
+router.use(adminActivityMiddleware("super_admin"));
 
 const ensure = (value, message) => {
   if (!value) throw Object.assign(new Error(message), { status: 400 });

@@ -42,6 +42,7 @@ const groups = [
     links: [
       { to: "/portal/voting", label: "Project Voting", icon: Vote },
       { to: "/portal/suggestions", label: "Project Suggestions", icon: Lightbulb },
+      { to: "/project-updates", label: "Project Updates", icon: CheckSquare },
       { to: "/portal/calendar", label: "Calendar", icon: CalendarDays },
       { to: "/portal/voting-result", label: "Voting Results", icon: CheckSquare },
     ],
@@ -58,9 +59,11 @@ const groups = [
 const allLinks = groups.flatMap((group) => group.links);
 
 const notificationDestination = (note) => {
+  if (note?.destination && `${note.destination}`.startsWith("/")) return note.destination;
   const text = `${note?.title || ""} ${note?.body || ""}`.toLowerCase();
   if (text.includes("borrow")) return "/portal/borrowing";
   if (text.includes("concern") || text.includes("complaint")) return "/portal/complaints";
+  if (text.includes("project update") || text.includes("implementation")) return "/project-updates";
   if (text.includes("suggest")) return "/portal/suggestions";
   if (text.includes("vote") || text.includes("voting") || text.includes("election")) return "/portal/voting";
   if (text.includes("request") || text.includes("clearance") || text.includes("barangay id")) return "/portal/requests";

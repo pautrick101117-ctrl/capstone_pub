@@ -176,6 +176,62 @@ router.get("/officials", async (_req, res, next) => {
 });
 
 
+
+router.get("/projects", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { page, limit, from, to } = getPagination(req);
+    let query = db.from("community_projects").select("*", { count: "exact" });
+    if (req.query.status && req.query.status !== "all") query = query.eq("status", req.query.status);
+    else query = query.neq("status", "cancelled");
+    const { data, error, count } = await query.order("updated_at", { ascending: false }).range(from, to);
+    if (error) throw error;
+    res.json({ items: data || [], pagination: { page, limit, total: count || 0 } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/projects/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const [project, updates] = await Promise.all([
+      db.from("community_projects").select("*").eq("id", req.params.id).single(),
+      db.from("project_updates").select("*").eq("project_id", req.params.id).order("update_date", { ascending: false }).order("created_at", { ascending: false }),
+    ]);
+    if (project.error) throw project.error;
+    if (updates.error) throw updates.error;
+
+    let election = null;
+    if (project.data?.election_id) {
+      const result = await db.from("elections").select("id, title, starts_at, ends_at, status").eq("id", project.data.election_id).maybeSingle();
+      if (!result.error) election = result.data || null;
+    }
+    let voteCount = 0;
+    let totalVotes = 0;
+    if (project.data?.election_option_id && project.data?.election_id) {
+      const [optionVotes, allVotes] = await Promise.all([
+        db.from("votes").select("id", { count: "exact", head: true }).eq("option_id", project.data.election_option_id),
+        db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", project.data.election_id),
+      ]);
+      voteCount = optionVotes.count || 0;
+      totalVotes = allVotes.count || 0;
+    }
+    res.json({
+      project: project.data,
+      updates: updates.data || [],
+      election,
+      voting: {
+        votes: voteCount,
+        totalVotes,
+        share: totalVotes ? Number(((voteCount / totalVotes) * 100).toFixed(1)) : 0,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/community-support", async (_req, res, next) => {
   try {
     const db = requireSupabase();

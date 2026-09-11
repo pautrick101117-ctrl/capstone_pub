@@ -14,13 +14,77 @@ router.use(requireAuth, requireCurrentUser());
 router.get("/mine", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const { data, error } = await db
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit || 8)));
+    const status = `${req.query.status || "all"}`.trim().toLowerCase();
+
+    let query = db
       .from("project_suggestions")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("user_id", req.currentUser.id)
       .order("created_at", { ascending: false });
-    if (error) throw error;
-    res.json({ suggestions: data || [] });
+
+    if (["pending", "approved", "rejected"].includes(status)) query = query.eq("status", status);
+
+    // Derived "won" state lives in community_projects, so enrich before slicing that filter.
+    let rows;
+    let baseCount = 0;
+    if (status === "won") {
+      const result = await query;
+      if (result.error) throw result.error;
+      rows = result.data || [];
+      baseCount = rows.length;
+    } else {
+      const from = (page - 1) * limit;
+      const result = await query.range(from, from + limit - 1);
+      if (result.error) throw result.error;
+      rows = result.data || [];
+      baseCount = result.count || 0;
+    }
+
+    const ids = rows.map((row) => row.id);
+    let optionRows = [];
+    let projectRows = [];
+
+    if (ids.length) {
+      const optionResult = await db
+        .from("election_options")
+        .select("id, election_id, source_suggestion_id, votes_count, elections!election_options_election_id_fkey(id, title, status, starts_at, ends_at)")
+        .in("source_suggestion_id", ids);
+      if (!optionResult.error) optionRows = optionResult.data || [];
+
+      const projectResult = await db
+        .from("community_projects")
+        .select("id, source_suggestion_id, election_id, title, status, progress_percentage, updated_at")
+        .in("source_suggestion_id", ids);
+      if (!projectResult.error) projectRows = projectResult.data || [];
+    }
+
+    const enriched = rows.map((row) => {
+      const votingOptions = optionRows.filter((option) => option.source_suggestion_id === row.id);
+      const project = projectRows.find((item) => item.source_suggestion_id === row.id) || null;
+      const closedOption = votingOptions.find((option) => option.elections?.status === "closed");
+      const liveOption = votingOptions.find((option) => option.elections?.status === "live");
+      let votingOutcome = null;
+      if (project) votingOutcome = "won";
+      else if (closedOption) votingOutcome = "not_selected";
+      else if (liveOption) votingOutcome = "in_voting";
+      else if (votingOptions.length) votingOutcome = "scheduled";
+      return { ...row, votingOutcome, project, votingOptions };
+    });
+
+    let output = enriched;
+    let total = baseCount;
+    if (status === "won") {
+      const winners = enriched.filter((row) => row.votingOutcome === "won");
+      total = winners.length;
+      output = winners.slice((page - 1) * limit, page * limit);
+    }
+
+    res.json({
+      suggestions: output,
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    });
   } catch (error) {
     next(error);
   }

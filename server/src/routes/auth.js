@@ -96,11 +96,14 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
 
     await logAudit({
       actorId: user.id,
+      actorName: user.full_name || user.username,
       actorRole: normalizeRole(user.role),
-      action: "login",
+      action: portal === "admin" ? "admin_login" : "login",
+      module: portal === "admin" ? "authentication" : "resident_authentication",
       entityType: "user",
       entityId: user.id,
       details: { portal },
+      req,
     });
 
     res.json({

@@ -2,7 +2,7 @@ import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
-import { logAudit } from "../utils/audit.js";
+import { adminActivityMiddleware, logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
 import {
   BLOCKING_BORROWING_STATUSES,
@@ -17,6 +17,7 @@ import {
 
 const router = express.Router();
 router.use(requireAuth, requireCurrentUser());
+router.use(adminActivityMiddleware("borrowing"));
 
 const ensureResident = (req, res, next) => requireRole("resident")(req, res, next);
 const ensureAdmin = (req, res, next) => requireRole("admin")(req, res, next);

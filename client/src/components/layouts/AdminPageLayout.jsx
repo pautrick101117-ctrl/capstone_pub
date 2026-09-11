@@ -8,6 +8,8 @@ import {
   Gauge,
   History,
   Landmark,
+  Lightbulb,
+  Construction,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -20,10 +22,11 @@ import {
   Vote,
   X,
 } from "lucide-react";
-import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../ui";
+import { api } from "../../lib/api";
 import SessionExpiryBanner from "../SessionExpiryBanner";
 
 const groups = [
@@ -55,7 +58,9 @@ const groups = [
   {
     label: "Governance & Transparency",
     items: [
+      { to: "/admin/project-suggestions", label: "Project Suggestions", icon: Lightbulb },
       { to: "/admin/voting", label: "Project Voting", icon: Vote },
+      { to: "/admin/projects", label: "Community Projects", icon: Construction },
       { to: "/admin/funds", label: "Funds", icon: Banknote },
     ],
   },
@@ -76,8 +81,19 @@ const itemClass = ({ isActive }) =>
 
 const AdminPageLayout = () => {
   const [open, setOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
+  const location = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
+
+  useEffect(() => {
+    if (!token) return;
+    const moduleName = location.pathname.split("/").filter(Boolean)[1] || "dashboard";
+    api("/admin/audit/page-view", {
+      method: "POST",
+      token,
+      body: { page: location.pathname, module: moduleName },
+    }).catch(() => {});
+  }, [location.pathname, token]);
 
   const finalGroups = groups.map((group) => ({ ...group, items: [...group.items] }));
   if (isSuperAdmin) {

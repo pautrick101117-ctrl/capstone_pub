@@ -1,5 +1,6 @@
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
+import { ensureCommunityProjectForElection, ensureProjectsForClosedElections } from "../lib/projects.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
@@ -24,6 +25,9 @@ const closeExpiredLiveElections = async (db) => {
     .lte("ends_at", now);
 
   if (error) throw error;
+  await ensureProjectsForClosedElections(db).catch((projectError) => {
+    if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
+  });
 };
 
 const getVoteCountsByOption = (votes = []) =>

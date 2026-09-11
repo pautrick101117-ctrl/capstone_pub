@@ -94,9 +94,9 @@ const Login = () => {
           <p className="max-w-xl text-base leading-7 text-emerald-50/85 sm:text-lg">
             Track requests, view voting updates, receive announcements, and manage your resident account in one place.
           </p>
-          <div className="glass-card max-w-xl border-white/20 bg-white/10 p-5 text-emerald-50">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-100">Account notice</p>
-            <p className="mt-3 text-sm leading-6 text-emerald-50/85">
+          <div className="max-w-xl rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+            <p className="text-sm font-extrabold uppercase tracking-[0.24em] text-emerald-800">Account notice</p>
+            <p className="mt-3 text-sm font-medium leading-6 text-stone-700">
               No account yet? Contact your Barangay admin. Resident accounts are created by barangay staff and first-time credentials are sent to the resident email on file. A password change is required on first login.
             </p>
           </div>

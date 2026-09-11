@@ -8,6 +8,7 @@ import HelpCenter from "./pages/client/HelpCenter";
 import TermsOfUse from "./pages/client/TermsOfUse";
 import PrivacyPolicy from "./pages/client/PrivacyPolicy";
 import VotingResult from "./pages/client/VotingResult";
+import ProjectUpdatesPage from "./pages/client/ProjectUpdatesPage";
 import PublicFeedPage from "./pages/client/PublicFeedPage";
 import CalendarPage from "./pages/client/CalendarPage";
 import VotingCenter from "./pages/client/VotingCenter";
@@ -37,6 +38,8 @@ import Admin_Settings from "./pages/admin/Admin_Settings";
 import Admin_Borrowing from "./pages/admin/Admin_Borrowing";
 import AdminBroadcast from "./pages/admin/AdminBroadcast";
 import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
+import AdminProjectSuggestions from "./pages/admin/AdminProjectSuggestions";
+import AdminProjects from "./pages/admin/AdminProjects";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -52,6 +55,8 @@ const router = createBrowserRouter(
         <Route path="terms-of-use" element={<TermsOfUse />} />
         <Route path="privacy-policy" element={<PrivacyPolicy />} />
         <Route path="voting-result" element={<VotingResult />} />
+        <Route path="project-updates" element={<ProjectUpdatesPage />} />
+        <Route path="project-updates/:projectId" element={<ProjectUpdatesPage />} />
         <Route path="login" element={<Login />} />
       </Route>
 
@@ -86,7 +91,9 @@ const router = createBrowserRouter(
           <Route path="announcements" element={<AdminContentPage type="announcement" />} />
           <Route path="funds" element={<AdminFunds />} />
           <Route path="events" element={<AdminEvents />} />
+          <Route path="project-suggestions" element={<AdminProjectSuggestions />} />
           <Route path="voting" element={<Admin_VotingResult />} />
+          <Route path="projects" element={<AdminProjects />} />
           <Route path="census" element={<Admin_Census />} />
           <Route path="complaints" element={<Admin_Complaints />} />
           <Route path="borrowing" element={<Admin_Borrowing />} />

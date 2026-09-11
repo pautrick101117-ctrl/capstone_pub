@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { requireSupabase } from "../lib/supabase.js";
+import { ensureCommunityProjectForElection, ensureProjectsForClosedElections } from "../lib/projects.js";
 import { uploadAsset } from "../lib/storage.js";
 import { sendSystemEmail } from "../lib/mailer.js";
 import { logAudit } from "../utils/audit.js";
@@ -201,20 +202,35 @@ const closeExpiredLiveElections = async (db) => {
     .lte("ends_at", now);
 
   if (error) throw error;
+  await ensureProjectsForClosedElections(db).catch((projectError) => {
+    if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
+  });
 };
 
-router.get("/suggestions", async (_req, res, next) => {
+router.get("/suggestions", async (req, res, next) => {
   try {
     const db = requireSupabase();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
+    const status = `${req.query.status || "all"}`.trim().toLowerCase();
+    const search = `${req.query.search || ""}`.trim();
 
-    const { data, error } = await db
+    let query = db
       .from("project_suggestions")
-      .select("*, users!project_suggestions_user_id_fkey(full_name, first_name, last_name)")
+      .select("*, users!project_suggestions_user_id_fkey(full_name, first_name, last_name, purok)", { count: "exact" })
       .order("created_at", { ascending: false });
 
+    if (["pending", "approved", "rejected"].includes(status)) query = query.eq("status", status);
+    if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+
+    const from = (page - 1) * limit;
+    const { data, error, count } = await query.range(from, from + limit - 1);
     if (error) throw error;
 
-    res.json({ suggestions: data || [] });
+    res.json({
+      suggestions: data || [],
+      pagination: { page, limit, total: count || 0, totalPages: Math.max(1, Math.ceil((count || 0) / limit)) },
+    });
   } catch (error) {
     next(error);
   }
@@ -223,33 +239,84 @@ router.get("/suggestions", async (_req, res, next) => {
 router.patch("/suggestions/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const status = req.body.status;
+    const status = `${req.body.status || ""}`.trim().toLowerCase();
+    const reviewNote = `${req.body.reviewNote ?? req.body.review_note ?? ""}`.trim();
 
     requireValue(status, "Status is required.");
-
     if (!SUGGESTION_REVIEW_STATUSES.has(status)) {
       throw Object.assign(new Error("Suggestion status must be approved or rejected."), { status: 400 });
     }
+    if (status === "rejected" && reviewNote.length < 3) {
+      throw Object.assign(new Error("Add a short reason so the resident understands why the suggestion was not approved."), { status: 400 });
+    }
 
-    const { data, error } = await db
+    const existingResult = await db.from("project_suggestions").select("*").eq("id", req.params.id).maybeSingle();
+    if (existingResult.error) throw existingResult.error;
+    if (!existingResult.data) throw Object.assign(new Error("Project suggestion not found."), { status: 404 });
+
+    const updatePayload = {
+      status,
+      review_note: reviewNote || null,
+      reviewed_by: req.currentUser.id,
+      reviewed_at: new Date().toISOString(),
+    };
+
+    let result = await db
       .from("project_suggestions")
-      .update({ status })
+      .update(updatePayload)
       .eq("id", req.params.id)
       .select("*")
       .single();
 
-    if (error) throw error;
+    // Backward-compatible fallback if V4 review columns have not been migrated yet.
+    if (result.error && /review_note|reviewed_by|reviewed_at/i.test(result.error.message || "")) {
+      result = await db.from("project_suggestions").update({ status }).eq("id", req.params.id).select("*").single();
+    }
+    if (result.error) throw result.error;
+
+    const residentBody = status === "approved"
+      ? `Your project suggestion “${result.data.title}” was approved for consideration in a future community vote.${reviewNote ? ` Barangay note: ${reviewNote}` : ""}`
+      : `Your project suggestion “${result.data.title}” was not approved.${reviewNote ? ` Barangay note: ${reviewNote}` : ""}`;
+
+    await db.from("notifications").insert({
+      user_id: result.data.user_id,
+      title: status === "approved" ? "Project suggestion approved" : "Project suggestion review",
+      body: residentBody,
+      kind: status === "approved" ? "success" : "warning",
+      broadcast: false,
+      entity_type: "project_suggestion",
+      entity_id: result.data.id,
+      destination: "/portal/suggestions",
+    }).then(({ error }) => {
+      // Allow older schemas without entity metadata columns.
+      if (error && /entity_type|entity_id|destination/i.test(error.message || "")) {
+        return db.from("notifications").insert({
+          user_id: result.data.user_id,
+          title: status === "approved" ? "Project suggestion approved" : "Project suggestion review",
+          body: residentBody,
+          kind: status === "approved" ? "success" : "warning",
+          broadcast: false,
+        });
+      }
+      if (error) throw error;
+      return null;
+    });
 
     await logAudit({
       actorId: req.currentUser.id,
+      actorName: req.currentUser.full_name || req.currentUser.fullName,
       actorRole: normalizeRole(req.currentUser.role),
       action: "review_project_suggestion",
+      module: "project_suggestions",
       entityType: "project_suggestion",
       entityId: req.params.id,
-      details: { status },
+      beforeData: existingResult.data,
+      afterData: result.data,
+      details: { status, reviewNote },
+      req,
     });
 
-    res.json({ suggestion: data });
+    res.json({ suggestion: result.data });
   } catch (error) {
     next(error);
   }
@@ -453,6 +520,12 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
       }
     }
 
+    if (savedElection.status === "closed") {
+      await ensureCommunityProjectForElection(db, savedElection.id, { createdBy: req.currentUser.id }).catch((projectError) => {
+        if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
+      });
+    }
+
     if (savedElection.status === "live") {
       const closeOtherLives = await db
         .from("elections")
@@ -479,11 +552,16 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
 
     await logAudit({
       actorId: req.currentUser.id,
+      actorName: req.currentUser.full_name || req.currentUser.fullName,
       actorRole: normalizeRole(req.currentUser.role),
       action: "save_election",
+      module: "project_voting",
       entityType: "election",
       entityId: savedElection.id,
+      beforeData: previousElection,
+      afterData: savedElection,
       details: electionPayload,
+      req,
     });
 
     res.json({ election: savedElection });

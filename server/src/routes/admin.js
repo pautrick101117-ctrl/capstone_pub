@@ -4,10 +4,11 @@ import bcrypt from "bcryptjs";
 import multer from "multer";
 import zlib from "zlib";
 import { requireSupabase } from "../lib/supabase.js";
+import { ensureCommunityProjectForElection } from "../lib/projects.js";
 import { uploadAsset } from "../lib/storage.js";
 import { sendAccountCreatedEmail, sendPasswordResetEmail, sendSystemEmail } from "../lib/mailer.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
-import { logAudit } from "../utils/audit.js";
+import { adminActivityMiddleware, logAudit } from "../utils/audit.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
 import {
   buildUsername,
@@ -22,6 +23,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(requireAuth, requireCurrentUser({ allowPasswordChange: true }), requireRole("admin"));
+router.use(adminActivityMiddleware("admin"));
 router.use(adminVotingRoutes);
 
 const ensure = (value, message) => {
@@ -153,65 +155,89 @@ const getCell = (row, headerMap, names) => {
   return "";
 };
 
-const normalizeHouseNumber = (value = "") => `${value}`.trim().toLowerCase();
+const normalizeAddress = (value = "") => `${value}`.trim().toLowerCase().replace(/\s+/g, " ");
 
-const buildCensusPayload = (body) => {
+const createHouseholdRef = () => `HH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+const buildCensusPayload = (body, { allowId = false } = {}) => {
   const members = Number(body.members || 1);
   const householdName = `${body.household_name || body.householdName || ""}`.trim();
   const purok = `${body.purok || ""}`.trim();
-  const houseNumber = `${body.house_number || body.houseNumber || ""}`.trim();
+  const address = `${body.address || body.house_number || body.houseNumber || ""}`.trim();
   const status = `${body.status || "active"}`.trim().toLowerCase();
+  const householdRef = `${body.household_ref || body.householdRef || ""}`.trim() || createHouseholdRef();
 
   ensure(householdName, "Household name is required.");
   ensure(purok, "Purok is required.");
-  ensure(houseNumber, "House number is required.");
+  ensure(address, "Address is required.");
   ensure(Number.isInteger(members) && members >= 1, "Members must be a positive whole number.");
   ensure(["active", "for update"].includes(status), "Status must be Active or For Update.");
 
-  return {
+  const payload = {
+    household_ref: householdRef,
     household_name: householdName,
     purok,
     members,
-    house_number: houseNumber,
+    address,
+    // Retained for compatibility with V3 databases and old reports.
+    house_number: address,
     status,
     updated_at: new Date().toISOString(),
   };
+  if (allowId && body.id) payload.id = body.id;
+  return payload;
 };
 
 const dedupeHouseholds = (rows = []) => {
-  const byHouseNumber = new Map();
+  const seen = new Map();
   for (const row of rows) {
-    const key = normalizeHouseNumber(row.house_number) || row.id;
-    if (!byHouseNumber.has(key)) byHouseNumber.set(key, row);
+    const key = `${row.household_ref || ""}`.trim().toLowerCase() || `${row.id || ""}` || normalizeAddress(row.address || row.house_number);
+    if (!seen.has(key)) seen.set(key, { ...row, address: row.address || row.house_number || "", household_ref: row.household_ref || "" });
   }
-  return Array.from(byHouseNumber.values()).sort((a, b) => `${a.house_number}`.localeCompare(`${b.house_number}`));
+  return Array.from(seen.values()).sort((a, b) => `${a.address || ""}`.localeCompare(`${b.address || ""}`));
 };
 
-const saveCensusHousehold = async (db, payload) => {
-  const { data: existingRows, error: lookupError } = await db
-    .from("census_households")
-    .select("id")
-    .ilike("house_number", payload.house_number)
-    .order("updated_at", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (lookupError) throw lookupError;
+const findCensusDuplicate = async (db, payload, excludeId = null) => {
+  let refQuery = db.from("census_households").select("id, household_ref, address, house_number").eq("household_ref", payload.household_ref).limit(1);
+  if (excludeId) refQuery = refQuery.neq("id", excludeId);
+  const refResult = await refQuery;
+  if (!refResult.error && refResult.data?.[0]) return refResult.data[0];
 
-  const existing = existingRows?.[0];
-  if (existing) {
-    const { data, error } = await db
-      .from("census_households")
-      .update(payload)
-      .eq("id", existing.id)
-      .select("*")
-      .single();
-    if (error) throw error;
-    return { action: "updated", data };
+  let addressQuery = db.from("census_households").select("id, household_ref, address, house_number").ilike("address", payload.address).limit(1);
+  if (excludeId) addressQuery = addressQuery.neq("id", excludeId);
+  const addressResult = await addressQuery;
+  if (!addressResult.error && addressResult.data?.[0]) return addressResult.data[0];
+
+  // Backward-compatible lookup for a V3 database before migration.
+  if (addressResult.error) {
+    let legacyQuery = db.from("census_households").select("id, house_number").ilike("house_number", payload.address).limit(1);
+    if (excludeId) legacyQuery = legacyQuery.neq("id", excludeId);
+    const legacyResult = await legacyQuery;
+    if (!legacyResult.error && legacyResult.data?.[0]) return legacyResult.data[0];
   }
+  return null;
+};
 
+const insertCensusHousehold = async (db, payload) => {
   const { data, error } = await db.from("census_households").insert(payload).select("*").single();
-  if (error) throw error;
-  return { action: "inserted", data };
+  if (error) {
+    // Fallback for V3 databases while still allowing the application to boot before the migration is run.
+    if (`${error.message || ""}`.toLowerCase().includes("household_ref") || `${error.message || ""}`.toLowerCase().includes("address")) {
+      const legacy = {
+        household_name: payload.household_name,
+        purok: payload.purok,
+        members: payload.members,
+        house_number: payload.address,
+        status: payload.status,
+        updated_at: payload.updated_at,
+      };
+      const legacyInsert = await db.from("census_households").insert(legacy).select("*").single();
+      if (legacyInsert.error) throw legacyInsert.error;
+      return { ...legacyInsert.data, address: legacyInsert.data.house_number, household_ref: "" };
+    }
+    throw error;
+  }
+  return data;
 };
 
 const xmlDecode = (value = "") =>
@@ -465,32 +491,6 @@ const parseUploadedRows = (file) => {
   const name = `${file.originalname || ""}`.toLowerCase();
   if (name.endsWith(".xlsx")) return parseXlsxRows(file.buffer);
   return parseDelimitedText(file.buffer.toString("utf8"));
-};
-
-const ELECTION_STATUSES = new Set(["draft", "live", "closed"]);
-
-const normalizeElectionDate = (value) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    throw Object.assign(new Error("Election dates must be valid date and time values."), { status: 400 });
-  }
-  return date.toISOString();
-};
-
-const normalizeElectionOptions = (items = []) =>
-  (items || [])
-    .map((option) => ({
-      name: `${option.name || ""}`.trim(),
-      description: `${option.description || ""}`.trim(),
-    }))
-    .filter((option) => option.name);
-
-const sameElectionOptions = (left = [], right = []) => {
-  const normalize = (items) => items.map((item) => `${item.name}\n${item.description || ""}`);
-  const leftItems = normalize(left);
-  const rightItems = normalize(right);
-  return leftItems.length === rightItems.length && leftItems.every((item, index) => item === rightItems[index]);
 };
 
 const addTimelineEntry = async (db, requestId, status, note = "") => {
@@ -1209,65 +1209,6 @@ router.patch("/id-requests/:id", async (req, res, next) => {
   }
 });
 
-router.get("/suggestions", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data, error } = await db
-      .from("project_suggestions")
-      .select("*, users!project_suggestions_user_id_fkey(full_name, first_name, last_name)")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    res.json({ suggestions: data || [] });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.patch("/suggestions/:id", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const status = req.body.status;
-    ensure(status, "Status is required.");
-    const { data, error } = await db
-      .from("project_suggestions")
-      .update({ status })
-      .eq("id", req.params.id)
-      .select("*")
-      .single();
-    if (error) throw error;
-
-    let election = null;
-    if (status === "approved") {
-      const insert = await db
-        .from("elections")
-        .insert({
-          title: data.title,
-          description: data.description,
-          image_url: data.image_url || null,
-          status: "draft",
-          source_suggestion_id: data.id,
-        })
-        .select("*")
-        .single();
-      if (insert.error) throw insert.error;
-      election = insert.data;
-    }
-
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "review_project_suggestion",
-      entityType: "project_suggestion",
-      entityId: req.params.id,
-      details: { status, electionId: election?.id || null },
-    });
-
-    res.json({ suggestion: data, election });
-  } catch (error) {
-    next(error);
-  }
-});
-
 router.get("/content", async (_req, res, next) => {
   try {
     const db = requireSupabase();
@@ -1294,162 +1235,6 @@ router.put("/content", async (req, res, next) => {
   }
 });
 
-router.get("/election", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: election, error } = await db.from("elections").select("*").order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (error) throw error;
-    if (!election) return res.json({ election: null, options: [] });
-
-    const { data: options, error: optionError } = await db
-      .from("election_options")
-      .select("*")
-      .eq("election_id", election.id)
-      .order("created_at");
-    if (optionError) throw optionError;
-    res.json({ election, options: options || [] });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.put("/election", upload.single("image"), async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const rawElection = req.body.election ? JSON.parse(req.body.election) : req.body;
-    const rawOptions = req.body.options ? JSON.parse(req.body.options) : [];
-    ensure(rawElection?.title, "Election title is required.");
-    const status = rawElection.status || "draft";
-    if (!ELECTION_STATUSES.has(status)) {
-      throw Object.assign(new Error("Election status must be draft, live, or closed."), { status: 400 });
-    }
-
-    const imageUrl = req.file
-      ? await uploadAsset({
-          file: req.file,
-          folder: "elections",
-          prefix: rawElection.title,
-        })
-      : rawElection.imageUrl || null;
-
-    const startsAt = normalizeElectionDate(rawElection.startsAt);
-    const endsAt = normalizeElectionDate(rawElection.endsAt);
-    const options = normalizeElectionOptions(rawOptions);
-
-    if (status !== "draft" && options.length < 2) {
-      throw Object.assign(new Error("At least two voting options are required."), { status: 400 });
-    }
-    if (status === "live") {
-      ensure(startsAt, "Start date and time are required before opening voting.");
-      ensure(endsAt, "End date and time are required before opening voting.");
-      if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
-        throw Object.assign(new Error("Voting end time must be after the start time."), { status: 400 });
-      }
-      if (new Date(endsAt).getTime() <= Date.now()) {
-        throw Object.assign(new Error("Voting end time must be in the future before opening voting."), { status: 400 });
-      }
-    }
-
-    let previousElection = null;
-    let existingOptions = [];
-    let existingVoteCount = 0;
-    if (rawElection.id) {
-      const [previous, optionRows, voteRows] = await Promise.all([
-        db.from("elections").select("*").eq("id", rawElection.id).maybeSingle(),
-        db.from("election_options").select("name, description").eq("election_id", rawElection.id).order("created_at"),
-        db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", rawElection.id),
-      ]);
-      if (previous.error) throw previous.error;
-      if (optionRows.error) throw optionRows.error;
-      if (voteRows.error) throw voteRows.error;
-      previousElection = previous.data;
-      existingOptions = normalizeElectionOptions(optionRows.data || []);
-      existingVoteCount = voteRows.count || 0;
-    }
-
-    if (existingVoteCount > 0 && !sameElectionOptions(existingOptions, options)) {
-      throw Object.assign(new Error("Voting options cannot be changed after votes have been recorded."), { status: 400 });
-    }
-
-    const electionPayload = {
-      title: rawElection.title,
-      description: rawElection.description || "",
-      status,
-      starts_at: startsAt,
-      ends_at: endsAt,
-      image_url: imageUrl,
-      source_suggestion_id: rawElection.sourceSuggestionId || null,
-    };
-
-    let savedElection;
-    if (rawElection.id) {
-      const update = await db.from("elections").update(electionPayload).eq("id", rawElection.id).select("*").single();
-      if (update.error) throw update.error;
-      savedElection = update.data;
-    } else {
-      const insert = await db.from("elections").insert(electionPayload).select("*").single();
-      if (insert.error) throw insert.error;
-      savedElection = insert.data;
-    }
-
-    if (existingVoteCount === 0) {
-      await db.from("election_options").delete().eq("election_id", savedElection.id);
-      if (options.length) {
-        const insertOptions = await db.from("election_options").insert(
-          options.map((option) => ({
-            election_id: savedElection.id,
-            name: option.name,
-            description: option.description,
-            votes_count: 0,
-          }))
-        );
-        if (insertOptions.error) throw insertOptions.error;
-      }
-    }
-
-    if (savedElection.status === "live" && previousElection?.status !== "live") {
-      const closeOtherLives = await db.from("elections").update({ status: "closed" }).neq("id", savedElection.id).eq("status", "live");
-      if (closeOtherLives.error) throw closeOtherLives.error;
-      const resetVotes = await db.from("users").update({ has_voted: false }).eq("role", "resident");
-      if (resetVotes.error) throw resetVotes.error;
-
-      const residents = await getResidentRecipients(db);
-      await notifyResidents(db, residents, {
-        title: "Voting is now open",
-        body: `${savedElection.title} is now live for voting.`,
-      });
-    }
-
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "save_election",
-      entityType: "election",
-      entityId: savedElection.id,
-      details: electionPayload,
-    });
-
-    res.json({ election: savedElection });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get("/election-results", async (_req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: elections, error } = await db.from("elections").select("id").order("created_at", { ascending: false });
-    if (error) throw error;
-    const items = [];
-    for (const election of elections || []) {
-      items.push(await getElectionMetrics(db, election.id));
-    }
-    res.json({ elections: items });
-  } catch (error) {
-    next(error);
-  }
-});
-
 router.post("/broadcast", async (req, res, next) => {
   try {
     const db = requireSupabase();
@@ -1467,20 +1252,256 @@ router.post("/broadcast", async (req, res, next) => {
   }
 });
 
+router.post("/audit/page-view", async (req, res, next) => {
+  try {
+    const page = `${req.body.page || ""}`.trim().slice(0, 240);
+    const module = `${req.body.module || "admin_portal"}`.trim().slice(0, 120) || "admin_portal";
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorName: req.currentUser.full_name || req.currentUser.fullName,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "admin_page_view",
+      module,
+      entityType: "admin_page",
+      details: { page },
+      outcome: "success",
+      req,
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/audit-logs", async (req, res, next) => {
   try {
     if (normalizeRole(req.currentUser.role) !== "super_admin") {
       throw Object.assign(new Error("Only super admins can view audit logs."), { status: 403 });
     }
     const db = requireSupabase();
-    const [{ data, error }, users] = await Promise.all([
-      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100),
-      db.from("users").select("id, full_name, first_name, last_name, username"),
-    ]);
-    if (error) throw error;
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 25)));
+    const module = `${req.query.module || "all"}`.trim();
+    const outcome = `${req.query.outcome || "all"}`.trim();
+    const action = `${req.query.action || ""}`.trim();
+    const search = `${req.query.search || ""}`.trim();
+
+    let query = db.from("audit_logs").select("*", { count: "exact" }).order("created_at", { ascending: false });
+    if (module !== "all") query = query.eq("module", module);
+    if (outcome !== "all") query = query.eq("outcome", outcome);
+    if (action) query = query.ilike("action", `%${action}%`);
+    if (search) query = query.or(`action.ilike.%${search}%,entity_type.ilike.%${search}%,module.ilike.%${search}%`);
+
+    const from = (page - 1) * limit;
+    let result = await query.range(from, from + limit - 1);
+
+    // V3 compatibility when expanded V4 audit columns do not exist yet.
+    if (result.error && /module|outcome/i.test(result.error.message || "")) {
+      result = await db.from("audit_logs").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(from, from + limit - 1);
+    }
+    if (result.error) throw result.error;
+
+    const users = await db.from("users").select("id, full_name, first_name, last_name, username");
     if (users.error) throw users.error;
     const names = new Map((users.data || []).map((user) => [user.id, user.full_name || [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || null]));
-    res.json({ logs: (data || []).map((item) => ({ ...item, actor_name: names.get(item.actor_id) || null })) });
+    const logs = (result.data || []).map((item) => ({
+      ...item,
+      actor_name: item.actor_name_snapshot || names.get(item.actor_id) || null,
+    }));
+
+    const modules = [...new Set(logs.map((item) => item.module).filter(Boolean))].sort();
+    res.json({
+      logs,
+      modules,
+      pagination: { page, limit, total: result.count || 0, totalPages: Math.max(1, Math.ceil((result.count || 0) / limit)) },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+
+const PROJECT_STATUSES = new Set(["planned", "ongoing", "on_hold", "completed", "cancelled"]);
+
+router.get("/projects", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit || 12)));
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    let query = db.from("community_projects").select("*", { count: "exact" });
+    if (req.query.status && req.query.status !== "all") query = query.eq("status", req.query.status);
+    const { data, error, count } = await query.order("updated_at", { ascending: false }).range(from, to);
+    if (error) throw error;
+    res.json({ projects: data || [], pagination: { page, limit, total: count || 0 } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/projects/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const [project, updates] = await Promise.all([
+      db.from("community_projects").select("*").eq("id", req.params.id).single(),
+      db.from("project_updates").select("*").eq("project_id", req.params.id).order("update_date", { ascending: false }).order("created_at", { ascending: false }),
+    ]);
+    if (project.error) throw project.error;
+    if (updates.error) throw updates.error;
+    res.json({ project: project.data, updates: updates.data || [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/projects/from-election/:electionId", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const project = await ensureCommunityProjectForElection(db, req.params.electionId, { createdBy: req.currentUser.id });
+    if (!project) throw Object.assign(new Error("A community project can only be created from a closed election that has at least one vote."), { status: 400 });
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "create_winning_community_project",
+      entityType: "community_project",
+      entityId: project.id,
+      module: "projects",
+      details: { electionId: req.params.electionId, title: project.title },
+      afterData: project,
+      req,
+    });
+    res.status(201).json({ project, message: "Winning project is now available in Community Projects." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/projects/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: existing, error: existingError } = await db.from("community_projects").select("*").eq("id", req.params.id).single();
+    if (existingError) throw existingError;
+
+    const updates = {};
+    if (req.body.title !== undefined) updates.title = `${req.body.title || ""}`.trim();
+    if (req.body.description !== undefined) updates.description = `${req.body.description || ""}`.trim();
+    if (req.body.status !== undefined) {
+      if (!PROJECT_STATUSES.has(req.body.status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
+      updates.status = req.body.status;
+    }
+    if (req.body.progressPercentage !== undefined || req.body.progress_percentage !== undefined) {
+      const progress = Number(req.body.progressPercentage ?? req.body.progress_percentage);
+      if (!Number.isInteger(progress) || progress < 0 || progress > 100) throw Object.assign(new Error("Progress must be a whole number from 0 to 100."), { status: 400 });
+      updates.progress_percentage = progress;
+    }
+    for (const [bodyKey, dbKey] of [["plannedStartDate", "planned_start_date"], ["actualStartDate", "actual_start_date"], ["expectedCompletionDate", "expected_completion_date"]]) {
+      if (req.body[bodyKey] !== undefined) updates[dbKey] = req.body[bodyKey] || null;
+    }
+    if (updates.status === "ongoing" && !existing.actual_start_date && !updates.actual_start_date) updates.actual_start_date = new Date().toISOString().slice(0, 10);
+    if (updates.status === "completed") {
+      updates.progress_percentage = 100;
+      updates.completed_at = existing.completed_at || new Date().toISOString();
+    }
+    if (updates.status && updates.status !== "completed") updates.completed_at = null;
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await db.from("community_projects").update(updates).eq("id", req.params.id).select("*").single();
+    if (error) throw error;
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "update_community_project",
+      entityType: "community_project",
+      entityId: data.id,
+      module: "projects",
+      beforeData: existing,
+      afterData: data,
+      details: updates,
+      req,
+    });
+    res.json({ project: data, message: "Project updated." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/projects/:id/updates", upload.single("image"), async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: project, error: projectError } = await db.from("community_projects").select("*").eq("id", req.params.id).single();
+    if (projectError) throw projectError;
+    const title = `${req.body.title || ""}`.trim();
+    const description = `${req.body.description || ""}`.trim();
+    ensure(title, "Update title is required.");
+    ensure(description, "Update description is required.");
+
+    let progress = req.body.progressPercentage === undefined || req.body.progressPercentage === "" ? null : Number(req.body.progressPercentage);
+    if (progress !== null && (!Number.isInteger(progress) || progress < 0 || progress > 100)) throw Object.assign(new Error("Progress must be a whole number from 0 to 100."), { status: 400 });
+    const status = req.body.projectStatus || null;
+    if (status && !PROJECT_STATUSES.has(status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
+
+    const imageUrl = await uploadAsset({ file: req.file, folder: "project-updates", prefix: `${project.id}-${title}` });
+    const payload = {
+      project_id: project.id,
+      title,
+      description,
+      image_url: imageUrl,
+      progress_percentage: progress,
+      project_status: status,
+      update_date: req.body.updateDate || new Date().toISOString().slice(0, 10),
+      created_by: req.currentUser.id,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: update, error } = await db.from("project_updates").insert(payload).select("*").single();
+    if (error) throw error;
+
+    const projectChanges = { updated_at: new Date().toISOString() };
+    if (progress !== null) projectChanges.progress_percentage = progress;
+    if (status) projectChanges.status = status;
+    if (status === "ongoing" && !project.actual_start_date) projectChanges.actual_start_date = payload.update_date;
+    if (status === "completed") {
+      projectChanges.status = "completed";
+      projectChanges.progress_percentage = 100;
+      projectChanges.completed_at = new Date().toISOString();
+    }
+    const { data: savedProject, error: updateProjectError } = await db.from("community_projects").update(projectChanges).eq("id", project.id).select("*").single();
+    if (updateProjectError) throw updateProjectError;
+
+    const residents = await getResidentRecipients(db);
+    if (residents.length) {
+      const notificationRows = residents.map((resident) => ({
+        user_id: resident.id,
+        title: `Project Update: ${project.title}`,
+        body: `${title} — ${description.slice(0, 220)}`,
+        kind: status === "completed" ? "success" : "info",
+        broadcast: false,
+        entity_type: "community_project",
+        entity_id: project.id,
+        destination: `/project-updates/${project.id}`,
+      }));
+      let notificationResult = await db.from("notifications").insert(notificationRows);
+      if (notificationResult.error && /entity_type|entity_id|destination/i.test(notificationResult.error.message || "")) {
+        notificationResult = await db.from("notifications").insert(notificationRows.map(({ entity_type, entity_id, destination, ...row }) => row));
+      }
+      if (notificationResult.error) console.warn(`[PROJECT NOTIFICATION ERROR] ${notificationResult.error.message}`);
+    }
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "publish_project_update",
+      entityType: "project_update",
+      entityId: update.id,
+      module: "projects",
+      beforeData: project,
+      afterData: savedProject,
+      details: payload,
+      req,
+    });
+    res.status(201).json({ update, project: savedProject, message: "Project update published and residents were notified." });
   } catch (error) {
     next(error);
   }
@@ -1501,7 +1522,35 @@ router.get("/census_households", async (_req, res, next) => {
   }
 });
 
-router.get("/census_households/export", async (_req, res, next) => {
+router.get("/census_households/sample", async (req, res, next) => {
+  try {
+    // Keep the first worksheet import-ready: only the supported header and sample rows.
+    // Detailed import guidance is shown in the Census UI before the file is committed.
+    const rows = [
+      ["household_ref", "household_name", "purok", "members", "address", "status"],
+      ["", "Dela Cruz Household", "Purok 1", 5, "12 Rizal Street, Barangay Iba, Silang, Cavite", "active"],
+      ["", "Santos Household", "Purok 2", 4, "45 Mabini Street, Barangay Iba, Silang, Cavite", "active"],
+      ["", "Reyes Household", "Purok 3", 3, "8 Bonifacio Road, Barangay Iba, Silang, Cavite", "for update"],
+    ];
+    const workbook = buildXlsx(rows);
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "download_census_sample",
+      entityType: "census_households",
+      entityId: "sample",
+      module: "census",
+      req,
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=barangay-iba-census-sample.xlsx");
+    res.send(workbook);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/census_households/export", async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data, error } = await db
@@ -1513,19 +1562,33 @@ router.get("/census_households/export", async (_req, res, next) => {
 
     const rows = dedupeHouseholds(data || []);
     const workbook = buildXlsx([
-      ["household_name", "purok", "members", "house_number", "status", "updated_at"],
+      ["household_ref", "household_name", "purok", "members", "address", "status", "created_at", "updated_at"],
       ...rows.map((row) => [
+        row.household_ref || "",
         row.household_name,
         row.purok,
         Number(row.members || 0),
-        row.house_number,
+        row.address || row.house_number || "",
         row.status,
+        row.created_at,
         row.updated_at,
       ]),
     ]);
 
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "export_census_backup",
+      entityType: "census_households",
+      entityId: "export",
+      module: "census",
+      details: { rowCount: rows.length },
+      req,
+    });
+
+    const date = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=census-households-backup.xlsx");
+    res.setHeader("Content-Disposition", `attachment; filename=barangay-iba-census-backup-${date}.xlsx`);
     res.send(workbook);
   } catch (error) {
     next(error);
@@ -1537,18 +1600,88 @@ router.post("/census_households", async (req, res, next) => {
     const db = requireSupabase();
     const payload = buildCensusPayload(req.body);
     await assertActiveMasterLabel(db, "purok", payload.purok);
-    const result = await saveCensusHousehold(db, payload);
+    const duplicate = await findCensusDuplicate(db, payload);
+    if (duplicate) throw Object.assign(new Error("A household with the same reference or address already exists. Edit the existing record instead."), { status: 409 });
+    const data = await insertCensusHousehold(db, payload);
 
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
-      action: `${result.action}_census_household`,
-      entityType: "census_households",
-      entityId: result.data.id,
+      action: "create_census_household",
+      entityType: "census_household",
+      entityId: data.id,
+      module: "census",
+      afterData: data,
       details: payload,
+      req,
     });
 
-    res.status(result.action === "inserted" ? 201 : 200).json({ item: result.data, action: result.action });
+    res.status(201).json({ item: data, action: "inserted", message: "Household added." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/census_households/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: existing, error: existingError } = await db.from("census_households").select("*").eq("id", req.params.id).single();
+    if (existingError) throw existingError;
+    const payload = buildCensusPayload({ ...existing, ...req.body, household_ref: existing.household_ref || req.body.householdRef || createHouseholdRef() });
+    await assertActiveMasterLabel(db, "purok", payload.purok);
+    const duplicate = await findCensusDuplicate(db, payload, req.params.id);
+    if (duplicate) throw Object.assign(new Error("Another household already uses this address or household reference."), { status: 409 });
+
+    let update = await db.from("census_households").update(payload).eq("id", req.params.id).select("*").single();
+    if (update.error && (`${update.error.message || ""}`.toLowerCase().includes("household_ref") || `${update.error.message || ""}`.toLowerCase().includes("address"))) {
+      const legacyPayload = {
+        household_name: payload.household_name,
+        purok: payload.purok,
+        members: payload.members,
+        house_number: payload.address,
+        status: payload.status,
+        updated_at: payload.updated_at,
+      };
+      update = await db.from("census_households").update(legacyPayload).eq("id", req.params.id).select("*").single();
+    }
+    if (update.error) throw update.error;
+    const data = { ...update.data, address: update.data.address || update.data.house_number || "", household_ref: update.data.household_ref || "" };
+
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "edit_census_household",
+      entityType: "census_household",
+      entityId: req.params.id,
+      module: "census",
+      beforeData: existing,
+      afterData: data,
+      req,
+    });
+    res.json({ item: data, message: "Household updated." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/census_households/:id", async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: existing, error: existingError } = await db.from("census_households").select("*").eq("id", req.params.id).single();
+    if (existingError) throw existingError;
+    const { error } = await db.from("census_households").delete().eq("id", req.params.id);
+    if (error) throw error;
+    await logAudit({
+      actorId: req.currentUser.id,
+      actorRole: normalizeRole(req.currentUser.role),
+      action: "delete_census_household",
+      entityType: "census_household",
+      entityId: req.params.id,
+      module: "census",
+      beforeData: existing,
+      req,
+    });
+    res.json({ message: "Household deleted." });
   } catch (error) {
     next(error);
   }
@@ -1556,86 +1689,117 @@ router.post("/census_households", async (req, res, next) => {
 
 router.post("/census_households/batch", upload.single("file"), async (req, res, next) => {
   try {
-    if (!req.file) {
-      throw Object.assign(new Error("Upload a CSV or Excel file first."), { status: 400 });
-    }
+    if (!req.file) throw Object.assign(new Error("Upload an .xlsx, .csv, or tab-delimited file first."), { status: 400 });
 
     const rows = parseUploadedRows(req.file);
-    if (rows.length < 2) {
-      throw Object.assign(new Error("File must include a header row and at least one household row."), { status: 400 });
-    }
+    if (rows.length < 2) throw Object.assign(new Error("File must include a header row and at least one household row."), { status: 400 });
 
     const headers = rows[0].map(normalizeHeader);
     const headerMap = new Map(headers.map((header, index) => [header, index]));
-    const payload = [];
-    const errors = [];
+    const parsed = [];
+    const validationErrors = [];
 
     rows.slice(1).forEach((row, index) => {
+      if (!row.some((cell) => `${cell || ""}`.trim())) return;
       const rowNumber = index + 2;
-      const householdName = getCell(row, headerMap, ["household_name", "householdName", "household", "household name"]);
-      const purok = getCell(row, headerMap, ["purok"]);
-      const members = Number(getCell(row, headerMap, ["members", "member count", "member_count"]) || 1);
-      const houseNumber = getCell(row, headerMap, ["house_number", "houseNumber", "house no", "house number"]);
-      const status = (getCell(row, headerMap, ["status"]) || "active").toLowerCase();
-
-      if (!householdName) errors.push(`Row ${rowNumber}: household name is required.`);
-      if (!purok) errors.push(`Row ${rowNumber}: purok is required.`);
-      if (!houseNumber) errors.push(`Row ${rowNumber}: house number is required.`);
-      if (!Number.isInteger(members) || members < 1) errors.push(`Row ${rowNumber}: members must be a positive whole number.`);
-
-      payload.push({
-        household_name: householdName,
-        purok,
-        members,
-        house_number: houseNumber,
-        status: status || "active",
-        updated_at: new Date().toISOString(),
-      });
+      const raw = {
+        householdRef: getCell(row, headerMap, ["household_ref", "household ref", "household id"]),
+        householdName: getCell(row, headerMap, ["household_name", "householdName", "household", "household name"]),
+        purok: getCell(row, headerMap, ["purok"]),
+        members: getCell(row, headerMap, ["members", "member count", "member_count"]) || 1,
+        address: getCell(row, headerMap, ["address", "full address", "house_number", "house number"]),
+        status: (getCell(row, headerMap, ["status"]) || "active").toLowerCase(),
+      };
+      try {
+        parsed.push({ rowNumber, payload: buildCensusPayload(raw) });
+      } catch (rowError) {
+        validationErrors.push({ row: rowNumber, message: rowError.message });
+      }
     });
 
-    if (errors.length) {
-      throw Object.assign(new Error(errors.slice(0, 8).join(" ")), { status: 400 });
+    const db = requireSupabase();
+    const [{ data: activePuroks, error: purokError }, { data: existingRows, error: existingError }] = await Promise.all([
+      db.from("master_data_values").select("label").eq("category", "purok").eq("is_active", true),
+      db.from("census_households").select("id, household_ref, purok, address, house_number"),
+    ]);
+    if (purokError) throw purokError;
+    if (existingError) throw existingError;
+
+    const allowedPuroks = new Set((activePuroks || []).map((item) => `${item.label}`.toLowerCase()));
+    const existingKeys = new Set((existingRows || []).map((item) => `${item.purok || ""}|${normalizeAddress(item.address || item.house_number || "")}`.toLowerCase()));
+    const fileKeys = new Set();
+    const preview = [];
+    let duplicateCount = 0;
+
+    for (const item of parsed) {
+      const payload = item.payload;
+      const rowErrors = [];
+      if (!allowedPuroks.has(`${payload.purok}`.toLowerCase())) rowErrors.push(`Invalid or inactive Purok: ${payload.purok}.`);
+      if (!["active", "for update"].includes(payload.status)) rowErrors.push(`Invalid status: ${payload.status}. Use active or for update.`);
+      const key = `${payload.purok}|${normalizeAddress(payload.address)}`.toLowerCase();
+      const duplicateExisting = existingKeys.has(key);
+      const duplicateFile = fileKeys.has(key);
+      if (duplicateExisting || duplicateFile) duplicateCount += 1;
+      fileKeys.add(key);
+      if (duplicateFile) rowErrors.push("Duplicate address appears more than once in this upload.");
+      if (rowErrors.length) validationErrors.push(...rowErrors.map((message) => ({ row: item.rowNumber, message })));
+      preview.push({ rowNumber: item.rowNumber, ...payload, duplicateExisting, duplicateFile, valid: rowErrors.length === 0 });
     }
 
-    const db = requireSupabase();
-    const { data: activePuroks, error: purokError } = await db.from("master_data_values").select("label").eq("category", "purok").eq("is_active", true);
-    if (purokError) throw purokError;
-    const allowedPuroks = new Set((activePuroks || []).map((item) => `${item.label}`.toLowerCase()));
-    const invalidPurok = payload.find((item) => !allowedPuroks.has(`${item.purok}`.toLowerCase()));
-    if (invalidPurok) throw Object.assign(new Error(`Invalid or inactive Purok: ${invalidPurok.purok}. Update Admin Settings or correct the upload.`), { status: 400 });
-    const invalidStatus = payload.find((item) => !["active", "for update"].includes(item.status));
-    if (invalidStatus) throw Object.assign(new Error(`Invalid census status: ${invalidStatus.status}. Use active or for update.`), { status: 400 });
-
-    if (`${req.query.validateOnly || ""}`.toLowerCase() === "true") {
+    const validateOnly = `${req.query.validateOnly || ""}`.toLowerCase() === "true";
+    if (validateOnly) {
       return res.json({
-        valid: true,
-        rowCount: payload.length,
-        preview: payload.slice(0, 5),
-        message: `${payload.length} household row${payload.length === 1 ? "" : "s"} passed validation.`,
+        valid: validationErrors.length === 0,
+        rowCount: parsed.length,
+        validCount: parsed.length - new Set(validationErrors.map((item) => item.row)).size,
+        existingCount: (existingRows || []).length,
+        duplicateCount,
+        errors: validationErrors.slice(0, 50),
+        preview: preview.slice(0, 25),
+        message: validationErrors.length ? `${validationErrors.length} validation issue${validationErrors.length === 1 ? "" : "s"} found.` : `${parsed.length} household row${parsed.length === 1 ? "" : "s"} passed validation.`,
       });
     }
 
-    const saved = [];
-    let inserted = 0;
-    let updated = 0;
+    if (validationErrors.length) throw Object.assign(new Error("The file has validation errors. Preview and correct them before importing."), { status: 400 });
 
-    for (const item of payload) {
-      const result = await saveCensusHousehold(db, item);
-      saved.push(result.data);
-      if (result.action === "inserted") inserted += 1;
-      if (result.action === "updated") updated += 1;
+    const mode = `${req.body.mode || req.query.mode || "append"}`.toLowerCase();
+    if (!["append", "replace_all"].includes(mode)) throw Object.assign(new Error("Import mode must be append or replace_all."), { status: 400 });
+
+    const payload = parsed.map((item) => item.payload);
+    let inserted = 0;
+    let skipped = 0;
+
+    if (mode === "replace_all") {
+      const { data: result, error: replaceError } = await db.rpc("replace_census_households", { rows: payload });
+      if (replaceError) {
+        throw Object.assign(new Error(`Census replacement requires the V4 database migration. ${replaceError.message}`), { status: 500 });
+      }
+      inserted = Number(result?.[0]?.inserted_count ?? result?.inserted_count ?? payload.length);
+    } else {
+      for (const item of payload) {
+        const key = `${item.purok}|${normalizeAddress(item.address)}`.toLowerCase();
+        if (existingKeys.has(key)) {
+          skipped += 1;
+          continue;
+        }
+        await insertCensusHousehold(db, item);
+        existingKeys.add(key);
+        inserted += 1;
+      }
     }
 
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
-      action: "batch_upload_census_households",
+      action: mode === "replace_all" ? "replace_all_census_households" : "append_census_households",
       entityType: "census_households",
       entityId: "batch",
-      details: { count: payload.length, inserted, updated },
+      module: "census",
+      details: { mode, sourceFile: req.file.originalname, totalRows: payload.length, inserted, skipped, previousCount: (existingRows || []).length },
+      req,
     });
 
-    res.status(201).json({ households: saved, inserted, updated });
+    res.status(201).json({ inserted, skipped, mode, message: mode === "replace_all" ? `Census replaced with ${inserted} household records.` : `${inserted} household records added. ${skipped} duplicate${skipped === 1 ? "" : "s"} skipped.` });
   } catch (error) {
     next(error);
   }
