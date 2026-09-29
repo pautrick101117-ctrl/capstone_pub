@@ -18,31 +18,71 @@ import { runMaintenance } from "./lib/scheduler.js";
 export const createApp = () => {
   const app = express();
 
+  // Render runs the app behind a reverse proxy.
+  // Trust one proxy hop so req.ip resolves to the real client IP
+  // instead of the Render proxy IP.
+  //
+  // This prevents multiple users from sharing the same
+  // login rate-limit bucket.
+  if (env.nodeEnv === "production") {
+    app.set("trust proxy", 1);
+  }
+
   app.use((req, _res, next) => {
-    if (env.nodeEnv !== "test") console.log(`[API] ${req.method} ${req.originalUrl}`);
+    if (env.nodeEnv !== "test") {
+      console.log(`[API] ${req.method} ${req.originalUrl}`);
+    }
     next();
   });
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || env.clientUrls.includes(origin)) return callback(null, true);
-        return callback(Object.assign(new Error("Origin is not allowed by CORS."), { status: 403 }));
+        if (!origin || env.clientUrls.includes(origin)) {
+          return callback(null, true);
+        }
+
+        return callback(
+          Object.assign(
+            new Error("Origin is not allowed by CORS."),
+            { status: 403 }
+          )
+        );
       },
       credentials: false,
     })
   );
+
   app.use(express.json({ limit: "1mb" }));
 
-  app.get("/api/health", (_req, res) => res.json({ ok: true, service: "barangay-iba-api" }));
+  app.get("/api/health", (_req, res) =>
+    res.json({
+      ok: true,
+      service: "barangay-iba-api",
+    })
+  );
 
   app.get("/api/content", async (_req, res, next) => {
     try {
       const { requireSupabase } = await import("./lib/supabase.js");
+
       const db = requireSupabase();
-      const { data, error } = await db.from("landing_content").select("*").order("key_name");
+
+      const { data, error } = await db
+        .from("landing_content")
+        .select("*")
+        .order("key_name");
+
       if (error) throw error;
-      res.json({ content: Object.fromEntries((data || []).map((item) => [item.key_name, item.value])) });
+
+      res.json({
+        content: Object.fromEntries(
+          (data || []).map((item) => [
+            item.key_name,
+            item.value,
+          ])
+        ),
+      });
     } catch (error) {
       next(error);
     }
@@ -62,8 +102,17 @@ export const createApp = () => {
 
   app.use((error, _req, res, _next) => {
     const status = error.status || 500;
-    console.error("[API ERROR]", { status, message: error.message || "Unexpected server error.", code: error.code || null });
-    res.status(status).json({ message: error.message || "Unexpected server error.", code: error.code || null });
+
+    console.error("[API ERROR]", {
+      status,
+      message: error.message || "Unexpected server error.",
+      code: error.code || null,
+    });
+
+    res.status(status).json({
+      message: error.message || "Unexpected server error.",
+      code: error.code || null,
+    });
   });
 
   return app;
@@ -71,13 +120,25 @@ export const createApp = () => {
 
 export const app = createApp();
 
-const isMainModule = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+const isMainModule =
+  process.argv[1] &&
+  pathToFileURL(process.argv[1]).href === import.meta.url;
 
 if (isMainModule) {
   validateProductionEnv();
-  app.listen(env.port, () => console.log(`API listening on http://localhost:${env.port}`));
+
+  app.listen(env.port, () =>
+    console.log(
+      `API listening on http://localhost:${env.port}`
+    )
+  );
+
   setInterval(() => {
-    runMaintenance().catch((error) => console.error("Maintenance task failed:", error.message));
+    runMaintenance().catch((error) =>
+      console.error(
+        "Maintenance task failed:",
+        error.message
+      )
+    );
   }, 60 * 1000);
 }
-
