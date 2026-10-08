@@ -47,6 +47,15 @@ router.get("/landing", async (_req, res, next) => {
       db.from("landing_content").select("*").order("key_name"),
     ]);
 
+    // Supabase query builders resolve to { data, error } rather than throwing.
+    // Do not silently report "0 residents / 0 funds" when a real DB read fails.
+    for (const result of [
+      residents, completedProjects, activeOfficials, totalFundsSpent,
+      fundSources, upcomingEvents, news, announcements, liveElection, contentRows,
+    ]) {
+      if (result.error) throw result.error;
+    }
+
     const spent = (totalFundsSpent.data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const totalFunds = (fundSources.data || []).reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0);
 
@@ -283,4 +292,3 @@ router.get("/community-support", async (_req, res, next) => {
 });
 
 export default router;
-

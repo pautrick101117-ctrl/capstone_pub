@@ -1,4 +1,4 @@
-import { env, hasResendConfig } from "./env.js";
+import { env, validateResendConfig } from "./env.js";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -14,11 +14,8 @@ const parseResendError = async (response) => {
 export const sendSystemEmail = async ({ to, subject, text, html }) => {
   if (!to) return { delivered: false, reason: "missing_email" };
 
-  if (!hasResendConfig) {
-    // Never log message bodies because account emails may contain temporary credentials.
-    console.warn(`[EMAIL NOT CONFIGURED] To: ${to} | Subject: ${subject}`);
-    return { delivered: false, reason: "email_not_configured" };
-  }
+  // Never log message bodies because account emails may contain temporary credentials.
+  validateResendConfig();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), env.emailSendTimeoutMs);
@@ -43,7 +40,8 @@ export const sendSystemEmail = async ({ to, subject, text, html }) => {
     if (!response.ok) {
       const error = new Error(await parseResendError(response));
       error.code = "RESEND_API_ERROR";
-      error.status = response.status;
+      error.providerStatus = response.status;
+      error.status = 502;
       throw error;
     }
 
@@ -71,6 +69,12 @@ export const sendVerificationEmail = async ({ email, code, fullName }) =>
 
 const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = false }) => {
   const roleLabel = role.replace(/_/g, " ");
+  const escapeHtml = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
   const intro = reset
     ? `Your Barangay Iba ${roleLabel} account password was reset by an administrator.`
     : `Your Barangay Iba ${roleLabel} portal account has been created.`;
@@ -89,11 +93,11 @@ const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#1f2937;line-height:1.6">
       <h2 style="color:#1f552a">Barangay Iba Portal</h2>
-      <p>Hello ${fullName || roleLabel},</p>
-      <p>${intro}</p>
+      <p>Hello ${escapeHtml(fullName || roleLabel)},</p>
+      <p>${escapeHtml(intro)}</p>
       <div style="background:#f2f8f2;border:1px solid #beddb9;border-radius:12px;padding:16px">
-        <strong>Username:</strong> ${username}<br/>
-        <strong>Temporary password:</strong> ${temporaryPassword}
+        <strong>Username:</strong> ${escapeHtml(username)}<br/>
+        <strong>Temporary password:</strong> ${escapeHtml(temporaryPassword)}
       </div>
       <p><strong>Required on first login:</strong> create a new password with at least 8 characters, at least one uppercase letter, and at least one number before using the resident portal.</p>
       <p style="font-size:13px;color:#64748b">If you did not expect this message, please contact the Barangay Iba office.</p>
@@ -118,4 +122,3 @@ export const sendPasswordResetEmail = async ({ email, fullName, username, tempor
     ...body,
   });
 };
-

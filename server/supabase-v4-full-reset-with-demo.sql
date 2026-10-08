@@ -1199,7 +1199,9 @@ begin
   return next;
 end;
 $$;
-revoke all on function public.replace_census_households(jsonb) from anon, authenticated;
+-- PostgreSQL functions are executable by PUBLIC unless explicitly revoked.
+-- SECURITY DEFINER + census replacement must never be callable by browser roles.
+revoke all on function public.replace_census_households(jsonb) from PUBLIC, anon, authenticated;
 grant execute on function public.replace_census_households(jsonb) to service_role, postgres;
 
 commit;

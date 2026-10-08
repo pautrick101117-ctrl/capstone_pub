@@ -46,14 +46,17 @@ export const runMaintenance = async () => {
 
   for (const request of idRequests || []) {
     const resident = request.users;
-    await sendSms({
+    const delivery = await sendSms({
       to: resident?.contact_number,
       message: `Reminder: Your Barangay ID pickup is scheduled on ${request.preferred_date} at ${request.time_slot || "the selected time"} for ${request.purpose}.`,
     });
-    await db
-      .from("id_requests")
-      .update({ pickup_reminder_sent_at: nowIso })
-      .eq("id", request.id);
+    // Never mark an SMS reminder as sent if only the development logger ran.
+    if (delivery.delivered) {
+      await db
+        .from("id_requests")
+        .update({ pickup_reminder_sent_at: nowIso })
+        .eq("id", request.id);
+    }
   }
 
   const soonWindowStart = new Date(Date.now() + DAY_IN_MS).toISOString();
@@ -88,4 +91,3 @@ export const runMaintenance = async () => {
     }
   }
 };
-

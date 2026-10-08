@@ -7,6 +7,7 @@ import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection } from "../lib/projects.js";
 import { uploadAsset } from "../lib/storage.js";
 import { sendAccountCreatedEmail, sendPasswordResetEmail, sendSystemEmail } from "../lib/mailer.js";
+import { validateResendConfig } from "../lib/env.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { adminActivityMiddleware, logAudit } from "../utils/audit.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
@@ -782,6 +783,9 @@ router.post("/users", async (req, res, next) => {
     ensure(email, "Email is required for resident accounts.");
     if (role === "resident") ensureAdult(birthdate);
     await assertActiveMasterLabel(db, "purok", purok);
+    // Fail before creating a database account if the verified-domain email
+    // sender has not been configured on the backend deployment.
+    validateResendConfig();
 
     const nameParts = splitName(fullName);
     const usernameBase = buildUsername({
@@ -830,8 +834,16 @@ router.post("/users", async (req, res, next) => {
         role,
       });
     } catch (emailError) {
-      console.warn("[EMAIL ACCOUNT ERROR]", emailError.message);
-      emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
+      console.warn("[EMAIL ACCOUNT ERROR]", {
+        code: emailError.code || "EMAIL_PROVIDER_ERROR",
+        providerStatus: emailError.providerStatus || null,
+        message: emailError.message,
+      });
+      emailDelivery = {
+        delivered: false,
+        reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed",
+        providerStatus: emailError.providerStatus || null,
+      };
     }
 
     // Resident creation is only considered complete when the one-time credentials are accepted
@@ -840,8 +852,22 @@ router.post("/users", async (req, res, next) => {
       const { error: rollbackError } = await db.from("users").delete().eq("id", data.id);
       if (rollbackError) {
         console.error(`[RESIDENT CREATE ROLLBACK ERROR] ${data.id}: ${rollbackError.message}`);
+        throw Object.assign(new Error("Email failed and account cleanup could not be confirmed. Check the resident list before trying again."), {
+          status: 500,
+          code: "ACCOUNT_CREATION_REVIEW_REQUIRED",
+        });
       }
-      throw Object.assign(new Error("Resident account was not created because the login email could not be sent. Check the email address/provider and try again."), {
+      const providerStatus = emailDelivery.providerStatus;
+      const message = emailDelivery.reason === "timeout"
+        ? "Resend did not respond in time. The resident account was not created. Please retry."
+        : providerStatus === 401 || providerStatus === 403
+          ? "Resend rejected the API key or sending domain. Check the backend's Resend configuration."
+          : providerStatus === 422 || providerStatus === 400
+            ? "Resend rejected the sender or recipient address. Check the email address and verified sending domain."
+            : providerStatus === 429
+              ? "Resend rate limit reached. Wait a moment and try again."
+              : "Resend could not accept the login email. Check your backend and Resend logs; the resident account was not created.";
+      throw Object.assign(new Error(message), {
         status: 502,
         code: "ACCOUNT_EMAIL_DELIVERY_FAILED",
       });
@@ -1996,4 +2022,3 @@ tableCrud({
 });
 
 export default router;
-

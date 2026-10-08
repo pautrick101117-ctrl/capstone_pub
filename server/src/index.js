@@ -55,12 +55,24 @@ export const createApp = () => {
 
   app.use(express.json({ limit: "1mb" }));
 
+  // Liveness says only that the Express process is responding.
   app.get("/api/health", (_req, res) =>
-    res.json({
-      ok: true,
-      service: "barangay-iba-api",
-    })
+    res.json({ ok: true, service: "barangay-iba-api" })
   );
+
+  // Readiness confirms the database is accessible without exposing credentials
+  // or resident records. Useful for diagnosing a working UI with empty data.
+  app.get("/api/health/readiness", async (_req, res) => {
+    try {
+      const { requireSupabase } = await import("./lib/supabase.js");
+      const { error } = await requireSupabase().from("users").select("id").limit(1);
+      if (error) throw error;
+      res.json({ ok: true, database: "connected" });
+    } catch (error) {
+      console.error("[DATABASE READINESS ERROR]", error.message);
+      res.status(503).json({ ok: false, database: "unavailable" });
+    }
+  });
 
   app.get("/api/content", async (_req, res, next) => {
     try {
