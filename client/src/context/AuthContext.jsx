@@ -135,7 +135,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => clearSession();
+  const logout = () => {
+    const activeToken = session.token;
+    if (activeToken) api("/auth/logout", { method: "POST", token: activeToken }).catch(() => {});
+    clearSession();
+  };
   const keepSessionAlive = () => extendSession();
 
   const refreshProfile = async () => {
@@ -231,4 +235,5 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => useContext(AuthContext);
+
 

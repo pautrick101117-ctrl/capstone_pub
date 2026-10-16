@@ -1,5 +1,6 @@
 import express from "express";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { hashInvitationToken } from "../lib/adminInvitations.js";
 import bcrypt from "bcryptjs";
 import { requireSupabase } from "../lib/supabase.js";
 import { signToken } from "../lib/jwt.js";
@@ -47,6 +48,44 @@ router.post("/register", (_req, _res, next) => {
   next(Object.assign(new Error("Public registration has been disabled. Please contact your barangay admin."), { status: 410 }));
 });
 
+// An invitation is one-time, emailed to a staff account, and never creates a session by itself.
+router.post("/admin-invitation/verify", rateLimit({ key: "admin-invite-verify", max: 15, windowMs: 15 * 60_000 }), async (req, res, next) => {
+  try {
+    const token = `${req.body?.token || ""}`;
+    if (!/^[0-9a-f]{64}$/i.test(token)) throw Object.assign(new Error("Invalid invitation link."), { status: 400 });
+    const db = requireSupabase();
+    const { data, error } = await db.from("admin_invitations")
+      .select("user_id, expires_at, accepted_at, users!admin_invitations_user_id_fkey(username, full_name, email, role, status, is_active)")
+      .eq("token_hash", hashInvitationToken(token)).is("accepted_at", null)
+      .gt("expires_at", new Date().toISOString()).maybeSingle();
+    if (error) throw error;
+    if (!data || data.users?.role !== "admin" || data.users?.is_active || data.users?.status !== "pending") {
+      throw Object.assign(new Error("This invitation is invalid, expired, or already used."), { status: 400 });
+    }
+    res.json({ username: data.users.username, fullName: data.users.full_name, expiresAt: data.expires_at });
+  } catch (error) { next(error); }
+});
+
+router.post("/admin-invitation/accept", rateLimit({ key: "admin-invite-accept", max: 10, windowMs: 15 * 60_000 }), async (req, res, next) => {
+  try {
+    const token = `${req.body?.token || ""}`;
+    const password = `${req.body?.password || ""}`;
+    if (!/^[0-9a-f]{64}$/i.test(token)) throw Object.assign(new Error("Invalid invitation link."), { status: 400 });
+    ensureStrongPassword(password);
+    const db = requireSupabase();
+    const { data: userId, error } = await db.rpc("bgy_accept_admin_invitation", {
+      p_token_hash: hashInvitationToken(token), p_password_hash: await bcrypt.hash(password, 12),
+    });
+    if (error) {
+      if (error.code === "P0001") throw Object.assign(new Error("This invitation is invalid, expired, or already used."), { status: 400 });
+      throw error;
+    }
+    await logAudit({ actorId: userId, actorRole: "admin", action: "admin_invitation_accepted",
+      entityType: "user", entityId: userId, module: "authentication", eventCategory: "security", req });
+    res.json({ message: "Account setup completed. You can now sign in through Admin Login." });
+  } catch (error) { next(error); }
+});
+
 router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }), async (req, res, next) => {
   try {
     const db = requireSupabase();
@@ -60,18 +99,37 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       throw Object.assign(new Error("Username and password are required."), { status: 400 });
     }
 
-    const user = await getUserByIdentifier(db, rawIdentifier);
+    let user = await getUserByIdentifier(db, rawIdentifier);
 
     if (!user) {
       throw Object.assign(new Error("Invalid credentials."), { status: 401 });
     }
 
-    const valid = await comparePassword(bcrypt, password, user.password_hash);
+    let valid = await comparePassword(bcrypt, password, user.password_hash);
+    // A staged resident reset becomes active only when the resident actually
+    // enters the temporary password; the old password remains valid until then.
+    if (!valid && normalizeRole(user.role) === "resident" && user.pending_password_hash
+        && new Date(user.pending_password_expires_at).getTime() > Date.now()) {
+      const matchesPending = await comparePassword(bcrypt, password, user.pending_password_hash);
+      if (matchesPending) {
+        const { data: promoted, error: promoteError } = await db.rpc("bgy_accept_resident_temporary_password", {
+          p_user_id: user.id, p_expected_hash: user.pending_password_hash,
+        });
+        if (promoteError) throw promoteError;
+        if (!promoted) throw Object.assign(new Error("This temporary password has expired or was replaced. Request another reset."), { status: 401 });
+        const { data: refreshed, error: refreshError } = await db.from("users").select("*").eq("id", user.id).single();
+        if (refreshError) throw refreshError;
+        user = refreshed;
+        valid = true;
+        await logAudit({ actorId: user.id, actorRole: "resident", action: "resident_temporary_password_activated",
+          module: "resident_authentication", entityType: "user", entityId: user.id, eventCategory: "security", req });
+      }
+    }
     if (!valid) {
       throw Object.assign(new Error("Invalid credentials."), { status: 401 });
     }
 
-    if (!user.is_active) {
+    if (!user.is_active || (normalizeRole(user.role) !== "resident" && user.status !== "approved")) {
       throw Object.assign(new Error("This account is inactive. Please contact the barangay admin."), { status: 403 });
     }
 
@@ -103,6 +161,7 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       entityType: "user",
       entityId: user.id,
       details: { portal },
+      required: true,
       req,
     });
 
@@ -112,8 +171,24 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       sessionTimeoutMinutes: SESSION_TIMEOUT_MINUTES,
     });
   } catch (error) {
+    if ([400, 401, 403].includes(error.status)) {
+      // Never log passwords or raw login identifiers. Only failure type, portal, IP and time.
+      logAudit({ action: "login_failed", entityType: "authentication", entityId: "attempt",
+        module: "authentication", eventCategory: "security", outcome: "failed",
+        details: { status: error.status, portal: req.body?.adminOnly ? "admin" : "resident" }, req,
+      }).catch((auditError) => console.warn("[LOGIN SECURITY AUDIT ERROR]", auditError.message));
+    }
     next(error);
   }
+});
+
+router.post("/logout", requireAuth, requireCurrentUser({ allowPasswordChange: true }), async (req, res, next) => {
+  try {
+    await logAudit({ actorId: req.currentUser.id, actorRole: req.currentUser.role,
+      action: "logout", module: "authentication", entityType: "user", entityId: req.currentUser.id,
+      eventCategory: "security", req });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
 });
 
 router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-request", max: 5, windowMs: 10 * 60_000 }), async (req, res, next) => {
@@ -130,6 +205,9 @@ router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-r
     }
 
     const portal = `${req.body.portal || "resident"}`.trim().toLowerCase();
+    if (portal === "admin" && (normalizeRole(user.role) === "resident" || !user.is_active || user.status !== "approved")) {
+      throw Object.assign(new Error("Administrator account recovery is unavailable for this account."), { status: 403 });
+    }
     if (portal === "resident" && normalizeRole(user.role) !== "resident") {
       throw Object.assign(new Error("Password recovery for administrator accounts is managed through the admin portal."), { status: 403 });
     }
@@ -196,6 +274,9 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
     }
 
     const portal = `${req.body.portal || "resident"}`.trim().toLowerCase();
+    if (portal === "admin" && (normalizeRole(user.role) === "resident" || !user.is_active || user.status !== "approved")) {
+      throw Object.assign(new Error("Administrator account recovery is unavailable for this account."), { status: 403 });
+    }
     if (portal === "resident" && normalizeRole(user.role) !== "resident") {
       throw Object.assign(new Error("Password recovery for administrator accounts is managed through the admin portal."), { status: 403 });
     }
@@ -232,6 +313,9 @@ router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", 
       .update({
         password_hash: passwordHash,
         must_change_password: false,
+        pending_password_hash: null,
+        pending_password_expires_at: null,
+        pending_password_requested_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", user.id)
@@ -308,6 +392,9 @@ router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordC
   try {
     const { currentPassword = "", newPassword = "" } = req.body;
     ensureStrongPassword(newPassword);
+    if (await comparePassword(bcrypt, newPassword, req.currentUser.password_hash)) {
+      throw Object.assign(new Error("Choose a new password that is different from your temporary or current password."), { status: 400 });
+    }
 
     if (!req.currentUser.must_change_password) {
       const validCurrent = await comparePassword(bcrypt, currentPassword, req.currentUser.password_hash);
@@ -323,6 +410,9 @@ router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordC
       .update({
         password_hash: passwordHash,
         must_change_password: false,
+        pending_password_hash: null,
+        pending_password_expires_at: null,
+        pending_password_requested_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", req.currentUser.id)
@@ -349,4 +439,5 @@ router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordC
 });
 
 export default router;
+
 

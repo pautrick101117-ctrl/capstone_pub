@@ -9,3 +9,4 @@ alter table public.election_options
 
 commit;
 
+

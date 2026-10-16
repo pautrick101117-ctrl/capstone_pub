@@ -1,0 +1,6 @@
+# Local secrets and generated folders
+**/.env
+**/.env.*.local
+**/node_modules/
+**/dist/
+**/.DS_Store

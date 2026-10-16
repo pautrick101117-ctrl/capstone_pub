@@ -1,3 +1,4 @@
+import { classifyElectionOutcome } from "./votingOutcome.js";
 const getVoteCounts = (votes = []) => votes.reduce((map, vote) => {
   map[vote.option_id] = (map[vote.option_id] || 0) + 1;
   return map;
@@ -13,17 +14,16 @@ export const getElectionWinner = async (db, electionId) => {
   if (optionsResult.error) throw optionsResult.error;
   if (votesResult.error) throw votesResult.error;
 
-  const counts = getVoteCounts(votesResult.data || []);
-  const ranked = (optionsResult.data || [])
-    .map((option) => ({ ...option, votes: counts[option.id] || 0 }))
-    .sort((a, b) => b.votes - a.votes || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const options = optionsResult.data || [];
+  const votes = votesResult.data || [];
+  const outcome = classifyElectionOutcome(options, votes, { finalized: Boolean(electionResult.data.finalized_at) });
+  return { election: electionResult.data,
+    winner: electionResult.data.result_kind === 'winner' && electionResult.data.finalized_at ?
+      options.find((option) => option.id === electionResult.data.winner_option_id) || null : null,
+    options: options.map((option) => ({ ...option, votes: outcome.counts[option.id] || 0 })),
+    totalVotes: outcome.totalVotes, resultKind: electionResult.data.result_kind || outcome.kind,
+    requiresReview: electionResult.data.status === 'closed' && !electionResult.data.finalized_at };
 
-  return {
-    election: electionResult.data,
-    winner: ranked[0] && ranked[0].votes > 0 ? ranked[0] : null,
-    options: ranked,
-    totalVotes: (votesResult.data || []).length,
-  };
 };
 
 export const ensureCommunityProjectForElection = async (db, electionId, { createdBy = null } = {}) => {
@@ -40,7 +40,9 @@ export const ensureCommunityProjectForElection = async (db, electionId, { create
   if (existing) return existing;
 
   const { election, winner } = await getElectionWinner(db, electionId);
-  if (election.status !== "closed" || !winner) return null;
+  // The Phase 10 finalization transaction owns project creation. Never create
+  // from an unfinalized, tied, or zero-vote legacy election.
+  if (election.status !== "closed" || !election.finalized_at || election.result_kind !== "winner" || !winner) return null;
 
   const payload = {
     election_id: election.id,
@@ -78,3 +80,4 @@ export const ensureProjectsForClosedElections = async (db, { createdBy = null } 
   }
   return projects;
 };
+

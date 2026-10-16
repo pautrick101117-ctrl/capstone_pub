@@ -4,6 +4,7 @@ import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
+import { attachCaseHistories } from "../lib/caseHistory.js";
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ router.get("/mine", async (req, res, next) => {
       .eq("user_id", req.currentUser.id)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ requests: data || [] });
+    res.json({ requests: await attachCaseHistories(db, "request", data || [], { residentVisible: true }) });
   } catch (error) {
     next(error);
   }
@@ -103,7 +104,7 @@ router.get("/id-mine", async (req, res, next) => {
       .eq("user_id", req.currentUser.id)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ requests: data || [] });
+    res.json({ requests: await attachCaseHistories(db, "id_request", data || [], { residentVisible: true }) });
   } catch (error) {
     next(error);
   }
@@ -163,6 +164,10 @@ router.get("/document/:requestId/clearance", async (req, res, next) => {
       throw Object.assign(new Error("This clearance is not ready for download yet."), { status: 400 });
     }
 
+    await logAudit({ actorId: req.currentUser.id, actorRole: req.currentUser.role,
+      action: "clearance_document_downloaded", eventCategory: "activity", module: "requests",
+      entityType: "request", entityId: requestRow.id, details: { document: "Barangay Clearance" }, req });
+
     const doc = new PDFDocument({ margin: 48 });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=barangay-clearance-${requestRow.id}.pdf`);
@@ -191,4 +196,5 @@ router.get("/document/:requestId/clearance", async (req, res, next) => {
 });
 
 export default router;
+
 

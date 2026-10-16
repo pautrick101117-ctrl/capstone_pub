@@ -52,3 +52,4 @@ test("full reset contains the requested bootstrap administrators and no mock res
   assert.doesNotMatch(fullReset, /Covered Court|Monobloc Chairs|Purok 1|Maria Santos|Juan dela Cruz/i);
 });
 
+

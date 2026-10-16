@@ -52,3 +52,4 @@ test("master data and primary dynamic admin lists expose pagination", async () =
     assert.match(source, /Pagination/, `${file} should use Pagination`);
   }
 });
+

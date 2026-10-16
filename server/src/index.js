@@ -1,5 +1,10 @@
 import express from "express";
 import cors from "cors";
+import { auditRequestContext } from "./lib/auditContext.js";
+import { requireSupabase } from "./lib/supabase.js";
+import { logAudit } from "./utils/audit.js";
+import { publicHotlineSupport } from "./lib/hotlines.js";
+import { publicContentOnly } from "./lib/publicContent.js";
 import { pathToFileURL } from "node:url";
 import authRoutes from "./routes/auth.js";
 import votingRoutes from "./routes/voting.js";
@@ -27,6 +32,8 @@ export const createApp = () => {
   if (env.nodeEnv === "production") {
     app.set("trust proxy", 1);
   }
+
+  app.use(auditRequestContext);
 
   app.use((req, _res, next) => {
     if (env.nodeEnv !== "test") {
@@ -87,14 +94,10 @@ export const createApp = () => {
 
       if (error) throw error;
 
-      res.json({
-        content: Object.fromEntries(
-          (data || []).map((item) => [
-            item.key_name,
-            item.value,
-          ])
-        ),
-      });
+      const content = Object.fromEntries((data || []).map((item) => [item.key_name, item.value]));
+      const publicContent = publicContentOnly(content);
+      const hotlineInfo = publicHotlineSupport(publicContent);
+      res.json({ content: { ...publicContent, hotline: hotlineInfo.hotline, hotlines: hotlineInfo.hotlines } });
     } catch (error) {
       next(error);
     }
@@ -112,7 +115,17 @@ export const createApp = () => {
   app.use("/api/borrowing", borrowingRoutes);
   app.use("/api/master-data", masterDataRoutes);
 
-  app.use((error, _req, res, _next) => {
+  app.use(async (error, req, res, _next) => {
+    // Rejected access is a security event, not a successful business mutation.
+    // Login credential failures already have their own dedicated audit event.
+    const deniedStatus = Number(error.status || 500);
+    if ([401, 403].includes(deniedStatus) && req.path !== "/api/auth/login") {
+      try {
+        await logAudit({ action: "access_denied", module: "authorization",
+          entityType: "route", entityId: req.path, outcome: "denied",
+          eventCategory: "security", details: { status: deniedStatus }, req });
+      } catch (auditError) { console.warn("[DENIED ACCESS AUDIT ERROR]", auditError.message); }
+    }
     const status = error.status || 500;
 
     console.error("[API ERROR]", {
@@ -139,6 +152,48 @@ const isMainModule =
 if (isMainModule) {
   validateProductionEnv();
 
+  // Refuse to serve writes against a pre-Phase-1 schema: missing database
+  // triggers would otherwise leave consequential mutations unaudited.
+  const auditReady = await requireSupabase().rpc("bgy_audit_phase1_ready");
+  if (auditReady.error || auditReady.data !== true) {
+    throw new Error("Phase 1 Audit migration missing or incomplete. Run server/supabase-v4-phase1-audit-upgrade.sql before deploying this API.");
+  }
+
+  const phase2Ready = await requireSupabase().rpc("bgy_phase2_ready");
+  if (phase2Ready.error || phase2Ready.data !== true) {
+    throw new Error("Phase 2 Admin Invitations migration missing. Run server/supabase-v4-phase2-admin-invitations.sql before deploying this API.");
+  }
+
+  const phase5Ready = await requireSupabase().rpc("bgy_phase5_ready");
+  if (phase5Ready.error || phase5Ready.data !== true) {
+    throw new Error("Phase 5 staged Resident Password migration missing. Run server/supabase-v4-phase5-resident-passwords.sql before deploying this API.");
+  }
+
+  const phase6Ready = await requireSupabase().rpc("bgy_phase6_ready");
+  if (phase6Ready.error || phase6Ready.data !== true) {
+    throw new Error("Phase 6 Case History migration missing. Run server/supabase-v4-phase6-case-history.sql before deploying the API.");
+  }
+
+  const phase7Ready = await requireSupabase().rpc("bgy_phase7_ready");
+  if (phase7Ready.error || phase7Ready.data !== true) {
+    throw new Error("Phase 7 Hotline Settings migration missing. Run server/supabase-v4-phase7-hotline-settings.sql before deploying the API.");
+  }
+
+  const phase8Ready = await requireSupabase().rpc("bgy_phase8_ready");
+  if (phase8Ready.error || phase8Ready.data !== true) {
+    throw new Error("Phase 8 Concern Limits migration missing. Run server/supabase-v4-phase8-concern-limits.sql before deploying this API.");
+  }
+
+  const phase9Ready = await requireSupabase().rpc("bgy_phase9_ready");
+  if (phase9Ready.error || phase9Ready.data !== true) {
+    throw new Error("Phase 9 Borrowing Duration migration missing. Run server/supabase-v4-phase9-borrowing-duration.sql before deploying this API.");
+  }
+
+  const phase10Ready = await requireSupabase().rpc("bgy_phase10_ready");
+  if (phase10Ready.error || phase10Ready.data !== true) {
+    throw new Error("Phase 10 Project Lifecycle migration missing. Run server/supabase-v4-phase10-project-lifecycle.sql before deploying this API.");
+  }
+
   app.listen(env.port, () =>
     console.log(
       `API listening on http://localhost:${env.port}`
@@ -154,3 +209,4 @@ if (isMainModule) {
     );
   }, 60 * 1000);
 }
+

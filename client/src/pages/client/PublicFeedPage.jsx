@@ -60,3 +60,4 @@ const PublicFeedPage = ({ type = "news" }) => {
 };
 
 export default PublicFeedPage;
+

@@ -1,5 +1,6 @@
 import { CheckCircle2, Trophy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -17,6 +18,7 @@ const getStatusTone = (status) => {
 
 const VotingResult = () => {
   const { token, user } = useAuth();
+  const { electionId } = useParams();
   const toast = useToast();
 
   const [election, setElection] = useState(null);
@@ -32,8 +34,12 @@ const VotingResult = () => {
     setError("");
 
     try {
-      const data = await api("/voting/results/latest");
+      const data = await api(electionId ? `/voting/results/${electionId}` : "/voting/results/latest");
       setElection(data.election || null);
+      if (user?.role === "resident" && token && data.election?.id) {
+        const status = await api(`/voting/completion-status?electionId=${data.election.id}`, { token });
+        setHasConfirmedCompletion(Boolean(status.acknowledged));
+      }
     } catch (loadError) {
       setError(loadError.message || "Unable to load voting results.");
       setElection(null);
@@ -44,7 +50,7 @@ const VotingResult = () => {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [electionId, token]);
 
   const markCompleted = async () => {
     if (!election?.id) return;
@@ -59,7 +65,7 @@ const VotingResult = () => {
       });
 
       setHasConfirmedCompletion(true);
-      toast.success("Project delivery confirmation submitted.");
+      toast.success("Your acknowledgment was recorded.");
       await load();
     } catch (error) {
       toast.error(error.message);
@@ -87,12 +93,13 @@ const VotingResult = () => {
     );
   }
 
-  const isLive = election.status === "live";
+  const isLive = election.phaseStatus === "live";
+  const isScheduled = election.phaseStatus === "scheduled";
   const isClosed = election.status === "closed";
   const hasVotes = (election.totalVotes || 0) > 0;
   const options = election.options || [];
   const winner = options.find((option) => option.isWinner) || null;
-  const winnerLabel = isClosed ? "Winner" : isLive ? "Current Leader" : "Leader";
+  const winnerLabel = isClosed && election.finalized ? "Official Winner" : "Provisional Leader";
 
   return (
     <section className="section-shell py-10 sm:py-14">
@@ -108,9 +115,10 @@ const VotingResult = () => {
       <div className="mt-8 grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
         <Card className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={getStatusTone(election.status)}>{election.status}</Badge>
+            <Badge tone={getStatusTone(election.phaseStatus || election.status)}>{isScheduled ? "Scheduled" : election.status}</Badge>
 
             {isLive ? <Badge tone="neutral">{countdownText(election.endsAt)}</Badge> : null}
+            {isScheduled ? <Badge tone="neutral">Opens {formatDateTime(election.startsAt)}</Badge> : null}
 
             {isClosed ? (
               <span className="text-sm font-semibold text-stone-500">
@@ -124,7 +132,7 @@ const VotingResult = () => {
               ["Votes Cast", election.totalVotes || 0],
               ["Eligible Residents", election.eligibleVoters || 0],
               ["Participation Rate", hasVotes ? `${election.participationRate || 0}%` : "—"],
-              ["Completion Confirmations", election.completionCount || 0],
+              ["Resident Acknowledgments", election.completionCount || 0],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl bg-[var(--brand-50)] p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-500)]">
@@ -135,7 +143,16 @@ const VotingResult = () => {
             ))}
           </div>
 
-          {winner && hasVotes ? (
+          {isClosed && election.resultKind === "tie" ? (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" role="status">
+              <strong>Voting ended in a tie.</strong> No winner has been declared. A new runoff election is required.
+            </div>
+          ) : isClosed && election.resultKind === "no_votes" ? (
+            <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm">Voting closed without any votes. No winner was selected.</div>
+          ) : isClosed && !election.finalized ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm">Historical results require administrator review before an official winner can be declared.</div>
+          ) : null}
+          {winner && hasVotes && election.finalized ? (
             <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
               <div className="flex items-center gap-3">
                 <Trophy className="h-5 w-5 text-emerald-600" />
@@ -149,17 +166,22 @@ const VotingResult = () => {
             </div>
           ) : null}
 
-          {isClosed && isResident ? (
+          {isClosed && election.project?.id ? (
+            <Link to={`/project-updates/${election.project.id}`} className="inline-flex text-sm font-bold text-[var(--brand-700)] hover:underline">
+              View the winning project's implementation progress →
+            </Link>
+          ) : null}
+          {isClosed && isResident && election.project?.status === "completed" ? (
             <div className="rounded-3xl border border-stone-200 bg-stone-50 p-4">
               {hasConfirmedCompletion ? (
                 <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700">
                   <CheckCircle2 className="h-4 w-4" />
-                  Completion confirmed.
+                  Completion acknowledged.
                 </div>
               ) : (
                 <Button onClick={markCompleted} loading={completionSaving}>
                   <CheckCircle2 className="h-4 w-4" />
-                  Confirm Project Completed
+                  Acknowledge Published Project Completion
                 </Button>
               )}
             </div>
@@ -256,4 +278,5 @@ const VotingResult = () => {
 };
 
 export default VotingResult;
+
 

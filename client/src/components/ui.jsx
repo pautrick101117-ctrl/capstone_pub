@@ -1,14 +1,16 @@
 import { AlertTriangle, CheckCircle2, Eye, EyeOff, Info, LoaderCircle, RefreshCcw, X } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { NavLink } from "react-router-dom";
+import { createPortal } from "react-dom";
 
 export const PageHeader = ({ eyebrow, title, description, actions }) => (
-  <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+  <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
     <div className="space-y-2">
       {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-500)]">{eyebrow}</p> : null}
       <h1 className="text-3xl font-black tracking-tight text-[var(--brand-900)] sm:text-4xl">{title}</h1>
       {description ? <p className="max-w-3xl text-sm leading-6 text-stone-600 sm:text-base">{description}</p> : null}
     </div>
-    {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
+    {actions ? <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">{actions}</div> : null}
   </div>
 );
 
@@ -16,25 +18,27 @@ export const Card = ({ className = "", children }) => (
   <div className={`rounded-3xl border border-stone-200 bg-white p-5 shadow-sm shadow-stone-200/60 transition duration-300 ${className}`}>{children}</div>
 );
 
-export const Button = ({ className = "", variant = "primary", loading = false, children, ...props }) => {
-  const variants = {
-    primary: "bg-[var(--brand-500)] text-white hover:bg-[var(--brand-600)]",
-    secondary: "bg-white text-[var(--brand-700)] ring-1 ring-[var(--brand-200)] hover:bg-[var(--brand-50)]",
-    ghost: "bg-stone-100 text-stone-700 hover:bg-stone-200",
-    danger: "bg-rose-600 text-white hover:bg-rose-700",
-  };
-
-  return (
-    <button
-      {...props}
-      disabled={loading || props.disabled}
-      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)] disabled:cursor-not-allowed disabled:opacity-60 ${variants[variant]} ${className}`}
-    >
-      {loading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-      {children}
-    </button>
-  );
+const BUTTON_VARIANTS = {
+  primary: "bg-[var(--brand-500)] text-white hover:bg-[var(--brand-600)]",
+  secondary: "bg-white text-[var(--brand-700)] ring-1 ring-[var(--brand-200)] hover:bg-[var(--brand-50)]",
+  ghost: "bg-stone-100 text-stone-700 hover:bg-stone-200",
+  danger: "bg-rose-600 text-white hover:bg-rose-700",
 };
+
+export const buttonClasses = (variant = "primary", className = "") =>
+  `inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)] disabled:cursor-not-allowed disabled:opacity-60 ${BUTTON_VARIANTS[variant] || BUTTON_VARIANTS.primary} ${className}`;
+
+export const Button = ({ className = "", variant = "primary", loading = false, children, ...props }) => (
+  <button {...props} disabled={loading || props.disabled} className={buttonClasses(variant, className)}>
+    {loading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+    {children}
+  </button>
+);
+
+// Navigation must be a link, not a button nested inside a link.
+export const ButtonLink = ({ to, variant = "primary", className = "", children, ...props }) => (
+  <NavLink to={to} className={buttonClasses(variant, className)} {...props}>{children}</NavLink>
+);
 
 const FieldLabel = ({ label, required }) => (
   <span>
@@ -179,9 +183,11 @@ export const Badge = ({ tone = "neutral", children }) => {
   return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${tones[tone] || tones.neutral}`}>{children}</span>;
 };
 
-export const TableShell = ({ children }) => (
-  <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-sm">
-    <div className="overflow-x-auto">{children}</div>
+export const TableShell = ({ children, label = "Data table" }) => (
+  <div className="min-w-0 rounded-3xl border border-stone-200 bg-white shadow-sm">
+    <div className="overflow-x-auto rounded-3xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)]" role="region" aria-label={label} tabIndex={0}>
+      {children}
+    </div>
   </div>
 );
 
@@ -248,7 +254,7 @@ export const Alert = ({ tone = "info", title, children, actions }) => {
 };
 
 export const SegmentedTabs = ({ items, value, onChange, className = "" }) => (
-  <div className={`flex flex-wrap gap-2 rounded-3xl border border-stone-200 bg-white p-2 ${className}`} role="tablist">
+  <div className={`flex max-w-full flex-nowrap gap-2 overflow-x-auto rounded-3xl border border-stone-200 bg-white p-2 sm:flex-wrap ${className}`} role="tablist" aria-label="Section selection">
     {items.map((item) => {
       const active = value === item.value;
       return (
@@ -257,8 +263,14 @@ export const SegmentedTabs = ({ items, value, onChange, className = "" }) => (
           type="button"
           role="tab"
           aria-selected={active}
+          tabIndex={active ? 0 : -1}
+          onKeyDown={(event) => {
+            const index = items.findIndex((entry) => entry.value === value);
+            const nextIndex = event.key === "ArrowRight" ? (index + 1) % items.length : event.key === "ArrowLeft" ? (index - 1 + items.length) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+            if (nextIndex !== null) { event.preventDefault(); onChange(items[nextIndex].value); event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[nextIndex]?.focus(); }
+          }}
           onClick={() => onChange(item.value)}
-          className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${active ? "bg-[var(--brand-500)] text-white shadow-sm" : "text-stone-600 hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"}`}
+          className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${active ? "bg-[var(--brand-500)] text-white shadow-sm" : "text-stone-600 hover:bg-[var(--brand-50)] hover:text-[var(--brand-700)]"}`}
         >
           {item.label}{typeof item.count === "number" ? <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${active ? "bg-white/20" : "bg-stone-100"}`}>{item.count}</span> : null}
         </button>
@@ -267,29 +279,47 @@ export const SegmentedTabs = ({ items, value, onChange, className = "" }) => (
   </div>
 );
 
-export const Modal = ({ open, onClose, title, description, children, widthClass = "max-w-3xl", closeDisabled = false }) => {
+export const Modal = ({ open, onClose, title, description, children, widthClass = "max-w-3xl", closeDisabled = false, stacked = false }) => {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement;
+    // Initial focus goes to the safe Close/Cancel action, not to a destructive confirmation.
+    const focus = window.setTimeout(() => dialogRef.current?.querySelector('button[aria-label="Close dialog"]')?.focus(), 0);
+    const keyDown = (event) => {
+      const dialog = dialogRef.current;
+      if (!dialog || document.querySelectorAll('[role="dialog"][aria-modal="true"]:not([hidden])').item(document.querySelectorAll('[role="dialog"][aria-modal="true"]:not([hidden])').length - 1) !== dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!closeDisabled) closeRef.current?.();
+      }
+      if (event.key !== "Tab") return;
+      const controls = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => el.getClientRects().length);
+      if (!controls.length) { event.preventDefault(); dialog.focus(); return; }
+      if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls[controls.length - 1].focus(); }
+      if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) { event.preventDefault(); controls[0].focus(); }
+    };
+    document.addEventListener("keydown", keyDown);
+    return () => { window.clearTimeout(focus); document.removeEventListener("keydown", keyDown); previousFocus?.focus?.(); };
+  }, [open, closeDisabled]);
   if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-stone-950/40 p-4 backdrop-blur-sm" role="presentation">
-      <div role="dialog" aria-modal="true" aria-label={title} className={`w-full ${widthClass} rounded-[2rem] border border-stone-200 bg-white shadow-2xl`}>
+  return createPortal(
+    <div className={`fixed inset-0 ${stacked ? "z-[130]" : "z-[90]"} flex items-center justify-center bg-stone-950/40 p-4 backdrop-blur-sm`} role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={`w-full ${widthClass} max-h-[calc(100vh-2rem)] overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-2xl`}>
         <div className="flex items-start justify-between gap-4 border-b border-stone-200 px-6 py-5">
-          <div>
-            <h3 className="text-2xl font-black text-[var(--brand-900)]">{title}</h3>
-            {description ? <p className="mt-2 text-sm leading-6 text-stone-500">{description}</p> : null}
-          </div>
-          <button type="button" aria-label="Close dialog" disabled={closeDisabled} onClick={onClose} className="rounded-full border border-stone-200 p-2 text-stone-500 transition hover:bg-stone-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)] disabled:opacity-50">
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <div><h3 className="text-2xl font-black text-[var(--brand-900)]">{title}</h3>{description ? <p className="mt-2 text-sm leading-6 text-stone-500">{description}</p> : null}</div>
+          <button type="button" aria-label="Close dialog" disabled={closeDisabled} onClick={onClose} className="rounded-full border border-stone-200 p-2 text-stone-500 transition hover:bg-stone-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)] disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
         </div>
-        <div className="max-h-[80vh] overflow-y-auto px-6 py-6">{children}</div>
+        <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-6 py-6">{children}</div>
       </div>
-    </div>
+    </div>, document.body
   );
 };
 
-export const ConfirmDialog = ({ open, onClose, onConfirm, title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", tone = "danger", loading = false, children }) => (
-  <Modal open={open} onClose={onClose} closeDisabled={loading} title={title} description={description} widthClass="max-w-xl">
+export const ConfirmDialog = ({ open, onClose, onConfirm, title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", tone = "danger", loading = false, stacked = false, children }) => (
+  <Modal open={open} onClose={onClose} closeDisabled={loading} stacked={stacked} title={title} description={description} widthClass="max-w-xl">
     {children ? <div className="mb-6 text-sm leading-6 text-stone-700">{children}</div> : null}
     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
       <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>{cancelLabel}</Button>
@@ -310,14 +340,15 @@ export const Pagination = ({ page, totalPages, onPageChange, className = "" }) =
     <nav className={`mt-5 flex flex-wrap items-center justify-between gap-3 ${className}`} aria-label="Pagination">
       <p className="text-sm text-stone-500">Page {safePage} of {totalPages}</p>
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary" onClick={() => onPageChange(1)} disabled={safePage <= 1}>First</Button>
+        <span className="hidden sm:inline-flex"><Button type="button" variant="secondary" onClick={() => onPageChange(1)} disabled={safePage <= 1}>First</Button></span>
         <Button type="button" variant="secondary" onClick={() => onPageChange(safePage - 1)} disabled={safePage <= 1}>Previous</Button>
         {pages.map((value) => (
-          <button key={value} type="button" aria-current={value === safePage ? "page" : undefined} onClick={() => onPageChange(value)} className={`min-h-10 min-w-10 rounded-full px-3 text-sm font-semibold transition ${value === safePage ? "bg-[var(--brand-500)] text-white" : "border border-stone-200 bg-white text-stone-700 hover:bg-[var(--brand-50)]"}`}>{value}</button>
+          <button key={value} type="button" aria-label={`Go to page ${value}`} aria-current={value === safePage ? "page" : undefined} onClick={() => onPageChange(value)} className={`hidden min-h-10 min-w-10 rounded-full sm:inline-flex sm:items-center sm:justify-center px-3 text-sm font-semibold transition ${value === safePage ? "bg-[var(--brand-500)] text-white" : "border border-stone-200 bg-white text-stone-700 hover:bg-[var(--brand-50)]"}`}>{value}</button>
         ))}
         <Button type="button" variant="secondary" onClick={() => onPageChange(safePage + 1)} disabled={safePage >= totalPages}>Next</Button>
-        <Button type="button" variant="secondary" onClick={() => onPageChange(totalPages)} disabled={safePage >= totalPages}>Last</Button>
+        <span className="hidden sm:inline-flex"><Button type="button" variant="secondary" onClick={() => onPageChange(totalPages)} disabled={safePage >= totalPages}>Last</Button></span>
       </div>
     </nav>
   );
 };
+

@@ -36,3 +36,4 @@ export const countdownText = (endDate) => {
   return `${hours} hour${hours === 1 ? "" : "s"} left`;
 };
 
+

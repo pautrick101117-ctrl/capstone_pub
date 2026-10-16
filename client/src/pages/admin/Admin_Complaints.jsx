@@ -1,9 +1,12 @@
+import CaseHistory from "../../components/CaseHistory";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 
 const pageSize = 8;
@@ -12,16 +15,24 @@ const statusLabel = { pending: "Pending", in_review: "Under Review", resolved: "
 
 const Admin_Complaints = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const [complaints, setComplaints] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("pending");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
-  const [review, setReview] = useState({ status: "in_review", adminNote: "" });
+  const [review, setReview] = useState({ status: "in_review", adminNote: "", visibility: "resident" });
   const [saving, setSaving] = useState(false);
+  const operationId = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const initialReview = selected ? { status: selected.status, adminNote: "", visibility: "resident" } : null;
+  const concernGuard = useUnsavedForm({ initial: initialReview, current: review, enabled: Boolean(selected) });
+  useUnsavedNavigation(concernGuard.dirty);
+  const closeConcern = () => concernGuard.closeSafely(() => { setSelected(null); if (searchParams.has("recordId")) setSearchParams({}, { replace: true }); });
 
   const load = async () => {
     setLoading(true); setError("");
@@ -31,6 +42,16 @@ const Admin_Complaints = () => {
   };
   useEffect(() => { if (token) load(); }, [token]);
   useEffect(() => { setPage(1); }, [status, search]);
+  useEffect(() => {
+    const id = searchParams.get("recordId");
+    if (!id || !complaints.length) return;
+    const target = complaints.find((item) => item.id === id);
+    if (target) {
+      operationId.current = crypto.randomUUID();
+      setSelected(target);
+      setReview({ status: target.status, adminNote: "", visibility: "resident" });
+    }
+  }, [complaints, searchParams]);
 
   const filtered = useMemo(() => complaints.filter((item) => {
     if (status !== "all" && item.status !== status) return false;
@@ -41,15 +62,17 @@ const Admin_Complaints = () => {
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const openReview = (item) => {
+    operationId.current = crypto.randomUUID();
     setSelected(item);
-    setReview({ status: item.status === "pending" ? "in_review" : item.status, adminNote: item.admin_note || "" });
+    setReview({ status: item.status, adminNote: "", visibility: "resident" });
   };
   const save = async () => {
     if (!selected) return;
-    if (review.status === "resolved" && review.adminNote.trim().length < 3) return toast.error("Add a short resolution note for the resident.");
+    if (review.status === "resolved" && selected.status !== "resolved" && review.adminNote.trim().length < 3) return toast.error("Add a short resolution note for the resident.");
+    if (!await reviewAction({ title: "Confirm Concern Update", description: "The resident may see your response and status update.", subject: selected.complaint_type, before: { status: selected.status, adminNote: "", visibility: "resident" }, after: review, confirmLabel: review.status === "resolved" ? "Resolve Concern" : "Save Update", tone: review.status === "resolved" ? "primary" : "primary" })) return;
     setSaving(true);
     try {
-      await api(`/admin/complaints/${selected.id}`, { method: "PATCH", token, body: review });
+      await api(`/admin/complaints/${selected.id}`, { method: "PATCH", token, body: { ...review, expectedStatus: selected.status, operationId: operationId.current } });
       toast.success(review.status === "resolved" ? "Concern resolved." : "Concern review updated.");
       setSelected(null); await load();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
@@ -65,7 +88,8 @@ const Admin_Complaints = () => {
     {loading ? <LoadingState rows={5} /> : error ? <ErrorState description={error} onRetry={load} /> : !visible.length ? <EmptyState title="No concerns in this view" description="Try another status or search term." /> : <div className="space-y-3">{visible.map((item) => <button key={item.id} type="button" onClick={() => openReview(item)} className="w-full text-left"><Card className="hover:border-[var(--brand-200)] hover:shadow-md"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><Badge tone={tone[item.status] || "neutral"}>{statusLabel[item.status] || item.status}</Badge><span className="text-xs text-stone-400">{formatDateTime(item.created_at)}</span></div><h2 className="mt-2 font-bold text-[var(--brand-900)]">{item.complaint_type}</h2><p className="mt-1 text-sm text-stone-500">{item.users?.full_name || "Resident"}{item.users?.purok ? ` · ${item.users.purok}` : ""}</p><p className="mt-3 line-clamp-2 text-sm leading-6 text-stone-600">{item.details}</p></div><Search className="h-5 w-5 text-stone-400" /></div></Card></button>)}</div>}
     {!loading && !error ? <Pagination page={page} totalPages={Math.max(1, Math.ceil(filtered.length / pageSize))} onPageChange={setPage} /> : null}
 
-    <Modal open={Boolean(selected)} onClose={() => !saving && setSelected(null)} title={selected?.complaint_type || "Concern Details"} description={selected ? `${selected.users?.full_name || "Resident"} · ${formatDateTime(selected.created_at)}` : ""} widthClass="max-w-3xl" closeDisabled={saving}>{selected ? <div className="space-y-5"><div className="rounded-2xl bg-stone-50 p-5"><p className="text-sm leading-7 text-stone-700">{selected.details}</p></div><div className="grid gap-3 sm:grid-cols-2"><Button variant={review.status === "in_review" ? "primary" : "secondary"} onClick={() => setReview((v) => ({ ...v, status: "in_review" }))}>Mark Under Review</Button><Button variant={review.status === "resolved" ? "primary" : "secondary"} onClick={() => setReview((v) => ({ ...v, status: "resolved" }))}>Mark Resolved</Button></div><TextArea label="Barangay Response" value={review.adminNote} onChange={(e) => setReview((v) => ({ ...v, adminNote: e.target.value }))} hint="This response is visible to the resident." /><div className="flex gap-3"><Button onClick={save} loading={saving}>Save Update</Button><Button variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></div></div> : null}</Modal>
+    <Modal open={Boolean(selected)} onClose={() => !saving && closeConcern()} title={selected?.complaint_type || "Concern Details"} description={selected ? `${selected.users?.full_name || "Resident"} · ${formatDateTime(selected.created_at)}` : ""} widthClass="max-w-3xl" closeDisabled={saving}>{selected ? <div className="space-y-5"><div className="rounded-2xl bg-stone-50 p-5"><p className="text-sm leading-7 text-stone-700">{selected.details}</p></div><div className="grid gap-3 sm:grid-cols-2"><Button variant={review.status === "in_review" ? "primary" : "secondary"} onClick={() => setReview((v) => ({ ...v, status: "in_review" }))}>Mark Under Review</Button><Button variant={review.status === "resolved" ? "primary" : "secondary"} onClick={() => setReview((v) => ({ ...v, status: "resolved" }))}>Mark Resolved</Button></div><CaseHistory events={selected.case_history} /><SelectInput label="Response Visibility" value={review.visibility} disabled={review.status !== selected.status} onChange={(e) => setReview((v) => ({ ...v, visibility: e.target.value }))}><option value="resident">Resident Response</option><option value="internal">Staff Only</option></SelectInput><TextArea label="New Resident Response" value={review.adminNote} onChange={(e) => setReview((v) => ({ ...v, adminNote: e.target.value }))} hint={review.visibility === "internal" ? "Only barangay staff can see this note." : "This response is visible to the resident."} /><div className="flex gap-3"><Button onClick={save} loading={saving}>Save Update</Button><Button variant="ghost" onClick={closeConcern}>Cancel</Button></div></div> : null}</Modal>
   </div>;
 };
 export default Admin_Complaints;
+

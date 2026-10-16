@@ -1,7 +1,9 @@
 import { LOGO_URL } from "../../lib/assets";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Button, Card, PasswordInput, TextInput } from "../../components/ui";
+import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
+import { api } from "../../lib/api";
+import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 
@@ -12,6 +14,31 @@ const AdminLogin = () => {
   const toast = useToast();
   const { login, loading, isAuthenticated, user } = useAuth();
   const [form, setForm] = useState({ username: "", password: "" });
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recovery, setRecovery] = useState({ usernameOrEmail: "", code: "", newPassword: "" });
+  const [recoveryStep, setRecoveryStep] = useState("request");
+  const [recovering, setRecovering] = useState(false);
+
+  const requestCode = async (event) => {
+    event.preventDefault(); setRecovering(true);
+    try {
+      const response = await api("/auth/forgot-password/request-code", { method: "POST", body: { usernameOrEmail: recovery.usernameOrEmail, portal: "admin" } });
+      setRecoveryStep("reset"); toast.success(response.message);
+    } catch (error) { toast.error(error.message); }
+    finally { setRecovering(false); }
+  };
+  const submitReset = async (event) => {
+    event.preventDefault();
+    if (!isStrongPassword(recovery.newPassword)) return toast.error(PASSWORD_POLICY_MESSAGE);
+    setRecovering(true);
+    try {
+      const response = await api("/auth/forgot-password/reset", { method: "POST", body: { ...recovery, portal: "admin" } });
+      toast.success(response.message);
+      setRecovery({ usernameOrEmail: "", code: "", newPassword: "" });
+      setRecoveryStep("request"); setRecoveryOpen(false);
+    } catch (error) { toast.error(error.message); }
+    finally { setRecovering(false); }
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -52,15 +79,27 @@ const AdminLogin = () => {
           <form className="space-y-4" onSubmit={submit}>
             <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="admin username" />
             <PasswordInput label="Password" required autoComplete="current-password" maxLength={128} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Enter your password" />
+            <div className="flex justify-end"><button type="button" onClick={() => { setRecovery({ usernameOrEmail: form.username, code: "", newPassword: "" }); setRecoveryStep("request"); setRecoveryOpen(true); }} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">Forgot password?</button></div>
             <Button type="submit" className="w-full justify-center py-3" loading={loading}>
               Access Admin Portal
             </Button>
           </form>
         </Card>
       </div>
+      <Modal open={recoveryOpen} onClose={() => !recovering && setRecoveryOpen(false)} title="Recover Admin Password" description="A verification code will be emailed to the address registered on an active administrative account.">
+        <form className="space-y-4" onSubmit={recoveryStep === "request" ? requestCode : submitReset}>
+          <TextInput required label="Username or Email" maxLength={180} value={recovery.usernameOrEmail} onChange={(event) => setRecovery((old) => ({ ...old, usernameOrEmail: event.target.value }))} />
+          {recoveryStep === "reset" ? <>
+            <TextInput required label="Verification Code" inputMode="numeric" maxLength={6} value={recovery.code} onChange={(event) => setRecovery((old) => ({ ...old, code: event.target.value }))} />
+            <PasswordInput required label="New Password" minLength={8} maxLength={128} hint={PASSWORD_POLICY_MESSAGE} autoComplete="new-password" value={recovery.newPassword} onChange={(event) => setRecovery((old) => ({ ...old, newPassword: event.target.value }))} />
+          </> : null}
+          <div className="flex justify-end gap-3"><Button variant="ghost" type="button" onClick={() => setRecoveryOpen(false)} disabled={recovering}>Cancel</Button><Button loading={recovering} type="submit">{recoveryStep === "request" ? "Email Verification Code" : "Reset Password"}</Button></div>
+        </form>
+      </Modal>
     </section>
   );
 };
 
 export default AdminLogin;
+
 

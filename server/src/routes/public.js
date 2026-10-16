@@ -1,5 +1,7 @@
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
+import { publicHotlineSupport } from "../lib/hotlines.js";
+import { publicContentOnly } from "../lib/publicContent.js";
 
 const router = express.Router();
 
@@ -59,8 +61,10 @@ router.get("/landing", async (_req, res, next) => {
     const spent = (totalFundsSpent.data || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const totalFunds = (fundSources.data || []).reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0);
 
+    const landingContent = publicContentOnly(Object.fromEntries((contentRows.data || []).map((item) => [item.key_name, item.value])));
+    const activeSupport = publicHotlineSupport(landingContent);
     res.json({
-      hero: Object.fromEntries((contentRows.data || []).map((item) => [item.key_name, item.value])),
+      hero: { ...landingContent, hotline: activeSupport.hotline, hotlines: activeSupport.hotlines },
       statistics: {
         totalRegisteredResidents: residents.count || 0,
         completedProjects: completedProjects.count || 0,
@@ -274,21 +278,13 @@ router.get("/projects/:id", async (req, res, next) => {
 router.get("/community-support", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-    const { data, error } = await db.from("landing_content").select("key_name, value").in("key_name", ["hotline", "contact"]);
+    const { data, error } = await db.from("landing_content").select("key_name, value")
+      .in("key_name", ["hotlines", "contact"]);
     if (error) throw error;
     const content = Object.fromEntries((data || []).map((row) => [row.key_name, row.value]));
-    res.json({
-      contact: content.contact || null,
-      hotline: content.hotline || {
-        title: "Barangay Iba Hotline",
-        phone: "0917 123 4567",
-        hours: "24/7 for urgent community concerns",
-        note: "Sample hotline number — update this in Admin Portal > Settings.",
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
+    res.json(publicHotlineSupport(content));
+  } catch (error) { next(error); }
 });
 
 export default router;
+

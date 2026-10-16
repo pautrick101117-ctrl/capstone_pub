@@ -5,6 +5,7 @@ import { uploadAsset } from "../lib/storage.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
+import { attachCaseHistories } from "../lib/caseHistory.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -49,7 +50,7 @@ router.get("/mine", async (req, res, next) => {
     if (ids.length) {
       const optionResult = await db
         .from("election_options")
-        .select("id, election_id, source_suggestion_id, votes_count, elections!election_options_election_id_fkey(id, title, status, starts_at, ends_at)")
+        .select("id, election_id, source_suggestion_id, votes_count, elections!election_options_election_id_fkey(id, title, status, starts_at, ends_at, finalized_at, result_kind)")
         .in("source_suggestion_id", ids);
       if (!optionResult.error) optionRows = optionResult.data || [];
 
@@ -67,8 +68,12 @@ router.get("/mine", async (req, res, next) => {
       const liveOption = votingOptions.find((option) => option.elections?.status === "live");
       let votingOutcome = null;
       if (project) votingOutcome = "won";
-      else if (closedOption) votingOutcome = "not_selected";
-      else if (liveOption) votingOutcome = "in_voting";
+      else if (closedOption?.elections?.result_kind === "tie") votingOutcome = "tied";
+      else if (closedOption?.elections?.result_kind === "no_votes") votingOutcome = "no_votes";
+      else if (closedOption?.elections?.finalized_at) votingOutcome = "not_selected";
+      else if (closedOption) votingOutcome = "legacy_review";
+      else if (liveOption && new Date(liveOption.elections.starts_at) <= new Date()) votingOutcome = "in_voting";
+      else if (liveOption) votingOutcome = "scheduled";
       else if (votingOptions.length) votingOutcome = "scheduled";
       return { ...row, votingOutcome, project, votingOptions };
     });
@@ -82,7 +87,7 @@ router.get("/mine", async (req, res, next) => {
     }
 
     res.json({
-      suggestions: output,
+      suggestions: await attachCaseHistories(db, "project_suggestion", output, { residentVisible: true }),
       pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
     });
   } catch (error) {
@@ -214,4 +219,5 @@ router.patch("/:suggestionId", upload.single("image"), async (req, res, next) =>
 });
 
 export default router;
+
 

@@ -1,3 +1,5 @@
+import CaseHistory from "../../components/CaseHistory";
+import { useReviewAction } from "../../components/ActionReviewProvider";
 import { ArrowRight, CheckCircle2, Download, FileText, IdCard, SendHorizonal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, API_URL } from "../../lib/api";
@@ -31,7 +33,7 @@ const RequestTimeline = ({ request }) => {
               <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-[var(--brand-500)] text-white" : "bg-stone-200 text-stone-500"}`}>{done ? "✓" : index + 1}</span>
               <p className={`text-xs font-bold uppercase tracking-[0.18em] ${done ? "text-[var(--brand-700)]" : "text-stone-400"}`}>{getStatusMeta(step).label}</p>
             </div>
-            <p className="mt-3 text-sm leading-6 text-stone-600">{row?.note || (done ? "Status reached." : "Waiting for the previous step.")}</p>
+            <p className="mt-3 text-sm leading-6 text-stone-600">{done ? "Status reached." : "Waiting for the previous step."}</p>
             {row?.created_at ? <p className="mt-2 text-xs text-stone-400">{formatDateTime(row.created_at)}</p> : null}
           </div>
         );
@@ -42,6 +44,7 @@ const RequestTimeline = ({ request }) => {
 
 const RequestsPage = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [requests, setRequests] = useState([]);
   const [idRequests, setIdRequests] = useState([]);
@@ -103,6 +106,7 @@ const RequestsPage = () => {
 
   const submitRequest = async (event) => {
     event.preventDefault();
+    if (!await reviewAction({ title: "Submit Document Request?", description: "Barangay staff will review and process this request.", after: requestForm, confirmLabel: "Submit Request" })) return;
     setSavingRequest(true);
     try {
       const data = await api("/requests", { method: "POST", token, body: requestForm });
@@ -118,6 +122,7 @@ const RequestsPage = () => {
 
   const submitIdRequest = async (event) => {
     event.preventDefault();
+    if (!await reviewAction({ title: "Schedule Barangay ID Request?", description: "Please verify the pickup date and time slot.", after: idForm, confirmLabel: "Submit Appointment" })) return;
     setSavingId(true);
     try {
       const data = await api("/requests/id", { method: "POST", token, body: idForm });
@@ -187,8 +192,7 @@ const RequestsPage = () => {
                     </div>
                     {request.request_type === "Barangay Clearance" && request.status === "completed" ? <Button type="button" onClick={() => downloadClearance(request.id)}><Download className="h-4 w-4" /> Download PDF</Button> : null}
                   </div>
-                  {request.admin_note ? <div className="mt-4 rounded-2xl bg-sky-50 p-4 text-sm text-stone-700"><p className="font-semibold text-sky-800">Barangay note</p><p className="mt-1">{request.admin_note}</p></div> : null}
-                  <RequestTimeline request={request} />
+                  <RequestTimeline request={request} /><CaseHistory events={request.case_history} />
                 </Card>
               ))}
             </div>
@@ -202,7 +206,7 @@ const RequestsPage = () => {
                 {paginatedIdRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-stone-200 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-[var(--brand-900)]">{request.purpose}</p><p className="mt-1 text-sm text-stone-500">{request.preferred_date ? formatDate(request.preferred_date) : "Date pending"}{request.time_slot ? ` · ${request.time_slot}` : ""}</p></div><RequestStatus status={request.status} feature="id_request" /></div>
-                    {request.admin_note ? <p className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-600">Barangay note: {request.admin_note}</p> : null}
+                    <CaseHistory events={request.case_history} compact />
                   </div>
                 ))}
               </div>
@@ -267,3 +271,4 @@ const RequestsPage = () => {
 };
 
 export default RequestsPage;
+

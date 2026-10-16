@@ -1,3 +1,4 @@
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import { AlertTriangle, Download, FileSpreadsheet, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_URL, api } from "../../lib/api";
@@ -30,9 +31,11 @@ const downloadProtectedFile = async ({ url, token, filename }) => {
 
 const Admin_Census = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [households, setHouseholds] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [formSnapshot, setFormSnapshot] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [page, setPage] = useState(1);
@@ -48,6 +51,10 @@ const Admin_Census = () => {
   const [confirmReplace, setConfirmReplace] = useState(false);
   const fileInputRef = useRef(null);
   const { options: purokOptions } = useMasterData("purok");
+
+  const formGuard = useUnsavedForm({ initial: formSnapshot, current: form, enabled: open });
+  useUnsavedNavigation(formGuard.dirty);
+  const closeEditor = () => formGuard.closeSafely(() => { setOpen(false); setForm(emptyForm); });
 
   const load = async () => {
     setLoading(true);
@@ -66,10 +73,12 @@ const Admin_Census = () => {
 
   const openCreate = () => {
     setForm(emptyForm);
+    setFormSnapshot(emptyForm);
     setOpen(true);
   };
 
   const openEdit = (item) => {
+    setFormSnapshot({ id: item.id, householdRef: item.household_ref || "", householdName: item.household_name || "", purok: item.purok || "", members: item.members || 1, address: item.address || item.house_number || "", status: item.status || "active" });
     setForm({
       id: item.id,
       householdRef: item.household_ref || "",
@@ -86,6 +95,8 @@ const Admin_Census = () => {
     event.preventDefault();
     const members = Number(form.members);
     if (!Number.isInteger(members) || members < 1) return toast.error("Members must be a positive whole number.");
+    const previous = households.find((entry) => entry.id === form.id) || {};
+    if (!await reviewAction({ title: form.id ? "Confirm Household Changes" : "Add Household?", description: "This updates the official Census records.", subject: form.householdName || form.household_name || "Household", before: previous, after: form, confirmLabel: form.id ? "Save Household" : "Add Household" })) return;
     setSaving(true);
     try {
       const path = form.id ? `/admin/census_households/${form.id}` : "/admin/census_households";
@@ -232,7 +243,7 @@ const Admin_Census = () => {
           <h2 className="text-xl font-bold text-[var(--brand-900)]">Household List</h2>
           <p className="mt-1 text-sm text-stone-500">Excel columns: household_ref, household_name, purok, members, address, status. Household Ref may be left blank for new imports.</p>
         </div>
-        {loading ? <LoadingState rows={5} /> : households.length === 0 ? <EmptyState title="No census households yet" description="Add a household manually or import a reviewed Excel file." action={<Button onClick={openCreate}>Add Household</Button>} /> : <>
+        {loading ? <LoadingState rows={5} /> : households.length === 0 ? <EmptyState title="No census households yet" description="Add a household manually or import a reviewed Excel file." /> : <>
           <TableShell>
             <table className="min-w-full text-sm">
               <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="px-4 py-3 font-semibold">Household</th><th className="px-4 py-3 font-semibold">Purok</th><th className="px-4 py-3 font-semibold">Members</th><th className="px-4 py-3 font-semibold">Address</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Updated</th><th className="px-4 py-3 font-semibold">Actions</th></tr></thead>
@@ -251,7 +262,7 @@ const Admin_Census = () => {
         </>}
       </Card> : null}
 
-      <Modal open={open} onClose={() => !saving && setOpen(false)} title={form.id ? "Edit Household" : "Add Household"} description={form.id ? "Update the household census record. The Updated date will refresh automatically." : "Add a household with a full address. The system creates a stable household reference automatically."}>
+      <Modal open={open} onClose={() => !saving && closeEditor()} title={form.id ? "Edit Household" : "Add Household"} description={form.id ? "Update the household census record. The Updated date will refresh automatically." : "Add a household with a full address. The system creates a stable household reference automatically."}>
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={save}>
           <TextInput label="Household Name" required maxLength={120} className="sm:col-span-2" value={form.householdName} onChange={(event) => setForm((current) => ({ ...current, householdName: event.target.value }))} />
           <SelectInput label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
@@ -259,7 +270,7 @@ const Admin_Census = () => {
           <TextInput label="Address" required maxLength={240} className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Example: 12 Rizal Street, Purok 1, Barangay Iba, Silang, Cavite" />
           <SelectInput label="Status" required value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}><option value="active">Active</option><option value="for update">Needs Update</option></SelectInput>
           {form.householdRef ? <TextInput label="Household Ref" readOnly value={form.householdRef} /> : <div />}
-          <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Add Household"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button></div>
+          <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Add Household"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>Cancel</Button></div>
         </form>
       </Modal>
 
@@ -291,3 +302,4 @@ const Admin_Census = () => {
 };
 
 export default Admin_Census;
+

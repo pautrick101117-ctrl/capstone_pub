@@ -1,7 +1,7 @@
 import { LOGO_URL } from "../../lib/assets";
 import { MailCheck } from "lucide-react";
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
@@ -18,6 +18,10 @@ const isAdminRole = (role) => role === "admin" || role === "super_admin";
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const allowedNext = new Set(["/portal/requests", "/portal/complaints", "/portal/borrowing", "/portal/voting", "/portal/suggestions"]);
+  const requestedNext = searchParams.get("next");
+  const safeDestination = allowedNext.has(requestedNext) ? requestedNext : "/portal";
   const toast = useToast();
   const { login, loading, isAuthenticated, user } = useAuth();
   const [form, setForm] = useState({ username: "", password: "" });
@@ -34,7 +38,7 @@ const Login = () => {
         usernameOrEmail: form.username,
         password: form.password,
       });
-      navigate(loggedInUser.mustChangePassword ? "/change-password" : "/portal");
+      navigate(loggedInUser.mustChangePassword ? "/change-password" : isAdminRole(loggedInUser.role) ? "/admin" : safeDestination, { replace: true });
     } catch (error) {
       toast.error(error.message);
     }
@@ -80,7 +84,7 @@ const Login = () => {
   };
 
   if (isAuthenticated) {
-    return <Navigate to={isAdminRole(user?.role) ? "/admin" : "/portal"} replace />;
+    return <Navigate to={isAdminRole(user?.role) ? "/admin" : safeDestination} replace />;
   }
 
   return (
@@ -121,6 +125,7 @@ const Login = () => {
               placeholder="Enter your password"
             />
 
+            <p className="text-xs leading-5 text-stone-500">Using the temporary password from your welcome email? Enter it exactly as shown—capital letters matter and there are no spaces. You'll choose your own password after signing in.</p>
             <div className="flex justify-end">
               <button type="button" onClick={() => setShowForgotModal(true)} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">
                 Forgot password?
@@ -205,4 +210,5 @@ const Login = () => {
 };
 
 export default Login;
+
 

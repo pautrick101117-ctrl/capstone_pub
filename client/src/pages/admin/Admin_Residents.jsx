@@ -1,5 +1,7 @@
-import { Copy, Eye, KeyRound, Mail, Pencil, Power, Printer, UserPlus } from "lucide-react";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { Eye, KeyRound, Pencil, Power, Printer, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
@@ -28,6 +30,8 @@ const escapeHtml = (value = "") =>
 
 const Admin_Residents = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(initialForm);
@@ -38,14 +42,23 @@ const Admin_Residents = () => {
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [credentialResult, setCredentialResult] = useState(null);
-  const [retryingEmail, setRetryingEmail] = useState(false);
   const [selectedResident, setSelectedResident] = useState(null);
   const [editResident, setEditResident] = useState(null);
   const { options: purokOptions } = useMasterData("purok");
+  const createGuard = useUnsavedForm({ initial: initialForm, current: form, enabled: showCreateModal });
+  const originalResident = users.find((entry) => entry.id === editResident?.id);
+  const editGuard = useUnsavedForm({
+    initial: originalResident ? { fullName: originalResident.fullName || "", birthdate: originalResident.birthdate || "", address: originalResident.address || "", purok: originalResident.purok || "", contactNumber: originalResident.contactNumber || "", email: originalResident.email || "" } : null,
+    current: editResident, enabled: Boolean(editResident),
+  });
+  useUnsavedNavigation(createGuard.dirty || editGuard.dirty);
+  const closeCreate = () => createGuard.closeSafely(() => { setShowCreateModal(false); setForm(initialForm); });
+  const closeEdit = () => editGuard.closeSafely(() => setEditResident(null));
 
   const load = async () => {
     const data = await api("/admin/users", { token });
     setUsers(data.users || []);
+    setSelectedResident((current) => current ? (data.users || []).find((entry) => entry.id === current.id) || null : null);
   };
 
   useEffect(() => {
@@ -55,6 +68,13 @@ const Admin_Residents = () => {
   useEffect(() => {
     setPage(1);
   }, [search]);
+
+  useEffect(() => {
+    const targetId = searchParams.get("recordId");
+    if (!targetId || !users.length) return;
+    const resident = users.find((item) => item.id === targetId);
+    if (resident) setSelectedResident(resident);
+  }, [users, searchParams]);
 
   const residents = useMemo(
     () =>
@@ -93,6 +113,7 @@ const Admin_Residents = () => {
       return;
     }
 
+    if (!await reviewAction({ title: "Create Resident Account?", description: "The resident will receive temporary login details through Resend.", confirmLabel: "Create Resident", subject: form.fullName, after: form })) return;
     setSaving(true);
     try {
       const data = await api("/admin/users", {
@@ -101,7 +122,7 @@ const Admin_Residents = () => {
         body: form,
       });
       setCredentialResult({ ...data, action: "created" });
-      toast.success("Resident account created. Temporary login details were emailed successfully.");
+      toast.success("Resident account created. Resend accepted the welcome email for delivery.");
       setForm(initialForm);
       setShowCreateModal(false);
       await load();
@@ -109,34 +130,6 @@ const Admin_Residents = () => {
       toast.error(error.message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const copyText = async (text, successMessage) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(successMessage);
-    } catch {
-      toast.error("Could not copy automatically. Please select and copy it manually.");
-    }
-  };
-
-  const retryCredentialEmail = async () => {
-    if (!credentialResult?.user?.id || !credentialResult?.temporaryPassword) return;
-    setRetryingEmail(true);
-    try {
-      const data = await api(`/admin/users/${credentialResult.user.id}/resend-temporary-password`, {
-        method: "POST",
-        token,
-        body: { temporaryPassword: credentialResult.temporaryPassword },
-      });
-      setCredentialResult((current) => ({ ...current, emailDelivery: data.emailDelivery }));
-      if (data.emailDelivery?.delivered) toast.success(data.message);
-      else toast.info(data.message);
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setRetryingEmail(false);
     }
   };
 
@@ -148,8 +141,7 @@ const Admin_Residents = () => {
       if (type === "reset") {
         const data = await api(`/admin/users/${resident.id}/reset-password`, { method: "POST", token });
         setCredentialResult({ ...data, action: "reset", user: data.user || resident });
-        if (data.emailDelivery?.delivered) toast.success(data.message);
-        else toast.info(data.message);
+        toast.success(data.message);
       } else {
         const isActive = type === "activate";
         await api(`/admin/users/${resident.id}`, { method: "PATCH", token, body: { isActive } });
@@ -184,6 +176,10 @@ const Admin_Residents = () => {
   const saveResidentEdit = async (event) => {
     event.preventDefault();
     if (!editResident) return;
+    const before = users.find((user) => user.id === editResident.id) || {};
+    const original = { fullName: before.fullName, birthdate: before.birthdate, address: before.address, purok: before.purok, contactNumber: before.contactNumber, email: before.email };
+    if (!reviewChanges(original, editResident).length) return toast.info("No changes to save.");
+    if (!await reviewAction({ title: "Confirm Resident Changes", description: "Review changed fields before updating this resident.", subject: editResident.fullName, before: original, after: editResident, confirmLabel: "Save Changes" })) return;
     setSaving(true);
     try {
       const data = await api(`/admin/users/${editResident.id}`, {
@@ -359,10 +355,7 @@ const Admin_Residents = () => {
                   <td className="px-4 py-4 text-stone-600">{formatDate(resident.updatedAt || resident.createdAt)}</td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => setSelectedResident(resident)}><Eye className="h-4 w-4" /> View</Button>
-                      <Button variant="secondary" onClick={() => openEditResident(resident)}><Pencil className="h-4 w-4" /> Edit</Button>
-                      <Button variant="ghost" onClick={() => setConfirmAction({ type: "reset", resident })}><KeyRound className="h-4 w-4" /> Reset</Button>
-                      <Button variant={resident.isActive ? "danger" : "primary"} onClick={() => setConfirmAction({ type: resident.isActive ? "deactivate" : "activate", resident })}><Power className="h-4 w-4" /> {resident.isActive ? "Deactivate" : "Activate"}</Button>
+<Button variant="secondary" onClick={() => setSelectedResident(resident)} aria-label={`Manage ${resident.fullName}`}><Eye className="h-4 w-4" /> View & Manage</Button>
                     </div>
                   </td>
                 </tr>
@@ -382,7 +375,7 @@ const Admin_Residents = () => {
 
       <Modal
         open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={closeCreate}
         title="Create Resident Account"
         description="Enter the required resident details. Username and temporary password will be generated automatically."
       >
@@ -400,14 +393,14 @@ const Admin_Residents = () => {
             <Button type="submit" loading={saving}>
               Create Account
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setShowCreateModal(false)}>
+            <Button type="button" variant="ghost" onClick={closeCreate}>
               Cancel
             </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={Boolean(selectedResident)} onClose={() => setSelectedResident(null)} title={selectedResident?.fullName || "Resident Profile"} description="Resident record and account information." widthClass="max-w-3xl">
+      <Modal open={Boolean(selectedResident)} onClose={() => { setSelectedResident(null); if (searchParams.has("recordId")) setSearchParams({}, { replace: true }); }} title={selectedResident?.fullName || "Resident Profile"} description="Resident record and account information." widthClass="max-w-3xl">
         {selectedResident ? <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2">
             {[
@@ -418,11 +411,11 @@ const Admin_Residents = () => {
               ["Last Updated", formatDate(selectedResident.updatedAt || selectedResident.createdAt)], ["Account", selectedResident.isActive ? "Active" : "Inactive"],
             ].map(([label, value]) => <div key={label} className="rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">{label}</p><p className="mt-2 text-sm font-semibold text-stone-700">{value}</p></div>)}
           </div>
-          <div className="flex flex-wrap gap-2"><Button onClick={() => { openEditResident(selectedResident); setSelectedResident(null); }}><Pencil className="h-4 w-4" /> Edit Resident</Button><Button variant="secondary" onClick={() => setConfirmAction({ type: "reset", resident: selectedResident })}><KeyRound className="h-4 w-4" /> Reset Password</Button></div>
+          <div className="flex flex-wrap gap-2"><Button onClick={() => { openEditResident(selectedResident); setSelectedResident(null); }}><Pencil className="h-4 w-4" /> Edit Resident</Button><Button variant="secondary" onClick={() => setConfirmAction({ type: "reset", resident: selectedResident })}><KeyRound className="h-4 w-4" /> Reset Password</Button><Button variant={selectedResident.isActive ? "danger" : "secondary"} onClick={() => setConfirmAction({ type: selectedResident.isActive ? "deactivate" : "activate", resident: selectedResident })}><Power className="h-4 w-4" /> {selectedResident.isActive ? "Deactivate Account" : "Activate Account"}</Button></div>
         </div> : null}
       </Modal>
 
-      <Modal open={Boolean(editResident)} onClose={() => !saving && setEditResident(null)} title="Edit Resident" description="Update resident profile information. Password changes remain a separate security action." widthClass="max-w-3xl" closeDisabled={saving}>
+      <Modal open={Boolean(editResident)} onClose={() => !saving && closeEdit()} title="Edit Resident" description="Update resident profile information. Password changes remain a separate security action." widthClass="max-w-3xl" closeDisabled={saving}>
         {editResident ? <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveResidentEdit}>
           <TextInput label="Full Name" required value={editResident.fullName} onChange={(e) => setEditResident((v) => ({ ...v, fullName: e.target.value }))} />
           <TextInput label="Birthdate" required type="date" value={editResident.birthdate} onChange={(e) => setEditResident((v) => ({ ...v, birthdate: e.target.value }))} />
@@ -430,7 +423,7 @@ const Admin_Residents = () => {
           <SelectInput label="Purok" required value={editResident.purok} onChange={(e) => setEditResident((v) => ({ ...v, purok: e.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
           <TextInput label="Contact Number" required value={editResident.contactNumber} onChange={(e) => setEditResident((v) => ({ ...v, contactNumber: e.target.value }))} />
           <TextInput label="Email" required type="email" className="sm:col-span-2" value={editResident.email} onChange={(e) => setEditResident((v) => ({ ...v, email: e.target.value }))} />
-          <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" onClick={() => setEditResident(null)} disabled={saving}>Cancel</Button></div>
+          <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" onClick={closeEdit} disabled={saving}>Cancel</Button></div>
         </form> : null}
       </Modal>
 
@@ -445,7 +438,7 @@ const Admin_Residents = () => {
           <div className="space-y-5">
             <p className="text-sm leading-6 text-stone-600">
               {confirmAction.type === "reset"
-                ? "This will invalidate the resident's current password, generate a new temporary password, and require a password change on their next login. Email delivery is attempted after the reset and will stop waiting after a short timeout instead of leaving this action pending indefinitely."
+                ? "This will email a readable, 48-hour temporary password. The resident's current password remains valid until they successfully sign in with it. An email failure will not lock the resident out."
                 : confirmAction.type === "deactivate"
                   ? "The resident will be signed out on the next API check and will not be able to sign in while the account is inactive. Existing records are kept."
                   : "The resident will be allowed to sign in again using their existing credentials."}
@@ -456,7 +449,7 @@ const Admin_Residents = () => {
                 onClick={runConfirmedAction}
                 loading={actionLoading}
               >
-                {confirmAction.type === "reset" ? "Reset Password" : confirmAction.type === "deactivate" ? "Deactivate Account" : "Activate Account"}
+                {confirmAction.type === "reset" ? "Email Reset Instructions" : confirmAction.type === "deactivate" ? "Deactivate Account" : "Activate Account"}
               </Button>
               <Button variant="ghost" onClick={() => setConfirmAction(null)} disabled={actionLoading}>Cancel</Button>
             </div>
@@ -467,8 +460,8 @@ const Admin_Residents = () => {
       <Modal
         open={Boolean(credentialResult)}
         onClose={() => setCredentialResult(null)}
-        title={credentialResult?.action === "reset" ? "Password reset complete" : "Resident account created"}
-        description={credentialResult?.emailDelivery?.delivered ? "Email delivery confirmed." : "Email delivery was not confirmed."}
+        title={credentialResult?.action === "reset" ? "Reset instructions sent" : "Resident account created"}
+        description={credentialResult?.emailDelivery?.delivered ? "Resend accepted the email for delivery." : "Email delivery could not be confirmed."}
         widthClass="max-w-xl"
       >
         {credentialResult ? (
@@ -476,19 +469,15 @@ const Admin_Residents = () => {
             <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.delivered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
               {credentialResult.action === "reset"
                 ? (credentialResult.emailDelivery?.delivered
-                    ? "The reset credentials were sent to the resident by email. For security, the temporary password is not displayed when email delivery is confirmed."
-                    : "The password was reset, but email delivery was not confirmed. The temporary password is shown below only as an administrator recovery fallback, or you can retry the same email.")
-                : "The resident account was created and the temporary login credentials were sent by email. For security, the temporary password is never displayed after account creation."}
+                    ? "Resend accepted the temporary password email. The old password keeps working until the resident uses the temporary password, then they must set a personal password."
+                    : "Email delivery was not confirmed. The resident's existing password stays unchanged.")
+                : "The resident account was created and Resend accepted its welcome email. For security, temporary credentials are not displayed to administrators."}
             </div>
             <div className="rounded-2xl bg-stone-50 p-4 text-sm">
               <p><span className="text-stone-500">Resident email:</span> <strong>{credentialResult.user?.email || "Not set"}</strong></p>
               <p className="mt-2"><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
-              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <p className="mt-2 break-all"><span className="text-stone-500">Temporary password:</span> <strong>{credentialResult.temporaryPassword}</strong></p> : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(credentialResult.temporaryPassword, "Temporary password copied.")}><Copy className="h-4 w-4" /> Copy Password</Button> : null}
-              {credentialResult.action === "reset" && credentialResult.temporaryPassword ? <Button type="button" variant="secondary" onClick={() => copyText(`Username: ${credentialResult.user?.username || ""}\nTemporary password: ${credentialResult.temporaryPassword}`, "Credentials copied.")}><Copy className="h-4 w-4" /> Copy Credentials</Button> : null}
-              {!credentialResult.emailDelivery?.delivered && credentialResult.action === "reset" ? <Button type="button" variant="secondary" loading={retryingEmail} onClick={retryCredentialEmail}><Mail className="h-4 w-4" /> Retry Same Email</Button> : null}
               <Button onClick={() => setCredentialResult(null)}>Done</Button>
             </div>
           </div>
@@ -499,4 +488,5 @@ const Admin_Residents = () => {
 };
 
 export default Admin_Residents;
+
 

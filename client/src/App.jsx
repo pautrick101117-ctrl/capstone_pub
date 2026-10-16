@@ -1,6 +1,7 @@
 import { Navigate, RouterProvider, createBrowserRouter, createRoutesFromElements, Route } from "react-router-dom";
 import LandingPageLayout from "./components/layouts/LandingPageLayout";
 import Home from "./pages/client/Home";
+import NotFoundPage from "./pages/client/NotFoundPage";
 import FundTransparency from "./pages/client/FundTransparency";
 import Officials from "./pages/client/Officials";
 import Login from "./pages/client/Login";
@@ -27,6 +28,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import Admin_Residents from "./pages/admin/Admin_Residents";
 import Admin_Officials from "./pages/admin/Admin_Officials";
 import AdminLogin from "./pages/admin/AdminLogin";
+import AdminSetup from "./pages/admin/AdminSetup";
 import AdminRequests from "./pages/admin/AdminRequests";
 import AdminContentPage from "./pages/admin/AdminContentPage";
 import AdminFunds from "./pages/admin/AdminFunds";
@@ -41,6 +43,7 @@ import AdminBroadcast from "./pages/admin/AdminBroadcast";
 import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 import AdminProjectSuggestions from "./pages/admin/AdminProjectSuggestions";
 import AdminProjects from "./pages/admin/AdminProjects";
+import { ActionReviewProvider } from "./components/ActionReviewProvider";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -57,12 +60,14 @@ const router = createBrowserRouter(
         <Route path="terms-of-use" element={<TermsOfUse />} />
         <Route path="privacy-policy" element={<PrivacyPolicy />} />
         <Route path="voting-result" element={<VotingResult />} />
+        <Route path="voting-result/:electionId" element={<VotingResult />} />
         <Route path="project-updates" element={<ProjectUpdatesPage />} />
         <Route path="project-updates/:projectId" element={<ProjectUpdatesPage />} />
         <Route path="login" element={<Login />} />
       </Route>
 
       <Route path="admin/login" element={<AdminLogin />} />
+      <Route path="admin/setup" element={<AdminSetup />} />
 
       <Route element={<ProtectedRoute redirectTo="/login" />}>
         <Route path="change-password" element={<ChangePassword />} />
@@ -77,6 +82,7 @@ const router = createBrowserRouter(
           <Route path="portal/suggestions" element={<SuggestionsPage />} />
           <Route path="portal/results" element={<Navigate to="/portal/voting-result" replace />} />
           <Route path="portal/voting-result" element={<VotingResult />} />
+          <Route path="portal/voting-result/:electionId" element={<VotingResult />} />
           <Route path="portal/complaints" element={<Complaints />} />
           <Route path="portal/borrowing" element={<BorrowingPage />} />
           <Route path="portal/settings" element={<SettingsPage />} />
@@ -101,17 +107,19 @@ const router = createBrowserRouter(
           <Route path="borrowing" element={<Admin_Borrowing />} />
           <Route path="broadcasts" element={<AdminBroadcast />} />
           <Route path="settings" element={<Admin_Settings />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route element={<ProtectedRoute roles={["super_admin"]} redirectTo="/admin" />}>
-            <Route path="user-maintenance" element={<Admin_UserMaintenance />} />
-            <Route path="audit-logs" element={<AdminAuditLogs />} />
+            <Route path="admin-accounts" element={<Admin_UserMaintenance />} />
           </Route>
         </Route>
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
     </>
   )
 );
 
-const App = () => <RouterProvider router={router} />;
+const App = () => <ActionReviewProvider><RouterProvider router={router} /></ActionReviewProvider>;
 
 export default App;
+
 

@@ -1,3 +1,4 @@
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import { Edit3, ImageUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
@@ -11,9 +12,11 @@ const pageSize = 6;
 
 const AdminContentPage = ({ type = "news" }) => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [formSnapshot, setFormSnapshot] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -24,6 +27,10 @@ const AdminContentPage = ({ type = "news" }) => {
 
   const label = type === "news" ? "News" : "Announcements";
   const singular = type === "news" ? "News Post" : "Announcement";
+
+  const formGuard = useUnsavedForm({ initial: formSnapshot, current: form, enabled: open });
+  useUnsavedNavigation(formGuard.dirty);
+  const closeEditor = () => formGuard.closeSafely(() => { setOpen(false); setForm(emptyForm); });
 
   const load = async () => {
     setLoading(true);
@@ -48,10 +55,12 @@ const AdminContentPage = ({ type = "news" }) => {
 
   const openCreate = () => {
     setForm(emptyForm);
+    setFormSnapshot(emptyForm);
     setOpen(true);
   };
 
   const openEdit = (item) => {
+    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: item.created_at ? `${item.created_at}`.slice(0, 10) : "", image: null, preview: item.image_url || "" });
     setForm({
       id: item.id,
       title: item.title || "",
@@ -65,6 +74,7 @@ const AdminContentPage = ({ type = "news" }) => {
 
   const save = async (event) => {
     event.preventDefault();
+    if (!await reviewAction({ title: form.id ? `Confirm ${singular} Changes` : `Publish ${singular}?`, subject: form.title, before: items.find((item) => item.id === form.id) || {}, after: { title: form.title, body: form.body, date: form.date, photo: form.image }, confirmLabel: form.id ? "Save Changes" : "Publish" })) return;
     setSaving(true);
 
     const formData = new FormData();
@@ -136,7 +146,6 @@ const AdminContentPage = ({ type = "news" }) => {
             <EmptyState
               title={`No ${label.toLowerCase()} published yet`}
               description={`Create the first ${singular.toLowerCase()} when there is something residents should see.`}
-              action={<Button onClick={openCreate}><Plus className="h-4 w-4" />Create {singular}</Button>}
             />
           ) : (
             <>
@@ -173,7 +182,7 @@ const AdminContentPage = ({ type = "news" }) => {
         </Card>
       ) : null}
 
-      <Modal open={open} onClose={() => !saving && setOpen(false)} title={`${form.id ? "Edit" : "Create"} ${singular}`} description={form.id ? "Update the content, then save the changes." : "Review the title, message and image before publishing."}>
+      <Modal open={open} onClose={() => !saving && closeEditor()} title={`${form.id ? "Edit" : "Create"} ${singular}`} description={form.id ? "Update the content, then save the changes." : "Review the title, message and image before publishing."}>
         <form className="space-y-4" onSubmit={save}>
           <TextInput label="Title" required maxLength={140} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
           <TextInput label="Date (optional)" type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
@@ -186,7 +195,7 @@ const AdminContentPage = ({ type = "news" }) => {
             </label>
           </label>
           {form.preview ? <img src={form.preview} alt="Preview" className="h-56 w-full rounded-3xl object-cover" /> : null}
-          <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Publish"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button></div>
+          <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Publish"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>Cancel</Button></div>
         </form>
       </Modal>
 
@@ -205,3 +214,4 @@ const AdminContentPage = ({ type = "news" }) => {
 };
 
 export default AdminContentPage;
+

@@ -1,3 +1,4 @@
+import HotlineContacts from "../../components/HotlineContacts";
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, FileText, KeyRound, Megaphone, PackageCheck, Phone, Vote } from "lucide-react";
 import { api } from "../../lib/api";
@@ -33,8 +34,17 @@ const HelpCenter = () => {
 
       {!filtered.length ? <EmptyState title="No matching help guide" description="Try a broader search such as requests, voting, borrowing or password." /> : <div className="grid gap-5 md:grid-cols-2">{filtered.map(({ icon: Icon, category, title, steps }) => <Card key={title}><div className="flex items-start gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><Icon className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--brand-500)]">{category}</p><h2 className="mt-1 text-lg font-bold text-[var(--brand-900)]">{title}</h2></div></div><ol className="mt-5 space-y-3">{steps.map((step, index) => <li key={step} className="flex gap-3 text-sm leading-6 text-stone-600"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--brand-100)] text-xs font-bold text-[var(--brand-700)]">{index + 1}</span><span>{step}</span></li>)}</ol></Card>)}</div>}
 
-      <Card className="border-rose-200 bg-rose-50/70"><div className="flex items-start gap-3"><div className="rounded-2xl bg-rose-100 p-3 text-rose-700"><Phone className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-stone-900">Need immediate barangay assistance?</h2><p className="mt-1 text-sm leading-6 text-stone-600">For urgent matters, contact the configured barangay hotline instead of submitting a normal concern and waiting for review.</p>{support?.hotline ? <p className="mt-3 font-bold text-rose-700">{support.hotline.title}: {support.hotline.phone} · {support.hotline.hours}</p> : null}{support?.contact?.email ? <p className="mt-1 text-sm text-stone-600">Email: {support.contact.email}</p> : null}</div></div></Card>
+      <Card className="border-rose-200 bg-rose-50/70">
+        <div className="flex items-start gap-3"><div className="rounded-2xl bg-rose-100 p-3 text-rose-700"><Phone className="h-5 w-5" /></div>
+          <div className="min-w-0 flex-1"><h2 className="text-lg font-bold text-stone-900">Need immediate barangay assistance?</h2>
+            <p className="mt-1 text-sm leading-6 text-stone-600">For urgent matters, use a configured barangay hotline rather than waiting for a normal concern review.</p>
+            <HotlineContacts hotlines={support?.hotlines} />
+            {support?.contact?.email ? <p className="mt-3 text-sm text-stone-600">Office email: {support.contact.email}</p> : null}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 };
 export default HelpCenter;
+

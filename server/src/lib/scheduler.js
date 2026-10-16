@@ -21,19 +21,24 @@ export const runMaintenance = async () => {
   if (expiredError) throw expiredError;
 
   for (const election of expiredElections || []) {
-    await db.from("elections").update({ status: "closed" }).eq("id", election.id);
-    if ((residents || []).length) {
-      await db.from("notifications").insert(
-        residents.map((resident) => ({
-          user_id: resident.id,
-          title: "Election closed",
-          body: `${election.title} has automatically closed.`,
-          kind: "info",
-          broadcast: false,
-        }))
-      );
+    // Finalization, counting and winning-project creation share a single transaction.
+    const { data: finalized, error: finalizeError } = await db.rpc("bgy_phase10_finalize_election", {
+      p_election_id: election.id, p_actor: null, p_early_reason: null,
+    });
+    if (finalizeError) throw finalizeError;
+    if ((residents || []).length && finalized?.finalized_at) {
+      // One scheduler may run on multiple workers. Notification deduplication is
+      // handled by a unique outbox event in the migration's follow-up workflow.
+      // We avoid untracked best-effort broadcasting from every worker here.
+      console.info(`[VOTING FINALIZED] ${election.id}: ${finalized.result_kind}`);
     }
   }
+
+  const { error: openError } = await db.rpc("bgy_phase10_queue_opened_rounds", { p_limit: 10 });
+  if (openError) throw openError;
+  // Consume durable notification events. Concurrent workers use SKIP LOCKED.
+  const { error: dispatchError } = await db.rpc("bgy_phase10_dispatch_notifications", { p_limit: 10 });
+  if (dispatchError) throw dispatchError;
 
   const reminderDate = new Date(Date.now() + DAY_IN_MS).toISOString().slice(0, 10);
   const { data: idRequests, error: reminderError } = await db
@@ -91,3 +96,4 @@ export const runMaintenance = async () => {
     }
   }
 };
+

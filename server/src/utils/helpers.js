@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { RESIDENT_PASSWORD_WORDS } from "./residentPasswordWords.js";
 
 export const createCode = () => `${randomInt(100000, 1000000)}`;
 
@@ -20,26 +21,17 @@ export const ensureStrongPassword = (password = "") => {
   return true;
 };
 
-const securePick = (characters) => characters[randomInt(0, characters.length)];
-
-export const createTemporaryPassword = (length = 12) => {
-  const targetLength = Math.max(8, Number(length) || 12);
-  const uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const lowercase = "abcdefghijkmnopqrstuvwxyz";
-  const numbers = "23456789";
-  const symbols = "!@#$";
-  const alphabet = `${uppercase}${lowercase}${numbers}${symbols}`;
-
-  const characters = [securePick(uppercase), securePick(numbers), securePick(lowercase), securePick(symbols)];
-  while (characters.length < targetLength) characters.push(securePick(alphabet));
-
-  // Fisher-Yates shuffle using crypto-backed randomInt so required characters are not predictable by position.
-  for (let index = characters.length - 1; index > 0; index -= 1) {
-    const swapIndex = randomInt(0, index + 1);
-    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+// Three independently cryptographically selected words from a 2,048-word bank
+// plus five unpredictable, easy-to-distinguish digits: approximately 48 bits of entropy.
+// The optional legacy argument is ignored: callers must not weaken the format.
+export const createTemporaryPassword = () => {
+  const words = [];
+  while (words.length < 3) {
+    const word = RESIDENT_PASSWORD_WORDS[randomInt(RESIDENT_PASSWORD_WORDS.length)];
+    if (!words.includes(word)) words.push(word);
   }
-
-  return characters.join("");
+  const digits = Array.from({ length: 5 }, () => "23456789"[randomInt(8)]).join("");
+  return words.map((word) => word[0].toUpperCase() + word.slice(1)).join("") + digits;
 };
 
 export const normalizePhoneNumber = (phone = "") =>
@@ -126,4 +118,5 @@ export const sanitizeUser = (user) => ({
   createdAt: user.created_at,
   updatedAt: user.updated_at,
 });
+
 

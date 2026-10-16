@@ -1,4 +1,5 @@
 import express from "express";
+import { attachCaseHistories, parseNewCaseResponse, updateCaseWithHistory } from "../lib/caseHistory.js";
 import multer from "multer";
 import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection, ensureProjectsForClosedElections } from "../lib/projects.js";
@@ -6,11 +7,12 @@ import { uploadAsset } from "../lib/storage.js";
 import { sendSystemEmail } from "../lib/mailer.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
+import { classifyElectionOutcome, phaseStatus, mapVotingRpcError } from "../lib/votingOutcome.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-const ELECTION_STATUSES = new Set(["draft", "live", "closed"]);
+const ELECTION_STATUSES = new Set(["draft", "live"]);
 const SUGGESTION_REVIEW_STATUSES = new Set(["approved", "rejected"]);
 
 const requireValue = (value, message) => {
@@ -102,35 +104,12 @@ const getVoteCountsByOption = (votes = []) =>
     return counts;
   }, {});
 
-const syncOptionVoteCounts = async (db, electionId) => {
-  const [optionsResult, votesResult] = await Promise.all([
-    db.from("election_options").select("id").eq("election_id", electionId),
-    db.from("votes").select("option_id").eq("election_id", electionId),
-  ]);
-
-  if (optionsResult.error) throw optionsResult.error;
-  if (votesResult.error) throw votesResult.error;
-
-  const counts = getVoteCountsByOption(votesResult.data || []);
-
-  for (const option of optionsResult.data || []) {
-    const { error } = await db
-      .from("election_options")
-      .update({ votes_count: counts[option.id] || 0 })
-      .eq("id", option.id);
-
-    if (error) throw error;
-  }
-};
-
 const getElectionMetrics = async (db, electionId) => {
-  await syncOptionVoteCounts(db, electionId);
-
   const [election, options, votes, completions, residents] = await Promise.all([
     db.from("elections").select("*").eq("id", electionId).single(),
     db.from("election_options").select("*").eq("election_id", electionId).order("created_at"),
     db.from("votes").select("id, user_id, option_id").eq("election_id", electionId),
-    db.from("project_completions").select("id, user_id").eq("election_id", electionId),
+    db.from("project_completions").select("id, user_id").eq("election_id", electionId).eq("acknowledged_after_official_completion", true),
     db.from("users").select("id", { count: "exact", head: true }).eq("role", "resident").eq("is_active", true),
   ]);
 
@@ -159,16 +138,19 @@ const getElectionMetrics = async (db, electionId) => {
     };
   });
 
-  const winner =
-    totalVotes > 0
-      ? [...mappedOptions].sort((a, b) => Number(b.votes || 0) - Number(a.votes || 0))[0] || null
-      : null;
+  const outcome = classifyElectionOutcome(optionRows, voteRows, { finalized: Boolean(election.data.finalized_at) });
+  const winner = election.data.result_kind === "winner" && election.data.finalized_at
+    ? mappedOptions.find((item) => item.id === election.data.winner_option_id) || null : null;
 
   return {
     id: election.data.id,
     title: election.data.title,
     description: election.data.description,
     status: election.data.status,
+    phaseStatus: phaseStatus(election.data),
+    finalized: Boolean(election.data.finalized_at),
+    resultKind: election.data.result_kind || (election.data.status === "closed" ? "legacy_review" : outcome.kind),
+    tiedOptions: outcome.tiedOptions.map((option) => ({ id: option.id, name: option.name })),
     startsAt: election.data.starts_at,
     endsAt: election.data.ends_at,
     imageUrl: election.data.image_url,
@@ -192,21 +174,6 @@ const getElectionMetrics = async (db, electionId) => {
   };
 };
 
-const closeExpiredLiveElections = async (db) => {
-  const now = new Date().toISOString();
-
-  const { error } = await db
-    .from("elections")
-    .update({ status: "closed" })
-    .eq("status", "live")
-    .lte("ends_at", now);
-
-  if (error) throw error;
-  await ensureProjectsForClosedElections(db).catch((projectError) => {
-    if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
-  });
-};
-
 router.get("/suggestions", async (req, res, next) => {
   try {
     const db = requireSupabase();
@@ -228,7 +195,7 @@ router.get("/suggestions", async (req, res, next) => {
     if (error) throw error;
 
     res.json({
-      suggestions: data || [],
+      suggestions: await attachCaseHistories(db, "project_suggestion", data || []),
       pagination: { page, limit, total: count || 0, totalPages: Math.max(1, Math.ceil((count || 0) / limit)) },
     });
   } catch (error) {
@@ -240,44 +207,30 @@ router.patch("/suggestions/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
     const status = `${req.body.status || ""}`.trim().toLowerCase();
-    const reviewNote = `${req.body.reviewNote ?? req.body.review_note ?? ""}`.trim();
+    const response = parseNewCaseResponse(req.body);
+    const reviewNote = response.message;
 
     requireValue(status, "Status is required.");
     if (!SUGGESTION_REVIEW_STATUSES.has(status)) {
       throw Object.assign(new Error("Suggestion status must be approved or rejected."), { status: 400 });
     }
-    if (status === "rejected" && reviewNote.length < 3) {
-      throw Object.assign(new Error("Add a short reason so the resident understands why the suggestion was not approved."), { status: 400 });
-    }
-
     const existingResult = await db.from("project_suggestions").select("*").eq("id", req.params.id).maybeSingle();
     if (existingResult.error) throw existingResult.error;
     if (!existingResult.data) throw Object.assign(new Error("Project suggestion not found."), { status: 404 });
-
-    const updatePayload = {
-      status,
-      review_note: reviewNote || null,
-      reviewed_by: req.currentUser.id,
-      reviewed_at: new Date().toISOString(),
-    };
-
-    let result = await db
-      .from("project_suggestions")
-      .update(updatePayload)
-      .eq("id", req.params.id)
-      .select("*")
-      .single();
-
-    // Backward-compatible fallback if V4 review columns have not been migrated yet.
-    if (result.error && /review_note|reviewed_by|reviewed_at/i.test(result.error.message || "")) {
-      result = await db.from("project_suggestions").update({ status }).eq("id", req.params.id).select("*").single();
+    if (status === "rejected" && status !== existingResult.data.status && reviewNote.length < 3) {
+      throw Object.assign(new Error("Add a short reason so the resident understands why the suggestion was not approved."), { status: 400 });
     }
-    if (result.error) throw result.error;
+
+    const suggestion = await updateCaseWithHistory(db, { entityType: "project_suggestion", id: req.params.id,
+      currentStatus: req.body.expectedStatus || existingResult.data.status, status,
+      response, actorId: req.currentUser.id, operationId: req.body.operationId });
+    const result = { data: suggestion };
 
     const residentBody = status === "approved"
-      ? `Your project suggestion “${result.data.title}” was approved for consideration in a future community vote.${reviewNote ? ` Barangay note: ${reviewNote}` : ""}`
-      : `Your project suggestion “${result.data.title}” was not approved.${reviewNote ? ` Barangay note: ${reviewNote}` : ""}`;
+      ? `Your project suggestion “${result.data.title}” was approved for consideration in a future community vote.${response.visibility === "resident" && reviewNote ? ` Barangay note: ${reviewNote}` : ""}`
+      : `Your project suggestion “${result.data.title}” was not approved.${response.visibility === "resident" && reviewNote ? ` Barangay note: ${reviewNote}` : ""}`;
 
+    if (status !== existingResult.data.status || (response.visibility === "resident" && reviewNote)) {
     await db.from("notifications").insert({
       user_id: result.data.user_id,
       title: status === "approved" ? "Project suggestion approved" : "Project suggestion review",
@@ -301,6 +254,7 @@ router.patch("/suggestions/:id", async (req, res, next) => {
       if (error) throw error;
       return null;
     });
+    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -312,7 +266,7 @@ router.patch("/suggestions/:id", async (req, res, next) => {
       entityId: req.params.id,
       beforeData: existingResult.data,
       afterData: result.data,
-      details: { status, reviewNote },
+      details: { status, visibility: response.visibility },
       req,
     });
 
@@ -325,8 +279,6 @@ router.patch("/suggestions/:id", async (req, res, next) => {
 router.get("/election", async (_req, res, next) => {
   try {
     const db = requireSupabase();
-
-    await closeExpiredLiveElections(db);
 
     const { data: election, error } = await db
       .from("elections")
@@ -372,8 +324,6 @@ router.get("/election", async (_req, res, next) => {
 router.get("/election/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    await closeExpiredLiveElections(db);
-
     const { data: election, error } = await db.from("elections").select("*").eq("id", req.params.id).maybeSingle();
     if (error) throw error;
     if (!election) throw Object.assign(new Error("Voting post not found."), { status: 404 });
@@ -454,124 +404,36 @@ router.put("/election", upload.single("image"), async (req, res, next) => {
     }
 
     const imageUrl = req.file
-      ? await uploadAsset({
-          file: req.file,
-          folder: "elections",
-          prefix: rawElection.title,
-        })
+      ? await uploadAsset({ file: req.file, folder: "elections", prefix: rawElection.title })
       : rawElection.imageUrl || null;
-
     let previousElection = null;
-    let existingOptions = [];
-    let existingVoteCount = 0;
-
     if (rawElection.id) {
-      const [previous, optionRows, voteRows] = await Promise.all([
-        db.from("elections").select("*").eq("id", rawElection.id).maybeSingle(),
-        db
-          .from("election_options")
-          .select("name, description, source_suggestion_id")
-          .eq("election_id", rawElection.id)
-          .order("created_at"),
-        db.from("votes").select("id", { count: "exact", head: true }).eq("election_id", rawElection.id),
-      ]);
-
+      const previous = await db.from("elections").select("*").eq("id", rawElection.id).maybeSingle();
       if (previous.error) throw previous.error;
-      if (optionRows.error) throw optionRows.error;
-      if (voteRows.error) throw voteRows.error;
-
       previousElection = previous.data;
-      existingOptions = normalizeElectionOptions(optionRows.data || []);
-      existingVoteCount = voteRows.count || 0;
     }
-
-    if (existingVoteCount > 0 && !sameElectionOptions(existingOptions, options)) {
-      throw Object.assign(new Error("Voting options cannot be changed after votes have been recorded."), {
-        status: 400,
-      });
+    if (status === "live" && sourceSuggestionIds.length !== options.length) {
+      throw Object.assign(new Error("Every published candidate must come from an approved suggestion."), { status: 400 });
     }
-
+    const { data: savedElection, error: saveError } = await db.rpc("bgy_phase10_save_election", {
+      p_actor: req.currentUser.id,
+      p_id: rawElection.id || null,
+      p_title: `${rawElection.title || ""}`.trim(),
+      p_description: rawElection.description || "",
+      p_status: status,
+      p_starts_at: startsAt,
+      p_ends_at: endsAt,
+      p_image_url: imageUrl,
+      p_options: options,
+      p_runoff_parent: rawElection.runoffParentId || null,
+    });
+    if (saveError) throw mapVotingRpcError(saveError);
+    // Database outbox owns resident notifications; no duplicate direct broadcast.
     const electionPayload = {
-      title: `${rawElection.title || ""}`.trim(),
-      description: rawElection.description || "",
-      status,
-      starts_at: startsAt,
-      ends_at: endsAt,
-      image_url: imageUrl,
-      source_suggestion_id: rawElection.sourceSuggestionId || sourceSuggestionIds[0] || null,
+      title: savedElection.title, status: savedElection.status,
+      starts_at: savedElection.starts_at, ends_at: savedElection.ends_at,
+      selected_suggestions: sourceSuggestionIds,
     };
-
-    let savedElection;
-
-    if (rawElection.id) {
-      const update = await db
-        .from("elections")
-        .update(electionPayload)
-        .eq("id", rawElection.id)
-        .select("*")
-        .single();
-
-      if (update.error) throw update.error;
-
-      savedElection = update.data;
-    } else {
-      const insert = await db.from("elections").insert(electionPayload).select("*").single();
-
-      if (insert.error) throw insert.error;
-
-      savedElection = insert.data;
-    }
-
-    if (existingVoteCount === 0) {
-      const deleteOptions = await db.from("election_options").delete().eq("election_id", savedElection.id);
-
-      if (deleteOptions.error) throw deleteOptions.error;
-
-      if (options.length) {
-        const insertOptions = await db.from("election_options").insert(
-          options.map((option) => ({
-            election_id: savedElection.id,
-            name: option.name,
-            description: option.description,
-            source_suggestion_id: option.sourceSuggestionId || null,
-            image_url: option.imageUrl || null,
-            votes_count: 0,
-          }))
-        );
-
-        if (insertOptions.error) throw insertOptions.error;
-      }
-    }
-
-    if (savedElection.status === "closed") {
-      await ensureCommunityProjectForElection(db, savedElection.id, { createdBy: req.currentUser.id }).catch((projectError) => {
-        if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
-      });
-    }
-
-    if (savedElection.status === "live") {
-      const closeOtherLives = await db
-        .from("elections")
-        .update({ status: "closed" })
-        .neq("id", savedElection.id)
-        .eq("status", "live");
-
-      if (closeOtherLives.error) throw closeOtherLives.error;
-
-      if (previousElection?.status !== "live") {
-        const resetVotes = await db.from("users").update({ has_voted: false }).eq("role", "resident");
-
-        if (resetVotes.error) throw resetVotes.error;
-
-        const residents = await getResidentRecipients(db);
-
-        await notifyResidents(db, residents, {
-          title: "Voting is now open",
-          body: `${savedElection.title} is now live for voting.`,
-        });
-
-      }
-    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -602,18 +464,14 @@ router.post("/election/:id/close", async (req, res, next) => {
     if (!election) throw Object.assign(new Error("Voting post not found."), { status: 404 });
     if (election.status !== "live") throw Object.assign(new Error("Only an open voting period can be closed."), { status: 409 });
 
-    const closedAt = new Date().toISOString();
-    const { data: savedElection, error: updateError } = await db
-      .from("elections")
-      .update({ status: "closed", ends_at: closedAt })
-      .eq("id", election.id)
-      .select("*")
-      .single();
-    if (updateError) throw updateError;
-
-    await ensureCommunityProjectForElection(db, savedElection.id, { createdBy: req.currentUser.id }).catch((projectError) => {
-      if (!`${projectError.message || ""}`.toLowerCase().includes("community_projects")) throw projectError;
+    const reason = `${req.body.reason || ""}`.trim();
+    if (!reason || reason.length < 5) {
+      throw Object.assign(new Error("Please explain why the voting period is being closed early."), { status: 400 });
+    }
+    const { data: savedElection, error: updateError } = await db.rpc("bgy_phase10_finalize_election", {
+      p_election_id: election.id, p_actor: req.currentUser.id, p_early_reason: reason,
     });
+    if (updateError) throw mapVotingRpcError(updateError);
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -625,11 +483,11 @@ router.post("/election/:id/close", async (req, res, next) => {
       entityId: savedElection.id,
       beforeData: election,
       afterData: savedElection,
-      details: { reason: `${req.body.reason || ""}`.trim() || null },
+      details: { reason, resultKind: savedElection.result_kind },
       req,
     });
 
-    res.json({ election: savedElection, message: "Voting has been closed. Final results are now locked." });
+    res.json({ election: savedElection, message: savedElection.result_kind === "tie" ? "Voting closed with a tie; prepare a runoff round." : "Voting has been finalized. Results are now locked." });
   } catch (error) {
     next(error);
   }
@@ -674,8 +532,6 @@ router.delete("/election/:id", async (req, res, next) => {
 router.get("/election-results", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    await closeExpiredLiveElections(db);
-
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(20, Math.max(1, Number(req.query.limit || 6)));
     const from = (page - 1) * limit;
@@ -700,4 +556,5 @@ router.get("/election-results", async (req, res, next) => {
 });
 
 export default router;
+
 

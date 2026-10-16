@@ -53,7 +53,7 @@ const VotingCenter = () => {
 
   const options = election?.options || [];
   const selectedOption = useMemo(() => options.find((option) => option.id === selectedOptionId) || null, [options, selectedOptionId]);
-  const canVote = election?.status === "live" && !hasVoted && isResident;
+  const canVote = election?.phaseStatus === "live" && !hasVoted && isResident;
 
   const castVote = async () => {
     if (!selectedOptionId) return toast.error("Choose a project first.");
@@ -116,14 +116,14 @@ const VotingCenter = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <Badge tone="warning">Voting Open</Badge>
+                <Badge tone="warning">{election.phaseStatus === "scheduled" ? "Voting Scheduled" : "Voting Open"}</Badge>
                 <div className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"><Clock3 className="h-3.5 w-3.5" />{countdownText(election.endsAt)}</div>
-                <span className="text-xs font-semibold text-stone-500">Closes {formatDateTime(election.endsAt)}</span>
+                <span className="text-xs font-semibold text-stone-500">{election.phaseStatus === "scheduled" ? `Opens ${formatDateTime(election.startsAt)}` : `Closes ${formatDateTime(election.endsAt)}`}</span>
               </div>
 
               <div className={`rounded-2xl border p-4 ${hasVoted ? "border-emerald-200 bg-emerald-50" : "border-[var(--brand-200)] bg-[var(--brand-50)]"}`}>
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Your voting status</p>
-                {hasVoted ? (
+                {election.phaseStatus === "scheduled" ? <p className="mt-2 text-sm text-stone-700">Voting starts {formatDateTime(election.startsAt)}. You can review the options now, then return when voting opens.</p> : hasVoted ? (
                   <div className="mt-2 flex items-start gap-2 text-emerald-800"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" /><div><p className="font-bold">Vote recorded</p><p className="mt-1 text-sm">Your vote has been counted and cannot be changed. Results can be reviewed when the voting period has ended.</p></div></div>
                 ) : (
                   <p className="mt-2 text-sm font-semibold text-[var(--brand-800)]">You have not voted yet. Select one project below, review it, then submit your final vote.</p>
@@ -171,4 +171,5 @@ const VotingCenter = () => {
 };
 
 export default VotingCenter;
+
 

@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { env, hasSupabaseConfig } from "./env.js";
+import { withAuditHeaders } from "./auditContext.js";
 
 export const supabase = hasSupabaseConfig
   ? createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: (url, options) => fetch(url, withAuditHeaders(options)) },
     })
   : null;
 
@@ -16,4 +18,5 @@ export const requireSupabase = () => {
 
   return supabase;
 };
+
 

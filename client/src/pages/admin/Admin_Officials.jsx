@@ -1,3 +1,4 @@
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import { Edit3, Plus, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
@@ -12,9 +13,11 @@ const emptyForm = { id: "", name: "", position: "", term: "", contact: "", isAct
 
 const Admin_Officials = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [officials, setOfficials] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [formSnapshot, setFormSnapshot] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -23,6 +26,10 @@ const Admin_Officials = () => {
   const [toggleTarget, setToggleTarget] = useState(null);
   const { options: positionOptions } = useMasterData("official_position");
   const { options: termOptions } = useMasterData("administration_term");
+
+  const formGuard = useUnsavedForm({ initial: formSnapshot, current: form, enabled: open });
+  useUnsavedNavigation(formGuard.dirty);
+  const closeEditor = () => formGuard.closeSafely(() => { setOpen(false); setForm(emptyForm); });
 
   const load = async () => {
     setLoading(true);
@@ -43,10 +50,12 @@ const Admin_Officials = () => {
 
   const openCreate = () => {
     setForm(emptyForm);
+    setFormSnapshot(emptyForm);
     setOpen(true);
   };
 
   const openEdit = (official) => {
+    setFormSnapshot({ id: official.id, name: official.name, position: official.position, term: official.term, contact: official.contact || "", isActive: official.is_active ?? official.isActive ?? true, photo: null, preview: official.photo_url || "" });
     setForm({
       id: official.id,
       name: official.name,
@@ -62,6 +71,7 @@ const Admin_Officials = () => {
 
   const save = async (event) => {
     event.preventDefault();
+    if (!await reviewAction({ title: form.id ? "Confirm Official Changes" : "Add Official?", subject: form.name, before: officials.find((official) => official.id === form.id) || {}, after: form, confirmLabel: form.id ? "Save Official" : "Add Official" })) return;
     setSaving(true);
     const formData = new FormData();
     Object.entries(form).forEach(([key, value]) => {
@@ -135,7 +145,7 @@ const Admin_Officials = () => {
           <p className="mt-1 text-sm text-stone-500">The list stays spacious, while create and edit actions open in a focused modal.</p>
         </div>
 
-        {officials.length === 0 ? <EmptyState title="No officials configured" description="Add the first official profile to publish the barangay directory." action={<Button onClick={openCreate}>Add Official</Button>} /> : <>
+        {officials.length === 0 ? <EmptyState title="No officials configured" description="Add the first official profile to publish the barangay directory." /> : <>
         <TableShell>
           <table className="min-w-full text-sm">
             <thead className="bg-stone-50 text-left text-stone-500">
@@ -225,7 +235,7 @@ const Admin_Officials = () => {
           {form.preview ? <img src={form.preview} alt="Official preview" className="sm:col-span-2 h-56 w-full rounded-3xl object-cover" /> : null}
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Save Official"}</Button>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" onClick={closeEditor}>
               Cancel
             </Button>
           </div>
@@ -238,4 +248,5 @@ const Admin_Officials = () => {
 };
 
 export default Admin_Officials;
+
 

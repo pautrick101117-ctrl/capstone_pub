@@ -82,3 +82,47 @@ export const validateReturnInspection = ({ requestedQuantity, returnedQuantity, 
   return { returnedQuantity: returned, returnCondition: condition, returnNote: note };
 };
 
+
+
+// Limits are stored in whole minutes: 1 hour through 90 days.
+export const MIN_BORROW_MINUTES = 60;
+export const MAX_BORROW_MINUTES = 90 * 24 * 60;
+
+export const normalizeMaxBorrowMinutes = (value) => {
+  const minutes = Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isInteger(minutes)
+    || minutes < MIN_BORROW_MINUTES || minutes > MAX_BORROW_MINUTES) {
+    throw Object.assign(new Error("Set a whole-number maximum borrowing duration between 1 hour and 90 days."), { status: 400 });
+  }
+  return minutes;
+};
+
+export const validateAssetDuration = (asset, window) => {
+  if (asset?.max_borrow_minutes === null || asset?.max_borrow_minutes === undefined) {
+    throw Object.assign(new Error("This resource needs a maximum borrowing duration set by the barangay before new requests can be made."), { status: 409, code: "BORROW_DURATION_NOT_CONFIGURED" });
+  }
+  const maximum = normalizeMaxBorrowMinutes(asset.max_borrow_minutes);
+  const duration = (Date.parse(window.dueAt) - Date.parse(window.startAt)) / 60_000;
+  if (!Number.isFinite(duration) || duration > maximum) {
+    throw Object.assign(new Error(`${asset.name || "This resource"} can be borrowed for at most ${maximum % 1440 === 0 ? `${maximum / 1440} day(s)` : `${maximum / 60} hour(s)`}. Choose an earlier return date.`),
+      { status: 400, code: "BORROW_DURATION_EXCEEDED" });
+  }
+  return { maximumMinutes: maximum, durationMinutes: duration };
+};
+
+export const mapBorrowingDatabaseError = (error) => {
+  const reason = `${error?.message || ""}`;
+  const errors = {
+    BGY_BORROW_DURATION_NOT_CONFIGURED: [409, "BORROW_DURATION_NOT_CONFIGURED", "The barangay must set a maximum borrowing duration for this resource."],
+    BGY_BORROW_DURATION_EXCEEDED: [400, "BORROW_DURATION_EXCEEDED", "The requested borrowing period exceeds the resource maximum. Choose an earlier return time."],
+    BGY_BORROW_RESOURCE_UNAVAILABLE: [409, "BORROW_RESOURCE_UNAVAILABLE", "This resource is no longer available for new borrowing."],
+    BGY_BORROW_INVALID_DATES: [400, "BORROW_INVALID_DATES", "Choose valid borrowing dates. Borrowing cannot start in the past."],
+    BGY_BORROW_INVALID_QUANTITY: [400, "BORROW_INVALID_QUANTITY", "The selected quantity is not allowed for this resource."],
+    BGY_BORROW_WINDOW_EXPIRED: [409, "BORROW_WINDOW_EXPIRED", "The requested borrowing period has already ended and cannot be approved."],
+    BGY_BORROW_OVERBOOKED: [409, "BORROW_OVERBOOKED", "This resource is already reserved for the requested period. Refresh availability."],
+  };
+  const key = Object.keys(errors).find((code) => reason.includes(code));
+  if (!key) return error;
+  const [status, code, message] = errors[key];
+  return Object.assign(new Error(message), { status, code });
+};

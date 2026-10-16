@@ -59,3 +59,4 @@ on conflict (category, value) do nothing;
 
 commit;
 
+

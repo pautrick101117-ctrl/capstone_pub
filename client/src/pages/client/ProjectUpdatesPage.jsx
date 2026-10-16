@@ -70,7 +70,7 @@ const ProjectDetail = ({ projectId }) => {
           <Card>
             <h2 className="text-lg font-bold text-[var(--brand-900)]">Project Overview</h2>
             <div className="mt-4 space-y-4 text-sm text-stone-600">
-              {data?.election ? <div className="flex items-start gap-3"><Trophy className="mt-0.5 h-5 w-5 text-amber-600" /><div><p className="font-semibold text-stone-900">{data.election.title}</p><p className="mt-1">{data.voting?.votes || 0} votes · {data.voting?.share || 0}% of votes</p></div></div> : null}
+              {data?.election ? <div className="flex items-start gap-3"><Trophy className="mt-0.5 h-5 w-5 text-amber-600" /><div><p className="font-semibold text-stone-900">{data.election.title}</p><p className="mt-1">{data.voting?.votes || 0} votes · {data.voting?.share || 0}% of votes</p><NavLink to={`/voting-result/${data.election.id}`} className="mt-2 inline-flex text-xs font-bold text-[var(--brand-700)] hover:underline">View this voting round's results →</NavLink></div></div> : null}
               {project.planned_start_date ? <div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-[var(--brand-600)]" /><span>Planned start: {formatDate(project.planned_start_date)}</span></div> : null}
               {project.actual_start_date ? <div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-[var(--brand-600)]" /><span>Started: {formatDate(project.actual_start_date)}</span></div> : null}
               {project.expected_completion_date ? <div className="flex items-center gap-3"><Clock3 className="h-5 w-5 text-[var(--brand-600)]" /><span>Expected completion: {formatDate(project.expected_completion_date)}</span></div> : null}
@@ -93,7 +93,7 @@ const ProjectDetail = ({ projectId }) => {
                 {update.image_url ? <img src={update.image_url} alt={update.title} className="h-56 w-full rounded-2xl object-cover" /> : <div className="flex h-56 items-center justify-center rounded-2xl bg-stone-100 text-sm text-stone-400">No update photo</div>}
                 <div>
                   <div className="flex flex-wrap items-center gap-2"><Badge tone={getStatusMeta(update.project_status || project.status).tone}>{getStatusMeta(update.project_status || project.status).label}</Badge><span className="text-xs font-semibold text-stone-400">{formatDate(update.update_date || update.created_at)}</span></div>
-                  <h3 className="mt-3 text-xl font-bold text-[var(--brand-900)]">{update.title}</h3>
+                  <h3 className="mt-3 text-xl font-bold text-[var(--brand-900)]">{update.title} {update.corrected_at ? <Badge tone="neutral">Corrected</Badge> : null}</h3>
                   <p className="mt-3 text-sm leading-7 text-stone-600">{update.description}</p>
                   {update.progress_percentage !== null && update.progress_percentage !== undefined ? <div className="mt-5"><div className="mb-2 flex justify-between text-xs font-semibold text-stone-500"><span>Progress after this update</span><span>{update.progress_percentage}%</span></div><ProgressBar value={update.progress_percentage} /></div> : null}
                   <p className="mt-4 text-xs text-stone-400">Published {formatDateTime(update.created_at)}</p>
@@ -168,3 +168,4 @@ const ProjectUpdatesPage = () => {
 };
 
 export default ProjectUpdatesPage;
+

@@ -1,3 +1,5 @@
+import CaseHistory from "../../components/CaseHistory";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import {
   CalendarDays,
   Check,
@@ -10,7 +12,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
@@ -27,10 +29,15 @@ import {
   TextArea,
   TextInput,
 } from "../../components/ui";
-import { formatDateTime } from "../../lib/format";
-import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS } from "../../lib/borrowing";
+import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS, formatBorrowDuration, formatBorrowDateTime } from "../../lib/borrowing";
 
-const blankAsset = { name: "", category: "item", description: "", totalQuantity: 1, isActive: true };
+const blankAsset = { name: "", category: "item", description: "", totalQuantity: 1, maxDurationValue: "", maxDurationUnit: "hours", isActive: true };
+const assetDurationFields = (asset) => {
+  const minutes = Number(asset?.max_borrow_minutes);
+  if (!Number.isInteger(minutes) || minutes < 60) return { maxDurationValue: "", maxDurationUnit: "hours" };
+  return minutes % 1440 === 0 ? { maxDurationValue: String(minutes / 1440), maxDurationUnit: "days" }
+    : { maxDurationValue: String(minutes / 60), maxDurationUnit: "hours" };
+};
 const blankInspection = { returnedQuantity: 1, returnCondition: "good", returnNote: "" };
 const pageSize = 8;
 const calendarPageSize = 5;
@@ -44,6 +51,7 @@ const dateKey = (value) => {
 
 const Admin_Borrowing = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [assets, setAssets] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -51,8 +59,16 @@ const Admin_Borrowing = () => {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("requests");
   const [assetModal, setAssetModal] = useState(null);
+  const originalAsset = assets.find((asset) => asset.id === assetModal?.id);
+  const assetInitial = originalAsset ? { ...originalAsset, totalQuantity: originalAsset.total_quantity,
+    isActive: originalAsset.is_active, ...assetDurationFields(originalAsset) } : blankAsset;
+  const assetGuard = useUnsavedForm({ initial: assetInitial, current: assetModal, enabled: Boolean(assetModal) });
+  useUnsavedNavigation(assetGuard.dirty);
+  const closeAsset = () => assetGuard.closeSafely(() => setAssetModal(null));
   const [requestAction, setRequestAction] = useState(null);
   const [adminNote, setAdminNote] = useState("");
+  const operationId = useRef(null);
+  const [noteVisibility, setNoteVisibility] = useState("resident");
   const [inspection, setInspection] = useState(blankInspection);
   const [saving, setSaving] = useState(false);
   const [requestPage, setRequestPage] = useState(1);
@@ -90,7 +106,7 @@ const Admin_Borrowing = () => {
   const filteredRequests = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return requests
-      .filter((request) => status === "all" || request.status === status || (status === "overdue" && request.isLate))
+      .filter((request) => status === "all" || request.status === status || (status === "overdue" && request.isLate) || (status === "due_today" && request.status === "borrowed" && new Date(request.due_at).getTime() >= startOfDay() && new Date(request.due_at).getTime() < startOfDay() + 24 * 60 * 60 * 1000))
       .filter((request) => {
         if (!keyword) return true;
         const resident = request.resident?.full_name || `${request.resident?.first_name || ""} ${request.resident?.last_name || ""}`;
@@ -133,10 +149,21 @@ const Admin_Borrowing = () => {
     const totalQuantity = assetModal.category === "facility" ? 1 : Number(assetModal.totalQuantity);
     if (!Number.isInteger(totalQuantity) || totalQuantity < 1) return toast.error("Total quantity must be a positive whole number.");
 
+    const durationValue = Number(assetModal.maxDurationValue);
+    const durationFactor = assetModal.maxDurationUnit === "days" ? 1440 : 60;
+    const maxBorrowMinutes = durationValue * durationFactor;
+    if (!Number.isInteger(durationValue) || durationValue < 1 || !Number.isInteger(maxBorrowMinutes) || maxBorrowMinutes > 129600) {
+      return toast.error("Set a whole-number maximum between 1 hour and 90 days.");
+    }
+    const previousAsset = assets.find((asset) => asset.id === assetModal.id) || {};
+    const prior = { name: previousAsset.name, category: previousAsset.category, description: previousAsset.description, totalQuantity: previousAsset.total_quantity, isActive: previousAsset.is_active, maxBorrowMinutes: previousAsset.max_borrow_minutes };
+    const proposed = { name: assetModal.name, category: assetModal.category, description: assetModal.description || "", totalQuantity, isActive: assetModal.isActive, maxBorrowMinutes };
+    if (assetModal.id && !reviewChanges(prior, proposed).length) return toast.info("No changes to save.");
+    if (!await reviewAction({ title: assetModal.id ? "Confirm Resource Changes" : "Add Borrowable Resource?", subject: assetModal.name, before: assetModal.id ? prior : {}, after: proposed, confirmLabel: assetModal.id ? "Save Resource" : "Add Resource" })) return;
     setSaving(true);
     try {
       const isEdit = Boolean(assetModal.id);
-      const payload = { ...assetModal, totalQuantity };
+      const payload = { ...assetModal, totalQuantity, maxBorrowMinutes, expectedUpdatedAt: previousAsset.updated_at };
       const data = await api(
         isEdit ? `/borrowing/admin/assets/${assetModal.id}` : "/borrowing/admin/assets",
         { method: isEdit ? "PATCH" : "POST", token, body: payload }
@@ -152,22 +179,25 @@ const Admin_Borrowing = () => {
   };
 
   const openAction = (request, nextStatus) => {
+    operationId.current = crypto.randomUUID();
     setRequestAction({ request, nextStatus });
-    setAdminNote(request.admin_note || "");
+    setAdminNote("");
+    setNoteVisibility("resident");
     setInspection({ ...blankInspection, returnedQuantity: request.quantity || 1 });
   };
 
   const updateRequest = async () => {
     if (!requestAction) return;
     const { request, nextStatus } = requestAction;
+    if (nextStatus === request.status && !adminNote.trim()) return toast.error("Write a new response before saving.");
     const facility = isFacility(request.asset);
 
-    if (nextStatus === "rejected" && adminNote.trim().length < 3) {
+    if (nextStatus === "rejected" && nextStatus !== request.status && adminNote.trim().length < 3) {
       toast.error("Add a short reason so the resident understands why the request was rejected.");
       return;
     }
 
-    const body = { status: nextStatus, adminNote: adminNote.trim() };
+    const body = { status: nextStatus, expectedStatus: request.status, visibility: noteVisibility, operationId: operationId.current, adminNote: adminNote.trim() };
     if (nextStatus === "returned" && !facility) {
       const returnedQuantity = Number(inspection.returnedQuantity);
       if (!Number.isInteger(returnedQuantity) || returnedQuantity < 0 || returnedQuantity > Number(request.quantity)) {
@@ -215,20 +245,21 @@ const Admin_Borrowing = () => {
         <>
           <Button onClick={() => openAction(request, "approved")}><Check className="h-4 w-4" /> Approve</Button>
           <Button variant="danger" onClick={() => openAction(request, "rejected")}><X className="h-4 w-4" /> Reject</Button>
+          <Button variant="ghost" onClick={() => openAction(request, request.status)}>History / Reply</Button>
         </>
       );
     }
     if (request.status === "approved") {
-      return <Button onClick={() => openAction(request, "borrowed")}>{facility ? "Mark In Use" : "Mark Released"}</Button>;
+      return <><Button onClick={() => openAction(request, "borrowed")}>{facility ? "Mark In Use" : "Mark Released"}</Button><Button variant="ghost" onClick={() => openAction(request, request.status)}>History / Reply</Button></>;
     }
     if (request.status === "borrowed") {
       return (
-        <Button onClick={() => openAction(request, "returned")}>
+        <><Button onClick={() => openAction(request, "returned")}>
           <RotateCcw className="h-4 w-4" /> {facility ? "Mark Completed" : "Inspect Return"}
-        </Button>
+        </Button><Button variant="ghost" onClick={() => openAction(request, request.status)}>History / Reply</Button></>
       );
     }
-    return null;
+    return <Button variant="ghost" onClick={() => openAction(request, request.status)}>History / Reply</Button>;
   };
 
   const requestStatus = (request) => getBorrowingStatusMeta(request.status, request.isLate);
@@ -239,7 +270,7 @@ const Admin_Borrowing = () => {
         eyebrow="Resource Management"
         title="Facility & item borrowing"
         description="Review requests, reserve available resources, track what is currently in use, and inspect returned equipment."
-        actions={<Button onClick={() => { setTab("inventory"); setAssetModal({ ...blankAsset }); }}><Plus className="h-4 w-4" /> Add Resource</Button>}
+        actions={tab !== "inventory" ? <Button onClick={() => { setTab("inventory"); setAssetModal({ ...blankAsset }); }}><Plus className="h-4 w-4" /> Add Resource</Button> : null}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -249,7 +280,7 @@ const Admin_Borrowing = () => {
         <button type="button" className="text-left" onClick={() => { setTab("requests"); setStatus("borrowed"); }}>
           <Card className="h-full"><p className="text-sm text-stone-500">Currently in use</p><p className="mt-2 text-3xl font-black text-[var(--brand-900)]">{stats.out}</p><p className="mt-2 text-xs text-stone-400">Released equipment or active facility use</p></Card>
         </button>
-        <button type="button" className="text-left" onClick={() => { setTab("requests"); setStatus("borrowed"); }}>
+        <button type="button" className="text-left" onClick={() => { setTab("requests"); setStatus("due_today"); }}>
           <Card className="h-full"><p className="text-sm text-stone-500">Due today</p><p className="mt-2 text-3xl font-black text-amber-700">{stats.dueToday}</p><p className="mt-2 text-xs text-stone-400">Returns expected before the day ends</p></Card>
         </button>
         <button type="button" className="text-left" onClick={() => { setTab("requests"); setStatus("overdue"); }}>
@@ -278,7 +309,7 @@ const Admin_Borrowing = () => {
               <TextInput label="Search" placeholder="Resident, resource, purok..." value={search} onChange={(event) => setSearch(event.target.value)} />
               <SelectInput label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
                 <option value="all">All statuses</option>
-                <option value="overdue">Overdue</option>
+                <option value="due_today">Due Today</option><option value="overdue">Overdue</option>
                 <option value="pending">Pending Review</option>
                 <option value="approved">Approved</option>
                 <option value="borrowed">Released / In Use</option>
@@ -319,8 +350,8 @@ const Admin_Borrowing = () => {
                           <p className="mt-1 max-w-xs text-xs text-stone-500">{request.purpose}</p>
                         </td>
                         <td className="px-4 py-4 text-stone-600">
-                          <p>{formatDateTime(request.start_at)}</p>
-                          <p className="mt-1">Return: {formatDateTime(request.due_at)}</p>
+                          <p>{formatBorrowDateTime(request.start_at)}</p>
+                          <p className="mt-1">Return: {formatBorrowDateTime(request.due_at)}</p>
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-col items-start gap-2">
@@ -363,7 +394,7 @@ const Admin_Borrowing = () => {
                     <div key={request.id} className={`rounded-2xl border p-4 ${request.isLate ? "border-rose-200 bg-rose-50" : "border-stone-200"}`}>
                       <div className="flex items-start justify-between gap-2"><p className="font-semibold text-[var(--brand-900)]">{request.asset?.name}</p><Badge tone={meta.tone}>{meta.label}</Badge></div>
                       <p className="mt-2 text-sm text-stone-600">{request.resident?.full_name || "Resident"}</p>
-                      <p className="mt-1 text-xs text-stone-500">{formatDateTime(request.start_at)} → {formatDateTime(request.due_at)}</p>
+                      <p className="mt-1 text-xs text-stone-500">{formatBorrowDateTime(request.start_at)} → {formatBorrowDateTime(request.due_at)}</p>
                       {!isFacility(request.asset) ? <p className="mt-2 text-xs font-semibold text-[var(--brand-700)]">Quantity: {request.quantity}</p> : null}
                     </div>
                   );
@@ -392,7 +423,10 @@ const Admin_Borrowing = () => {
                   <h3 className="mt-3 font-bold text-[var(--brand-900)]">{asset.name}</h3>
                   <p className="mt-1 text-xs uppercase tracking-wider text-stone-400">{asset.category} • {asset.category === "facility" ? "Whole facility" : `Qty ${asset.total_quantity}`}</p>
                   <p className="mt-3 min-h-10 text-sm text-stone-500">{asset.description || "No description provided."}</p>
-                  <Button className="mt-4" variant="secondary" onClick={() => setAssetModal({ ...asset, totalQuantity: asset.total_quantity, isActive: asset.is_active })}><Pencil className="h-4 w-4" /> Edit</Button>
+                  <p className={`mt-2 text-sm font-semibold ${asset.max_borrow_minutes ? "text-[var(--brand-700)]" : "text-amber-700"}`}>
+                    Maximum: {formatBorrowDuration(asset.max_borrow_minutes)}
+                  </p>
+                  <Button className="mt-4" variant="secondary" onClick={() => setAssetModal({ ...asset, totalQuantity: asset.total_quantity, isActive: asset.is_active, ...assetDurationFields(asset) })}><Pencil className="h-4 w-4" /> Edit</Button>
                 </Card>
               ))}
             </div>
@@ -401,7 +435,7 @@ const Admin_Borrowing = () => {
         </section>
       ) : null}
 
-      <Modal open={Boolean(assetModal)} onClose={() => !saving && setAssetModal(null)} title={assetModal?.id ? "Edit borrowable resource" : "Add borrowable resource"} description="Facilities are reserved as a whole resource; equipment and items can have multiple units." widthClass="max-w-xl">
+      <Modal open={Boolean(assetModal)} onClose={() => !saving && closeAsset()} title={assetModal?.id ? "Edit borrowable resource" : "Add borrowable resource"} description="Facilities are reserved as a whole resource; equipment and items can have multiple units." widthClass="max-w-xl">
         {assetModal ? (
           <form className="space-y-4" onSubmit={saveAsset}>
             <TextInput label="Resource Name *" value={assetModal.name} maxLength={120} onChange={(event) => setAssetModal((current) => ({ ...current, name: event.target.value }))} required />
@@ -414,9 +448,18 @@ const Admin_Borrowing = () => {
             ) : (
               <div className="rounded-2xl bg-stone-50 p-4 text-sm text-stone-600"><strong>Facility quantity:</strong> 1 whole facility. Availability is controlled by schedule reservations.</div>
             )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput label="Maximum Borrowing Duration *" type="number" min="1" step="1" inputMode="numeric" value={assetModal.maxDurationValue}
+                onChange={(event) => setAssetModal((current) => ({ ...current, maxDurationValue: event.target.value }))} required />
+              <SelectInput label="Duration Unit *" value={assetModal.maxDurationUnit}
+                onChange={(event) => setAssetModal((current) => ({ ...current, maxDurationUnit: event.target.value }))}>
+                <option value="hours">Hours</option><option value="days">Days</option>
+              </SelectInput>
+            </div>
+            <p className="text-xs text-stone-500">Applies to new requests only. Existing reservations and deadlines are preserved.</p>
             <TextArea label="Description" value={assetModal.description || ""} maxLength={500} onChange={(event) => setAssetModal((current) => ({ ...current, description: event.target.value }))} />
             <label className="flex items-center gap-3 rounded-2xl border border-stone-200 p-4 text-sm font-medium text-stone-700"><input type="checkbox" checked={assetModal.isActive} onChange={(event) => setAssetModal((current) => ({ ...current, isActive: event.target.checked }))} /> Available for new requests</label>
-            <div className="flex gap-3"><Button type="submit" loading={saving}>Save Resource</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setAssetModal(null)}>Cancel</Button></div>
+            <div className="flex gap-3"><Button type="submit" loading={saving}>Save Resource</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeAsset}>Cancel</Button></div>
           </form>
         ) : null}
       </Modal>
@@ -432,9 +475,12 @@ const Admin_Borrowing = () => {
           <div className="space-y-4">
             <div className="rounded-2xl bg-stone-50 p-4 text-sm text-stone-600">
               Current status: <strong>{getBorrowingStatusMeta(requestAction.request.status, requestAction.request.isLate).label}</strong><br />
+              Requested period: <strong>{formatBorrowDuration(Math.round((Date.parse(requestAction.request.due_at) - Date.parse(requestAction.request.start_at)) / 60000))}</strong><br />
+              Policy at submission: <strong>{requestAction.request.max_duration_minutes_at_submission ? formatBorrowDuration(requestAction.request.max_duration_minutes_at_submission) : "Legacy request"}</strong><br />
               Next action: <strong>{requestAction.nextStatus === "borrowed" ? (isFacility(requestAction.request.asset) ? "Mark facility in use" : "Release resource") : requestAction.nextStatus === "returned" ? (isFacility(requestAction.request.asset) ? "Complete facility use" : "Record return") : getBorrowingStatusMeta(requestAction.nextStatus).label}</strong>
             </div>
 
+            <CaseHistory events={requestAction.request.case_history} />
             {requestAction.nextStatus === "returned" && !isFacility(requestAction.request.asset) ? (
               <div className="space-y-4 rounded-3xl border border-stone-200 p-4">
                 <div className="flex items-center gap-2"><TriangleAlert className="h-4 w-4 text-amber-600" /><h4 className="font-semibold text-stone-800">Inspect returned items before completing</h4></div>
@@ -446,8 +492,9 @@ const Admin_Borrowing = () => {
               </div>
             ) : null}
 
+            <SelectInput label="Response Visibility" value={noteVisibility} disabled={requestAction.nextStatus !== requestAction.request.status} onChange={(event) => setNoteVisibility(event.target.value)}><option value="resident">Resident Response</option><option value="internal">Staff Only</option></SelectInput>
             <TextArea
-              label={requestAction.nextStatus === "rejected" ? "Reason for Rejection *" : "Admin Note"}
+              label={requestAction.nextStatus === "rejected" && requestAction.nextStatus !== requestAction.request.status ? "Reason for Rejection *" : "New Resident Response"}
               value={adminNote}
               maxLength={500}
               onChange={(event) => setAdminNote(event.target.value)}
@@ -472,4 +519,5 @@ const Admin_Borrowing = () => {
 };
 
 export default Admin_Borrowing;
+
 

@@ -61,3 +61,4 @@ test("V4 admin auditing captures page views and API activity with secret redacti
   assert.ok(admin.includes('router.post("/audit/page-view"'));
   assert.ok(admin.includes('router.get("/audit-logs"'));
 });
+

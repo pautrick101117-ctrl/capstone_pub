@@ -1,3 +1,4 @@
+import { useReviewAction } from "../ActionReviewProvider";
 import { LOGO_URL } from "../../lib/assets";
 import {
   Bell,
@@ -17,7 +18,7 @@ import {
   Vote,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { Button, Card } from "../ui";
@@ -141,11 +142,24 @@ const NotificationCenter = ({ open, onClose }) => {
 
 const UserPortalLayout = () => {
   const { user, logout, unreadCount } = useAuth();
+  const reviewAction = useReviewAction();
+  const confirmLogout = async () => {
+    if (await reviewAction({ title: "Log out of your account?", description: "Your current session will end, and you'll need to sign in again to continue.", confirmLabel: "Log Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
+  };
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event) => { if (event.key === "Escape") setMobileMenuOpen(false); };
+    document.addEventListener("keydown", onEscape);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onEscape); };
+  }, [mobileMenuOpen]);
 
   return (
     <div className="min-h-screen bg-[var(--surface)] pb-20 lg:pb-0">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-[200] focus:rounded-full focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[var(--brand-800)] focus:shadow-lg">Skip to main content</a>
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/95 backdrop-blur lg:pl-72 xl:pl-80">
         <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -170,7 +184,6 @@ const UserPortalLayout = () => {
               </button>
               <NotificationCenter open={showNotifications} onClose={() => setShowNotifications(false)} />
             </div>
-            <Button variant="secondary" className="hidden sm:inline-flex" onClick={logout}><LogOut className="h-4 w-4" /> Logout</Button>
           </div>
         </div>
       </header>
@@ -202,11 +215,11 @@ const UserPortalLayout = () => {
           ))}
         </div>
         <div className="border-t border-stone-100 p-4">
-          <Button variant="ghost" className="w-full justify-start" onClick={logout}><LogOut className="h-4 w-4" /> Logout</Button>
+          <Button variant="ghost" className="w-full justify-start" onClick={confirmLogout}><LogOut className="h-4 w-4" /> Logout</Button>
         </div>
       </aside>
 
-      <main className="px-4 py-6 sm:px-6 sm:py-8 lg:ml-72 lg:px-8 xl:ml-80 2xl:px-10">
+      <main id="main-content" className="px-4 py-6 sm:px-6 sm:py-8 lg:ml-72 lg:px-8 xl:ml-80 2xl:px-10">
         <div className="mx-auto w-full max-w-[1500px] animate-[fadeIn_.25s_ease]">
           <div className="mb-6"><SessionExpiryBanner /></div>
           <Outlet />
@@ -228,7 +241,7 @@ const UserPortalLayout = () => {
             </NavLink>
           );
         })}
-        <button type="button" onClick={() => setMobileMenuOpen(true)} className="flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-semibold text-stone-500">
+        <button type="button" aria-label="More resident services" aria-expanded={mobileMenuOpen} aria-controls="resident-more-menu" onClick={() => setMobileMenuOpen(true)} className="flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-semibold text-stone-500">
           <MoreHorizontal className="h-5 w-5" />
           More
         </button>
@@ -236,7 +249,7 @@ const UserPortalLayout = () => {
 
       {mobileMenuOpen ? (
         <div className="fixed inset-0 z-[80] bg-stone-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[2rem] bg-white p-5 pb-[max(env(safe-area-inset-bottom),1.25rem)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div id="resident-more-menu" role="dialog" aria-modal="true" aria-label="More resident services" className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[2rem] bg-white p-5 pb-[max(env(safe-area-inset-bottom),1.25rem)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
               <div><p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-500)]">Resident Portal</p><h2 className="mt-1 text-2xl font-black text-[var(--brand-900)]">More</h2></div>
               <button type="button" aria-label="Close menu" onClick={() => setMobileMenuOpen(false)} className="rounded-full border border-stone-200 p-2"><X className="h-5 w-5" /></button>
@@ -246,7 +259,7 @@ const UserPortalLayout = () => {
                 const Icon = link.icon;
                 return <NavLink key={link.to} to={link.to} onClick={() => setMobileMenuOpen(false)} className={navClass}><Icon className="h-4 w-4" />{link.label}</NavLink>;
               })}
-              <button type="button" onClick={logout} className="mt-2 flex items-center gap-3 rounded-2xl bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-700"><LogOut className="h-4 w-4" />Logout</button>
+              <button type="button" onClick={async () => { setMobileMenuOpen(false); await confirmLogout(); }} className="mt-2 flex items-center gap-3 rounded-2xl bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-700"><LogOut className="h-4 w-4" />Logout</button>
             </div>
           </div>
         </div>
@@ -256,3 +269,4 @@ const UserPortalLayout = () => {
 };
 
 export default UserPortalLayout;
+

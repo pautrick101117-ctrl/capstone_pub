@@ -55,3 +55,31 @@ export const getBorrowingStatusMeta = (status, isLate = false) => {
 
 export const isFacility = (asset) => asset?.category === "facility";
 
+
+
+// Philippine time is UTC+08:00 year-round. datetime-local has no timezone data.
+export const fromManilaInput = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || "")) return null;
+  const date = new Date(`${value}:00+08:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  // Reject rolled-over calendar values (e.g. February 30) rather than silently correcting them.
+  return toManilaInput(date) === value ? date : null;
+};
+export const toManilaInput = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() + 8 * 60 * 60_000).toISOString().slice(0,16);
+};
+export const formatBorrowDuration = (minutes) => {
+  if (!Number.isInteger(Number(minutes)) || Number(minutes) <= 0) return "Duration setup required";
+  if (Number(minutes) < 60) return `${minutes} minute${Number(minutes) === 1 ? "" : "s"}`;
+  const m = Number(minutes);
+  if (m % 1440 === 0) return `${m / 1440} day${m === 1440 ? "" : "s"}`;
+  if (m % 60 === 0) return `${m / 60} hour${m === 60 ? "" : "s"}`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+};
+
+export const formatBorrowDateTime = (value) => {
+  if (!value || Number.isNaN(new Date(value).getTime())) return "Not set";
+  return new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+};

@@ -8,6 +8,7 @@ import {
   Phone,
   RotateCcw,
 } from "lucide-react";
+import CaseHistory from "../../components/CaseHistory";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
@@ -22,24 +23,16 @@ import {
   Modal,
   PageHeader,
   Pagination,
-  SelectInput,
   TextArea,
   TextInput,
 } from "../../components/ui";
-import { formatDateTime } from "../../lib/format";
-import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS } from "../../lib/borrowing";
-
-const toLocalInput = (date) => {
-  const d = new Date(date);
-  const pad = (n) => `${n}`.padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS, fromManilaInput, toManilaInput, formatBorrowDuration, formatBorrowDateTime } from "../../lib/borrowing";
 
 const initialWindow = () => {
   const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  start.setHours(8, 0, 0, 0);
-  const due = new Date(start.getTime() + 8 * 60 * 60 * 1000);
-  return { startAt: toLocalInput(start), dueAt: toLocalInput(due) };
+  const local = toManilaInput(start);
+  const startManila = fromManilaInput(`${local.slice(0,10)}T08:00`) || start;
+  return { startAt: toManilaInput(startManila), dueAt: toManilaInput(new Date(startManila.getTime() + 8 * 60 * 60_000)) };
 };
 
 const pageSize = 5;
@@ -53,9 +46,9 @@ const blankRequest = {
 };
 
 const guideSteps = [
-  ["1", "Choose schedule", "Set when you need the resource and when it will be returned."],
-  ["2", "Check availability", "Availability is calculated for your selected date and time."],
-  ["3", "Select resource", "Choose a facility or item and the quantity you need."],
+  ["1", "Select resource", "Choose a facility or item and review its borrowing duration limit."],
+  ["2", "Choose schedule", "Choose borrowing and return times within the resource limit."],
+  ["3", "Check availability", "Check whether the chosen resource is available for that period."],
   ["4", "Review request", "Confirm your schedule, purpose, location, and borrowing rules."],
   ["5", "Wait for approval", "Submitting does not reserve a resource until the barangay approves it."],
   ["6", "Use / pick up", "Once released, the resource is recorded as currently in use."],
@@ -79,8 +72,18 @@ const BorrowingPage = () => {
   const [availabilityError, setAvailabilityError] = useState("");
   const [minePage, setMinePage] = useState(1);
 
-  const minimumDateTime = useMemo(() => toLocalInput(new Date()), []);
+  const minimumDateTime = toManilaInput(new Date());
   const visibleRequests = useMemo(() => requests.slice((minePage - 1) * pageSize, minePage * pageSize), [requests, minePage]);
+
+  const loadAssets = async () => {
+    setAvailabilityError("");
+    try {
+      const result = await api("/borrowing/assets", { token });
+      setAssets(result.assets || []);
+    } catch (error) {
+      setAvailabilityError(error.message || "Unable to load borrowing resources.");
+    }
+  };
 
   const loadMine = async () => {
     setMineLoading(true);
@@ -96,9 +99,9 @@ const BorrowingPage = () => {
   };
 
   const validateWindow = () => {
-    const start = new Date(windowForm.startAt).getTime();
-    const due = new Date(windowForm.dueAt).getTime();
-    if (!windowForm.startAt || !windowForm.dueAt || Number.isNaN(start) || Number.isNaN(due)) {
+    const start = fromManilaInput(windowForm.startAt)?.getTime();
+    const due = fromManilaInput(windowForm.dueAt)?.getTime();
+    if (!windowForm.startAt || !windowForm.dueAt || !Number.isFinite(start) || !Number.isFinite(due)) {
       toast.error("Choose a valid borrowing start and return date.");
       return false;
     }
@@ -110,24 +113,32 @@ const BorrowingPage = () => {
       toast.error("Return date must be after the borrowing start.");
       return false;
     }
+    if (selected?.max_borrow_minutes == null) {
+      toast.error("This resource requires maximum duration setup by the barangay.");
+      return false;
+    }
+    if (due - start > selected.max_borrow_minutes * 60_000) {
+      toast.error(`${selected.name} can be borrowed for at most ${formatBorrowDuration(selected.max_borrow_minutes)}.`);
+      return false;
+    }
     return true;
   };
 
   const checkAvailability = async () => {
+    if (!selected) return toast.error("Select a facility or item first.");
     if (!validateWindow()) return;
     setChecking(true);
     setAvailabilityError("");
     try {
       const params = new URLSearchParams({
-        startAt: new Date(windowForm.startAt).toISOString(),
-        dueAt: new Date(windowForm.dueAt).toISOString(),
+        startAt: fromManilaInput(windowForm.startAt).toISOString(),
+        dueAt: fromManilaInput(windowForm.dueAt).toISOString(),
       });
       const data = await api(`/borrowing/assets?${params}`, { token });
       setAssets(data.assets || []);
       setAvailabilityChecked(true);
-      if (form.assetId && !(data.assets || []).some((asset) => asset.id === form.assetId && asset.isAvailable)) {
-        setForm((current) => ({ ...current, assetId: "", quantity: 1 }));
-      }
+      // Keep the selected resource so an unavailable-time or duration error is explainable.
+
     } catch (error) {
       setAvailabilityChecked(false);
       setAvailabilityError(error.message || "Unable to check resource availability.");
@@ -139,7 +150,7 @@ const BorrowingPage = () => {
   useEffect(() => {
     if (!token) return;
     loadMine();
-    checkAvailability();
+    loadAssets();
   }, [token]);
 
   const selected = useMemo(() => assets.find((asset) => asset.id === form.assetId) || null, [assets, form.assetId]);
@@ -149,11 +160,12 @@ const BorrowingPage = () => {
   const changeWindow = (key, value) => {
     setWindowForm((current) => ({ ...current, [key]: value }));
     setAvailabilityChecked(false);
-    setForm((current) => ({ ...current, assetId: "", quantity: 1 }));
+    // The resource remains selected; only date-dependent availability becomes stale.
   };
 
   const selectAsset = (asset) => {
-    if (!asset.isAvailable) return;
+    if (!asset.durationConfigured) return;
+    setAvailabilityChecked(false);
     setForm((current) => ({
       ...current,
       assetId: asset.id,
@@ -197,7 +209,7 @@ const BorrowingPage = () => {
   };
 
   const submit = async () => {
-    if (!validateRequest()) return;
+    if (!validateRequest() || saving) return;
     setSaving(true);
     try {
       const payload = {
@@ -206,14 +218,15 @@ const BorrowingPage = () => {
         purpose: form.purpose.trim(),
         eventLocation: form.eventLocation.trim(),
         termsAccepted: true,
-        startAt: new Date(windowForm.startAt).toISOString(),
-        dueAt: new Date(windowForm.dueAt).toISOString(),
+        startAt: fromManilaInput(windowForm.startAt).toISOString(),
+        dueAt: fromManilaInput(windowForm.dueAt).toISOString(),
       };
       const data = await api("/borrowing/requests", { method: "POST", token, body: payload });
       toast.success(data.message || "Borrowing request submitted for barangay review.");
       setForm(blankRequest);
       setReviewOpen(false);
-      await Promise.all([loadMine(), checkAvailability(), refreshNotifications()]);
+      setAvailabilityChecked(false);
+      await Promise.all([loadMine(), api("/borrowing/assets", { token }).then((result) => setAssets(result.assets || [])), refreshNotifications()]);
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -252,12 +265,15 @@ const BorrowingPage = () => {
               <Card key={asset.id} className={`${!asset.isAvailable ? "opacity-70" : ""} ${selectedAsset ? "ring-2 ring-[var(--brand-400)]" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><PackageCheck className="h-5 w-5" /></div>
-                  <Badge tone={asset.isAvailable ? "success" : "danger"}>{asset.isAvailable ? "Available" : "Unavailable"}</Badge>
+                  <Badge tone={!asset.durationConfigured ? "warning" : availabilityChecked && !asset.isAvailable ? "danger" : "info"}>
+                    {!asset.durationConfigured ? "Setup required" : !availabilityChecked ? "Select schedule" : asset.isAvailable ? "Available" : "Unavailable"}
+                  </Badge>
                 </div>
                 <h3 className="mt-4 font-bold text-[var(--brand-900)]">{asset.name}</h3>
                 <p className="mt-3 min-h-10 text-sm text-stone-600">{asset.description || "No description provided."}</p>
+                <p className="mt-3 text-sm font-semibold text-[var(--brand-700)]">Maximum duration: {formatBorrowDuration(asset.max_borrow_minutes)}</p>
                 <p className="mt-4 text-sm font-semibold text-[var(--brand-700)]">
-                  {isFacility(asset)
+                  {!availabilityChecked ? "Check the schedule to see available quantity" : !asset.durationConfigured ? "Barangay duration setup required" : !asset.withinDurationLimit ? "Selected period exceeds maximum" : isFacility(asset)
                     ? (asset.isAvailable ? "Available for this schedule" : "Already reserved for this schedule")
                     : `${asset.availableQuantity} of ${asset.total_quantity} available`}
                 </p>
@@ -265,10 +281,10 @@ const BorrowingPage = () => {
                   type="button"
                   variant={selectedAsset ? "primary" : "secondary"}
                   className="mt-4 w-full"
-                  disabled={!asset.isAvailable}
+                  disabled={!asset.durationConfigured}
                   onClick={() => selectAsset(asset)}
                 >
-                  {selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select"}
+                  {selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select resource"}
                 </Button>
               </Card>
             );
@@ -307,11 +323,21 @@ const BorrowingPage = () => {
         </div>
       </Card>
 
+      <div className="space-y-8">
+        <h2 className="text-xl font-bold text-[var(--brand-900)]">1. Select a facility or item</h2>
+        {resourceSection("Facilities", "Choose a facility. Its maximum duration applies to your schedule.", facilities)}
+        {resourceSection("Equipment & Items", "Choose the item, then check stock for your borrowing dates.", items)}
+      </div>
+
       <Card>
         <div className="mb-5">
-          <h2 className="text-xl font-bold text-[var(--brand-900)]">1. Choose your borrowing schedule</h2>
+          <h2 className="text-xl font-bold text-[var(--brand-900)]">2. Choose your borrowing schedule</h2>
           <p className="mt-1 text-sm text-stone-500">Select the full period you need the resource, including the expected return time.</p>
         </div>
+        {selected ? <div className="mb-4 rounded-2xl bg-[var(--brand-50)] p-4 text-sm">
+          Selected: <strong>{selected.name}</strong> · Maximum: <strong>{formatBorrowDuration(selected.max_borrow_minutes)}</strong>
+          <p className="mt-1 text-stone-600">Times are Philippine time (UTC+08:00). The barangay checks the maximum again when you submit.</p>
+        </div> : <p className="mb-4 text-sm text-amber-700">Select a resource above to set the applicable return deadline.</p>}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
           <TextInput
             label="Borrow From *"
@@ -325,66 +351,43 @@ const BorrowingPage = () => {
             label="Return By *"
             type="datetime-local"
             min={windowForm.startAt || minimumDateTime}
+            max={selected && fromManilaInput(windowForm.startAt) && selected.max_borrow_minutes ? toManilaInput(new Date(fromManilaInput(windowForm.startAt).getTime() + selected.max_borrow_minutes * 60_000)) : undefined}
             value={windowForm.dueAt}
             onChange={(event) => changeWindow("dueAt", event.target.value)}
             required
           />
-          <Button type="button" onClick={checkAvailability} loading={checking}>
+          <Button type="button" onClick={checkAvailability} loading={checking} disabled={!selected}>
             <CalendarClock className="h-4 w-4" /> Check Availability
           </Button>
         </div>
         {!availabilityChecked && !availabilityError ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Schedule changed. Check availability before selecting a resource.
+            Schedule changed. Check availability for your selected resource.
           </div>
         ) : availabilityChecked ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Availability shown below is for {formatDateTime(new Date(windowForm.startAt).toISOString())} to {formatDateTime(new Date(windowForm.dueAt).toISOString())}.
+            Availability shown below is for {formatBorrowDateTime(fromManilaInput(windowForm.startAt)?.toISOString())} to {formatBorrowDateTime(fromManilaInput(windowForm.dueAt)?.toISOString())}.
           </div>
         ) : null}
       </Card>
 
-      {availabilityError ? <ErrorState title="We couldn't check resource availability" description={availabilityError} onRetry={checkAvailability} /> : null}
-      {availabilityChecked ? (
-        <div className="space-y-8">
-          {resourceSection("Facilities", "Facilities are reserved as one whole resource for the selected schedule.", facilities)}
-          {resourceSection("Equipment & Items", "For quantity-based resources, availability shows how many units remain for the selected schedule.", items)}
-        </div>
-      ) : null}
+      {availabilityError ? <ErrorState title="We couldn't check resource availability" description={availabilityError} onRetry={selected ? checkAvailability : loadAssets} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <Card>
           <div className="flex items-start gap-3">
             <div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><ClipboardCheck className="h-5 w-5" /></div>
             <div>
-              <h2 className="text-xl font-bold text-[var(--brand-900)]">2. Complete your request</h2>
+              <h2 className="text-xl font-bold text-[var(--brand-900)]">3. Complete your request</h2>
               <p className="mt-1 text-sm text-stone-500">You will review all details before the request is submitted.</p>
             </div>
           </div>
 
           <form className="mt-5 space-y-4" onSubmit={openReview}>
-            <SelectInput
-              label="Facility / Item *"
-              value={form.assetId}
-              onChange={(event) => {
-                const asset = assets.find((item) => item.id === event.target.value);
-                setForm((current) => ({
-                  ...current,
-                  assetId: event.target.value,
-                  quantity: 1,
-                  eventLocation: isFacility(asset) ? asset.name : (isFacility(selected) ? "" : current.eventLocation),
-                }));
-              }}
-              required
-              disabled={!availabilityChecked}
-            >
-              <option value="">Select an available resource</option>
-              {assets.filter((asset) => asset.isAvailable).map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.name}{isFacility(asset) ? "" : ` (${asset.availableQuantity} available)`}
-                </option>
-              ))}
-            </SelectInput>
+            <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm">
+              <strong>Resource:</strong> {selected?.name || "Select a resource in step 1"}<br />
+              <span className="text-stone-600">Maximum borrowing period: {formatBorrowDuration(selected?.max_borrow_minutes)}</span>
+            </div>
 
             {selected && !isFacility(selected) ? (
               <TextInput
@@ -484,7 +487,7 @@ const BorrowingPage = () => {
                     <h3 className="font-bold text-[var(--brand-900)]">
                       {item.asset?.name || "Barangay resource"}{facility ? "" : ` × ${item.quantity}`}
                     </h3>
-                    <p className="mt-1 text-sm text-stone-500">{formatDateTime(item.start_at)} → {formatDateTime(item.due_at)}</p>
+                    <p className="mt-1 text-sm text-stone-500">{formatBorrowDateTime(item.start_at)} → {formatBorrowDateTime(item.due_at)}</p>
                   </div>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                 </div>
@@ -493,7 +496,7 @@ const BorrowingPage = () => {
                   <div><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Purpose</p><p className="mt-1 text-stone-700">{item.purpose}</p></div>
                   <div><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Use location</p><p className="mt-1 text-stone-700">{item.event_location || "Not provided"}</p></div>
                 </div>
-                {item.admin_note ? <p className="mt-4 rounded-2xl border border-[var(--brand-100)] bg-[var(--brand-50)] p-3 text-sm text-stone-700"><strong>Barangay note:</strong> {item.admin_note}</p> : null}
+                <CaseHistory events={item.case_history} compact />
                 {item.status === "returned" && !facility ? (
                   <div className="mt-4 rounded-2xl border border-stone-200 p-3 text-sm text-stone-600">
                     <strong>Return inspection:</strong> {item.returned_quantity ?? item.quantity} of {item.quantity} returned
@@ -525,11 +528,12 @@ const BorrowingPage = () => {
             <div className="rounded-3xl bg-[var(--brand-50)] p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-500)]">Resource</p>
               <h3 className="mt-2 text-2xl font-black text-[var(--brand-900)]">{selected.name}</h3>
+              <p className="mt-1 text-sm text-stone-600">Maximum allowed: {formatBorrowDuration(selected.max_borrow_minutes)} · Requested: {formatBorrowDuration(Math.round((fromManilaInput(windowForm.dueAt) - fromManilaInput(windowForm.startAt)) / 60000))}</p>
               {!isFacility(selected) ? <p className="mt-1 text-sm text-stone-600">Quantity: {Number(form.quantity)}</p> : <p className="mt-1 text-sm text-stone-600">Whole facility reservation</p>}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-stone-200 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Borrow From</p><p className="mt-2 font-semibold text-stone-700">{formatDateTime(new Date(windowForm.startAt).toISOString())}</p></div>
-              <div className="rounded-2xl border border-stone-200 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Return By</p><p className="mt-2 font-semibold text-stone-700">{formatDateTime(new Date(windowForm.dueAt).toISOString())}</p></div>
+              <div className="rounded-2xl border border-stone-200 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Borrow From</p><p className="mt-2 font-semibold text-stone-700">{formatBorrowDateTime(fromManilaInput(windowForm.startAt)?.toISOString())}</p></div>
+              <div className="rounded-2xl border border-stone-200 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Return By</p><p className="mt-2 font-semibold text-stone-700">{formatBorrowDateTime(fromManilaInput(windowForm.dueAt)?.toISOString())}</p></div>
             </div>
             <div><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Purpose</p><p className="mt-1 text-sm text-stone-700">{form.purpose}</p></div>
             <div><p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Use Location</p><p className="mt-1 text-sm text-stone-700">{form.eventLocation}</p></div>
@@ -548,7 +552,7 @@ const BorrowingPage = () => {
         open={Boolean(cancelRequest)}
         onClose={() => !saving && setCancelRequest(null)}
         title="Cancel borrowing request?"
-        description={cancelRequest ? `${cancelRequest.asset?.name || "Barangay resource"} • ${formatDateTime(cancelRequest.start_at)}` : ""}
+        description={cancelRequest ? `${cancelRequest.asset?.name || "Barangay resource"} • ${formatBorrowDateTime(cancelRequest.start_at)}` : ""}
         widthClass="max-w-xl"
       >
         <div className="space-y-4">
@@ -564,4 +568,5 @@ const BorrowingPage = () => {
 };
 
 export default BorrowingPage;
+
 

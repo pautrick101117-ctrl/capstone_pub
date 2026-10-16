@@ -43,7 +43,7 @@ export const requireCurrentUser =
         throw Object.assign(new Error("This account is inactive. Please contact the barangay admin."), { status: 403 });
       }
 
-      if (!allowPasswordChange && normalizeRole(user.role) === "resident" && user.must_change_password) {
+      if (!allowPasswordChange && user.must_change_password) {
         const err = Object.assign(new Error("Password change required before continuing."), { status: 403 });
         err.code = "PASSWORD_CHANGE_REQUIRED";
         throw err;
@@ -55,4 +55,5 @@ export const requireCurrentUser =
       next(error);
     }
   };
+
 

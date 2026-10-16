@@ -1,9 +1,11 @@
+import CaseHistory from "../../components/CaseHistory";
+import { useReviewAction, reviewChanges } from "../../components/ActionReviewProvider";
 import { CheckCircle2, Lightbulb, Search, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, TextArea, TextInput } from "../../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
@@ -17,6 +19,7 @@ const tabs = [
 
 const AdminProjectSuggestions = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [status, setStatus] = useState("pending");
   const [page, setPage] = useState(1);
@@ -27,6 +30,8 @@ const AdminProjectSuggestions = () => {
   const [error, setError] = useState("");
   const [review, setReview] = useState(null);
   const [reviewNote, setReviewNote] = useState("");
+  const operationId = useRef(null);
+  const [visibility, setVisibility] = useState("resident");
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -50,22 +55,26 @@ const AdminProjectSuggestions = () => {
 
   const submitSearch = (event) => { event.preventDefault(); setPage(1); load(); };
   const openReview = (item, nextStatus) => {
+    operationId.current = crypto.randomUUID();
     setReview({ item, nextStatus });
-    setReviewNote(item.review_note || "");
+    setReviewNote("");
+    setVisibility("resident");
   };
 
   const saveReview = async () => {
     if (!review) return;
-    if (review.nextStatus === "rejected" && reviewNote.trim().length < 3) {
+    if (review.item.status === review.nextStatus && !reviewNote.trim()) return toast.error("Write a new response before saving.");
+    if (review.nextStatus === "rejected" && review.nextStatus !== review.item.status && reviewNote.trim().length < 3) {
       toast.error("Add a short reason before rejecting this suggestion.");
       return;
     }
+    if (!await reviewAction({ title: review.nextStatus === "approved" ? "Approve Project Suggestion?" : "Reject Project Suggestion?", subject: review.item.title, description: "The resident will be notified of this decision.", after: { status: review.nextStatus, reason: reviewNote.trim() }, tone: review.nextStatus === "rejected" ? "danger" : "primary", confirmLabel: review.nextStatus === review.item.status ? "Save Response" : review.nextStatus === "approved" ? "Approve Suggestion" : "Reject Suggestion" })) return;
     setSaving(true);
     try {
       await api(`/admin/suggestions/${review.item.id}`, {
         method: "PATCH",
         token,
-        body: { status: review.nextStatus, reviewNote: reviewNote.trim() },
+        body: { status: review.nextStatus, expectedStatus: review.item.status, reviewNote: reviewNote.trim(), visibility, operationId: operationId.current },
       });
       toast.success(review.nextStatus === "approved" ? "Project suggestion approved." : "Project suggestion rejected.");
       setReview(null);
@@ -106,8 +115,8 @@ const AdminProjectSuggestions = () => {
                 <h2 className="mt-3 text-xl font-bold text-[var(--brand-900)]">{item.title}</h2>
                 <p className="mt-2 text-sm font-semibold text-stone-500">{resident}{item.users?.purok ? ` · ${item.users.purok}` : ""}</p>
                 <p className="mt-4 text-sm leading-7 text-stone-600">{item.description}</p>
-                {item.review_note ? <div className="mt-4 rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">Barangay review note</p><p className="mt-1 text-sm text-stone-700">{item.review_note}</p></div> : null}
-                {item.status === "pending" ? <div className="mt-5 flex flex-wrap gap-2"><Button onClick={() => openReview(item, "approved")}><CheckCircle2 className="h-4 w-4" /> Approve</Button><Button variant="danger" onClick={() => openReview(item, "rejected")}><XCircle className="h-4 w-4" /> Reject</Button></div> : null}
+                <CaseHistory events={item.case_history} compact />
+                {item.status === "pending" ? <div className="mt-5 flex flex-wrap gap-2"><Button onClick={() => openReview(item, "approved")}><CheckCircle2 className="h-4 w-4" /> Approve</Button><Button variant="danger" onClick={() => openReview(item, "rejected")}><XCircle className="h-4 w-4" /> Reject</Button></div> : <Button variant="ghost" onClick={() => openReview(item, item.status)}>History / Reply</Button>}
               </Card>
             );
           })}
@@ -116,11 +125,12 @@ const AdminProjectSuggestions = () => {
 
       {!loading && !error && pagination.totalPages > 1 ? <Pagination page={page} totalPages={pagination.totalPages} onPageChange={setPage} /> : null}
 
-      <Modal open={Boolean(review)} onClose={() => !saving && setReview(null)} title={review?.nextStatus === "approved" ? "Approve project suggestion" : "Reject project suggestion"} description={review?.nextStatus === "approved" ? "Approved ideas become eligible for inclusion in a future community vote." : "Give the resident a clear reason why this suggestion is not being approved."} closeDisabled={saving}>
-        {review ? <div className="space-y-5"><div className="rounded-2xl bg-stone-50 p-4"><p className="font-bold text-[var(--brand-900)]">{review.item.title}</p><p className="mt-2 text-sm leading-6 text-stone-600">{review.item.description}</p></div><TextArea label={review.nextStatus === "rejected" ? "Reason for rejection" : "Barangay note (optional)"} required={review.nextStatus === "rejected"} value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder={review.nextStatus === "rejected" ? "Explain why this proposal cannot be approved." : "Add context for the resident."} /><div className="flex flex-wrap gap-3"><Button loading={saving} variant={review.nextStatus === "rejected" ? "danger" : "primary"} onClick={saveReview}>{review.nextStatus === "approved" ? "Approve Suggestion" : "Reject Suggestion"}</Button><Button variant="ghost" disabled={saving} onClick={() => setReview(null)}>Cancel</Button></div></div> : null}
+      <Modal open={Boolean(review)} onClose={() => !saving && setReview(null)} title={review?.nextStatus === review?.item.status ? "Add response to suggestion" : review?.nextStatus === "approved" ? "Approve project suggestion" : "Reject project suggestion"} description={review?.nextStatus === "approved" ? "Approved ideas become eligible for inclusion in a future community vote." : "Give the resident a clear reason why this suggestion is not being approved."} closeDisabled={saving}>
+        {review ? <div className="space-y-5"><div className="rounded-2xl bg-stone-50 p-4"><p className="font-bold text-[var(--brand-900)]">{review.item.title}</p><p className="mt-2 text-sm leading-6 text-stone-600">{review.item.description}</p></div><CaseHistory events={review.item.case_history} /><SelectInput label="Response Visibility" value={visibility} disabled={review.nextStatus !== review.item.status} onChange={(event) => setVisibility(event.target.value)}><option value="resident">Resident Response</option><option value="internal">Staff Only</option></SelectInput><TextArea label={review.nextStatus === "rejected" ? "Reason for rejection" : "Barangay note (optional)"} required={review.nextStatus === "rejected" && review.nextStatus !== review.item.status} value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder={review.nextStatus === "rejected" ? "Explain why this proposal cannot be approved." : "Add context for the resident."} /><div className="flex flex-wrap gap-3"><Button loading={saving} variant={review.nextStatus === "rejected" ? "danger" : "primary"} onClick={saveReview}>{review.nextStatus === review.item.status ? "Save Response" : review.nextStatus === "approved" ? "Approve Suggestion" : "Reject Suggestion"}</Button><Button variant="ghost" disabled={saving} onClick={() => setReview(null)}>Cancel</Button></div></div> : null}
       </Modal>
     </div>
   );
 };
 
 export default AdminProjectSuggestions;
+

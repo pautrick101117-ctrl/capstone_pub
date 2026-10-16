@@ -4,7 +4,7 @@ import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.use(requireAuth, requireCurrentUser({ allowPasswordChange: true }));
+router.use(requireAuth, requireCurrentUser());
 
 router.get("/", async (req, res, next) => {
   try {
@@ -65,4 +65,5 @@ router.post("/read-all", async (req, res, next) => {
 });
 
 export default router;
+
 

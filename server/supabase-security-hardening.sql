@@ -22,3 +22,4 @@ alter table master_data_values enable row level security;
 
 commit;
 
+

@@ -24,7 +24,8 @@ test("temporary credentials are not written to email fallback logs", async () =>
   const mailer = await read("server/src/lib/mailer.js");
   assert.match(mailer, /Never log message bodies/);
   assert.doesNotMatch(mailer, /EMAIL LOG.*Message/);
-  assert.match(mailer, /Temporary password:/);
+  const template = await read("server/src/lib/residentCredentialEmail.js");
+  assert.match(template, /Temporary password:/);
 });
 
 
@@ -37,14 +38,16 @@ test("resident creation never exposes the generated temporary password to the ad
   assert.match(createBlock, /sendAccountCreatedEmail/);
   assert.doesNotMatch(createBlock, /res\.status\(201\)\.json\(\{[^}]*temporaryPassword/s);
   assert.match(createBlock, /ACCOUNT_EMAIL_DELIVERY_FAILED/);
-  assert.match(residents, /credentialResult\.action === "reset" && credentialResult\.temporaryPassword/);
+  assert.doesNotMatch(residents, /credentialResult\.temporaryPassword/);
 });
-test("reset endpoint validates email before replacing resident password", async () => {
+test("reset endpoint validates email before staging a credential", async () => {
   const admin = await read("server/src/routes/admin.js");
   const resetStart = admin.indexOf('router.post("/users/:userId/reset-password"');
   const resetEnd = admin.indexOf('router.get("/complaints"', resetStart);
   const block = admin.slice(resetStart, resetEnd);
-  assert.ok(block.indexOf("if (!targetUser.email)") < block.indexOf("bcrypt.hash(tempPassword"));
+  assert.ok(block.indexOf("if (!resident.email)") < block.indexOf("bcrypt.hash(temporaryPassword"));
+  assert.match(block, /pending_password_hash: pendingHash/);
+  assert.doesNotMatch(block, /temporaryPassword:\s*emailDelivery/);
 });
 
 
@@ -78,12 +81,13 @@ test("V3 voting explains the complete resident voting process", async () => {
   assert.match(voting, /Live vote totals are not shown here while voting is open/i);
 });
 
-test("temporary password email can be retried without generating a new password", async () => {
+test("admin never resends or displays a raw temporary password", async () => {
   const admin = await read("server/src/routes/admin.js");
   const residents = await read("client/src/pages/admin/Admin_Residents.jsx");
   assert.match(admin, /resend-temporary-password/);
-  assert.match(admin, /bcrypt\.compare\(temporaryPassword/);
-  assert.match(residents, /Retry Same Email/);
+  assert.match(admin, /status:\s*410/);
+  assert.doesNotMatch(residents, /Retry Same Email|Copy Credentials|Copy Password/);
+  assert.doesNotMatch(residents, /temporaryPassword/);
 });
 
 test("forgot-password verification codes are hashed before storage", async () => {
@@ -109,4 +113,5 @@ test("password changes enforce uppercase and numeric password policy on the serv
   assert.match(helpers, /\/\[A-Z\]\//);
   assert.match(helpers, /\/\[0-9\]\//);
 });
+
 

@@ -21,3 +21,4 @@ on conflict (email) do update set
   is_active = true,
   updated_at = now();
 
+

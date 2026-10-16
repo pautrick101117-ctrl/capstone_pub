@@ -13,9 +13,10 @@ const loadMailer = async ({ key = "re_test_key", sender = "Barangay Iba <noreply
   envSrc = envSrc.replace('process.env.RESEND_API_KEY || ""', JSON.stringify(key));
   envSrc = envSrc.replace('(process.env.RESEND_FROM_EMAIL || "").trim()', `${JSON.stringify(sender)}.trim()`);
   const envUrl = dataUrl(envSrc);
-  const mailerSrc = (await read("src/lib/mailer.js")).replace(
-    'from "./env.js"', `from "${envUrl}"`
-  );
+  const builderUrl = dataUrl(await read("src/lib/residentCredentialEmail.js"));
+  const mailerSrc = (await read("src/lib/mailer.js"))
+    .replace('from "./env.js"', `from "${envUrl}"`)
+    .replace('from "./residentCredentialEmail.js"', `from "${builderUrl}"`);
   return { mailer: await import(dataUrl(mailerSrc)), env: await import(envUrl) };
 };
 
@@ -125,3 +126,4 @@ test("public landing refuses to silently display zeros when a Supabase query fai
   assert.match(publicRoute, /for \(const result of \[/);
   assert.match(publicRoute, /if \(result\.error\) throw result\.error/);
 });
+

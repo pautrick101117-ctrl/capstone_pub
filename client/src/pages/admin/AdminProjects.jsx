@@ -1,5 +1,7 @@
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
 import { CheckCircle2, Construction, ImagePlus, PauseCircle, Pencil, PlayCircle, Plus, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
@@ -18,12 +20,14 @@ const filters = [
   { value: "cancelled", label: "Cancelled" },
 ];
 const statuses = ["planned", "ongoing", "on_hold", "completed", "cancelled"];
-const blankUpdate = { id: "", title: "", description: "", progressPercentage: "", projectStatus: "", updateDate: new Date().toISOString().slice(0, 10), image: null, preview: "" };
+const blankUpdate = { id: "", title: "", description: "", progressPercentage: "", projectStatus: "", updateDate: new Date().toISOString().slice(0, 10), reason: "", image: null, preview: "" };
 
 const Progress = ({ value = 0 }) => <div className="h-2.5 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-[var(--brand-500)]" style={{ width: `${Math.max(0, Math.min(100, Number(value || 0)))}%` }} /></div>;
 
 const AdminProjects = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
@@ -35,9 +39,18 @@ const AdminProjects = () => {
   const [updates, setUpdates] = useState([]);
   const [updatePage, setUpdatePage] = useState(1);
   const [edit, setEdit] = useState(null);
+  const [editSnapshot, setEditSnapshot] = useState(null);
   const [updateForm, setUpdateForm] = useState(null);
+  const [updateSnapshot, setUpdateSnapshot] = useState(null);
   const [projectAction, setProjectAction] = useState(null);
+  const [projectReason, setProjectReason] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const editGuard = useUnsavedForm({ initial: editSnapshot, current: edit, enabled: Boolean(edit) });
+  const updateGuard = useUnsavedForm({ initial: updateSnapshot, current: updateForm, enabled: Boolean(updateForm) });
+  useUnsavedNavigation(editGuard.dirty || updateGuard.dirty);
+  const closeEdit = () => editGuard.closeSafely(() => setEdit(null));
+  const closeUpdate = () => updateGuard.closeSafely(() => setUpdateForm(null));
 
   const load = async () => {
     setLoading(true); setError("");
@@ -49,6 +62,13 @@ const AdminProjects = () => {
   };
   useEffect(() => { if (token) load(); }, [token, status, page]);
   useEffect(() => { setPage(1); }, [status]);
+  useEffect(() => {
+    const targetId = searchParams.get("recordId");
+    if (!targetId || !token) return;
+    api(`/admin/projects/${targetId}`, { token }).then((data) => {
+      setSelected(data.project); setUpdates(data.updates || []); setUpdatePage(1);
+    }).catch((err) => toast.error(`Unable to open this project: ${err.message}`));
+  }, [token, searchParams, toast]);
 
   const refreshSelected = async (projectId = selected?.id) => {
     if (!projectId) return;
@@ -63,16 +83,22 @@ const AdminProjects = () => {
     catch (err) { toast.error(err.message); }
   };
 
-  const openEdit = () => setEdit({
+  const openEdit = () => { const value = {
     title: selected.title || "",
     description: selected.description || "",
     progressPercentage: selected.progress_percentage ?? 0,
     plannedStartDate: selected.planned_start_date || "",
     actualStartDate: selected.actual_start_date || "",
     expectedCompletionDate: selected.expected_completion_date || "",
-  });
+    reason: "",
+  }; setEditSnapshot(value); setEdit(value); };
 
   const saveProject = async () => {
+    if (!selected || !edit) return;
+    if (Number(edit.progressPercentage) < Number(selected.progress_percentage || 0) && edit.reason.trim().length < 5) {
+      return toast.error("Explain why the reported progress is being reduced.");
+    }
+    if (!await reviewAction({ title: "Confirm Project Changes", subject: selected.title, before: { title: selected.title, description: selected.description, progressPercentage: selected.progress_percentage }, after: edit, confirmLabel: "Save Changes" })) return;
     setSaving(true);
     try {
       const data = await api(`/admin/projects/${selected.id}`, { method: "PATCH", token, body: edit });
@@ -80,8 +106,8 @@ const AdminProjects = () => {
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   };
 
-  const openNewUpdate = () => setUpdateForm({ ...blankUpdate, progressPercentage: String(selected.progress_percentage ?? 0), projectStatus: selected.status });
-  const openEditUpdate = (item) => setUpdateForm({
+  const openNewUpdate = () => { const value = { ...blankUpdate, progressPercentage: String(selected.progress_percentage ?? 0), projectStatus: selected.status }; setUpdateSnapshot(value); setUpdateForm(value); };
+  const openEditUpdate = (item) => { const value = {
     id: item.id,
     title: item.title || "",
     description: item.description || "",
@@ -89,17 +115,19 @@ const AdminProjects = () => {
     projectStatus: item.project_status || selected.status,
     updateDate: item.update_date ? `${item.update_date}`.slice(0, 10) : new Date().toISOString().slice(0, 10),
     image: null,
+    reason: "",
     preview: item.image_url || "",
-  });
+  }; setUpdateSnapshot(value); setUpdateForm(value); };
 
   const saveUpdate = async () => {
     if (!updateForm?.title.trim() || !updateForm?.description.trim()) return toast.error("Update title and description are required.");
+    if (!await reviewAction({ title: updateForm.id ? "Confirm Update Correction" : "Publish Project Update?", subject: updateForm.title, description: "The update and progress will be visible to residents.", after: updateForm, confirmLabel: updateForm.id ? "Save Correction" : "Publish Update" })) return;
     setSaving(true);
     try {
       const body = new FormData();
       body.append("title", updateForm.title); body.append("description", updateForm.description);
       body.append("progressPercentage", updateForm.progressPercentage); body.append("projectStatus", updateForm.projectStatus);
-      body.append("updateDate", updateForm.updateDate); if (updateForm.image) body.append("image", updateForm.image);
+      body.append("updateDate", updateForm.updateDate); body.append("reason", updateForm.reason || ""); if (updateForm.image) body.append("image", updateForm.image);
       const isEdit = Boolean(updateForm.id);
       const data = await api(
         isEdit ? `/admin/projects/${selected.id}/updates/${updateForm.id}` : `/admin/projects/${selected.id}/updates`,
@@ -113,11 +141,13 @@ const AdminProjects = () => {
 
   const runProjectAction = async () => {
     if (!projectAction || !selected) return;
+    const needsReason = ["on_hold", "cancelled", "completed"].includes(projectAction.nextStatus);
+    if (needsReason && projectReason.trim().length < 5) return toast.error("Enter a short reason or completion explanation.");
     setSaving(true);
     try {
-      const data = await api(`/admin/projects/${selected.id}`, { method: "PATCH", token, body: { status: projectAction.nextStatus } });
+      const data = await api(`/admin/projects/${selected.id}`, { method: "PATCH", token, body: { status: projectAction.nextStatus, reason: projectReason.trim() } });
       toast.success(data.message || `Project marked ${getStatusMeta(projectAction.nextStatus).label}.`);
-      setSelected(data.project); setProjectAction(null); await load();
+      setSelected(data.project); setProjectAction(null); setProjectReason(""); await refreshSelected(data.project.id); await load();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   };
 
@@ -158,7 +188,7 @@ const AdminProjects = () => {
       )}
       {!loading && !error ? <Pagination page={page} totalPages={totalPages} onPageChange={setPage} /> : null}
 
-      <Modal open={Boolean(selected)} onClose={() => { if (!saving) { setSelected(null); setEdit(null); setUpdateForm(null); setProjectAction(null); } }} title={selected?.title || "Community Project"} description="Official implementation record and resident-visible progress timeline." widthClass="max-w-5xl" closeDisabled={saving}>
+      <Modal open={Boolean(selected)} onClose={() => { if (!saving) { setSelected(null); setEdit(null); setUpdateForm(null); setProjectAction(null); if (searchParams.has("recordId")) setSearchParams({}, { replace: true }); } }} title={selected?.title || "Community Project"} description="Official implementation record and resident-visible progress timeline." widthClass="max-w-5xl" closeDisabled={saving}>
         {selected ? <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-start"><div><div className="flex flex-wrap gap-2"><Badge tone={getStatusMeta(selected.status).tone}>{getStatusMeta(selected.status).label}</Badge><Badge tone="success">{selected.progress_percentage || 0}% complete</Badge></div><p className="mt-4 text-sm leading-7 text-stone-600">{selected.description}</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={openEdit}><Pencil className="h-4 w-4" /> Edit Details</Button>{!["completed", "cancelled"].includes(selected.status) ? <Button onClick={openNewUpdate}><Plus className="h-4 w-4" /> Post Update</Button> : null}</div></div>
           {lifecycleButtons}
@@ -169,17 +199,20 @@ const AdminProjects = () => {
         </div> : null}
       </Modal>
 
-      <Modal open={Boolean(edit)} onClose={() => !saving && setEdit(null)} title="Edit community project details" description="Correct the title, description, progress, or implementation schedule. Use the lifecycle actions on the project record to change its official status." closeDisabled={saving}>
-        {edit ? <div className="space-y-4"><TextInput label="Project Title" value={edit.title} onChange={(e) => setEdit((v) => ({ ...v, title: e.target.value }))} /><TextArea label="Description" value={edit.description} onChange={(e) => setEdit((v) => ({ ...v, description: e.target.value }))} /><div className="grid gap-4 sm:grid-cols-2"><TextInput label="Progress %" type="number" min="0" max="100" value={edit.progressPercentage} onChange={(e) => setEdit((v) => ({ ...v, progressPercentage: e.target.value }))} /><TextInput label="Planned Start" type="date" value={edit.plannedStartDate} onChange={(e) => setEdit((v) => ({ ...v, plannedStartDate: e.target.value }))} /><TextInput label="Actual Start" type="date" value={edit.actualStartDate} onChange={(e) => setEdit((v) => ({ ...v, actualStartDate: e.target.value }))} /><TextInput label="Expected Completion" type="date" value={edit.expectedCompletionDate} onChange={(e) => setEdit((v) => ({ ...v, expectedCompletionDate: e.target.value }))} /></div><div className="flex gap-3"><Button loading={saving} onClick={saveProject}>Save Changes</Button><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button></div></div> : null}
+      <Modal open={Boolean(edit)} onClose={() => !saving && closeEdit()} title="Edit community project details" description="Correct the title, description, progress, or implementation schedule. Use the lifecycle actions on the project record to change its official status." closeDisabled={saving}>
+        {edit ? <div className="space-y-4"><TextInput label="Project Title" value={edit.title} onChange={(e) => setEdit((v) => ({ ...v, title: e.target.value }))} /><TextArea label="Description" value={edit.description} onChange={(e) => setEdit((v) => ({ ...v, description: e.target.value }))} /><div className="grid gap-4 sm:grid-cols-2"><TextInput label="Progress %" type="number" min="0" max="100" value={edit.progressPercentage} onChange={(e) => setEdit((v) => ({ ...v, progressPercentage: e.target.value }))} /><TextInput label="Planned Start" type="date" value={edit.plannedStartDate} onChange={(e) => setEdit((v) => ({ ...v, plannedStartDate: e.target.value }))} /><TextInput label="Actual Start" type="date" value={edit.actualStartDate} onChange={(e) => setEdit((v) => ({ ...v, actualStartDate: e.target.value }))} /><TextInput label="Expected Completion" type="date" value={edit.expectedCompletionDate} onChange={(e) => setEdit((v) => ({ ...v, expectedCompletionDate: e.target.value }))} /></div><TextArea label="Reason (required if reducing progress)" value={edit.reason} onChange={(e) => setEdit((v) => ({ ...v, reason: e.target.value }))} /><div className="flex gap-3"><Button loading={saving} onClick={saveProject}>Save Changes</Button><Button variant="ghost" onClick={closeEdit}>Cancel</Button></div></div> : null}
       </Modal>
 
-      <Modal open={Boolean(updateForm)} onClose={() => !saving && setUpdateForm(null)} title={updateForm?.id ? "Edit project update" : "Publish project update"} description={updateForm?.id ? "Correct this resident-visible implementation update. The audit log will preserve the edit." : "This update will appear on the public Project Updates timeline and residents will be notified."} closeDisabled={saving}>
-        {updateForm ? <div className="space-y-4"><TextInput label="Update Title" required value={updateForm.title} onChange={(e) => setUpdateForm((v) => ({ ...v, title: e.target.value }))} placeholder="Example: Installation phase started" /><TextArea label="Update Description" required value={updateForm.description} onChange={(e) => setUpdateForm((v) => ({ ...v, description: e.target.value }))} /><div className="grid gap-4 sm:grid-cols-2"><TextInput label="Update Date" type="date" value={updateForm.updateDate} onChange={(e) => setUpdateForm((v) => ({ ...v, updateDate: e.target.value }))} /><TextInput label="Progress %" type="number" min="0" max="100" value={updateForm.progressPercentage} onChange={(e) => setUpdateForm((v) => ({ ...v, progressPercentage: e.target.value }))} /><SelectInput label="Project Status" value={updateForm.projectStatus} onChange={(e) => setUpdateForm((v) => ({ ...v, projectStatus: e.target.value }))}>{statuses.map((value) => <option key={value} value={value}>{getStatusMeta(value).label}</option>)}</SelectInput></div><label className="block text-sm font-medium text-stone-700"><span>Update Photo <span className="font-normal text-stone-400">(optional)</span></span><div className="mt-2 rounded-2xl border border-dashed border-stone-300 p-4"><input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0] || null; setUpdateForm((v) => ({ ...v, image: file, preview: file ? URL.createObjectURL(file) : v.preview })); }} />{updateForm.preview ? <div className="relative mt-3"><img src={updateForm.preview} alt="Update preview" className="h-52 w-full rounded-2xl object-cover" /><button type="button" className="absolute right-2 top-2 rounded-full bg-white p-2 shadow" onClick={() => setUpdateForm((v) => ({ ...v, image: null, preview: "" }))}><X className="h-4 w-4" /></button></div> : <div className="mt-3 flex items-center gap-2 text-xs text-stone-500"><ImagePlus className="h-4 w-4" /> Add visual proof of implementation when available.</div>}</div></label><div className="flex gap-3"><Button loading={saving} onClick={saveUpdate}><CheckCircle2 className="h-4 w-4" /> {updateForm.id ? "Save Correction" : "Publish Update"}</Button><Button variant="ghost" onClick={() => setUpdateForm(null)}>Cancel</Button></div></div> : null}
+      <Modal open={Boolean(updateForm)} onClose={() => !saving && closeUpdate()} title={updateForm?.id ? "Edit project update" : "Publish project update"} description={updateForm?.id ? "Correct this resident-visible implementation update. The audit log will preserve the edit." : "This update will appear on the public Project Updates timeline and residents will be notified."} closeDisabled={saving}>
+        {updateForm ? <div className="space-y-4"><TextInput label="Update Title" required value={updateForm.title} onChange={(e) => setUpdateForm((v) => ({ ...v, title: e.target.value }))} placeholder="Example: Installation phase started" /><TextArea label="Update Description" required value={updateForm.description} onChange={(e) => setUpdateForm((v) => ({ ...v, description: e.target.value }))} /><div className="grid gap-4 sm:grid-cols-2"><TextInput label="Update Date" type="date" value={updateForm.updateDate} onChange={(e) => setUpdateForm((v) => ({ ...v, updateDate: e.target.value }))} /><TextInput label="Progress %" type="number" min="0" max="100" value={updateForm.progressPercentage} onChange={(e) => setUpdateForm((v) => ({ ...v, progressPercentage: e.target.value }))} /><SelectInput label="Project Status" value={updateForm.projectStatus} onChange={(e) => setUpdateForm((v) => ({ ...v, projectStatus: e.target.value }))}>{statuses.map((value) => <option key={value} value={value}>{getStatusMeta(value).label}</option>)}</SelectInput></div><TextArea label="Reason for important status changes (optional otherwise)" value={updateForm.reason || ""} onChange={(e) => setUpdateForm((v) => ({ ...v, reason: e.target.value }))} /><label className="block text-sm font-medium text-stone-700"><span>Update Photo <span className="font-normal text-stone-400">(optional)</span></span><div className="mt-2 rounded-2xl border border-dashed border-stone-300 p-4"><input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0] || null; setUpdateForm((v) => ({ ...v, image: file, preview: file ? URL.createObjectURL(file) : v.preview })); }} />{updateForm.preview ? <div className="relative mt-3"><img src={updateForm.preview} alt="Update preview" className="h-52 w-full rounded-2xl object-cover" /><button type="button" className="absolute right-2 top-2 rounded-full bg-white p-2 shadow" onClick={() => setUpdateForm((v) => ({ ...v, image: null, preview: "" }))}><X className="h-4 w-4" /></button></div> : <div className="mt-3 flex items-center gap-2 text-xs text-stone-500"><ImagePlus className="h-4 w-4" /> Add visual proof of implementation when available.</div>}</div></label><div className="flex gap-3"><Button loading={saving} onClick={saveUpdate}><CheckCircle2 className="h-4 w-4" /> {updateForm.id ? "Save Correction" : "Publish Update"}</Button><Button variant="ghost" onClick={closeUpdate}>Cancel</Button></div></div> : null}
       </Modal>
 
-      <ConfirmDialog open={Boolean(projectAction)} onClose={() => !saving && setProjectAction(null)} onConfirm={runProjectAction} loading={saving} tone={projectAction?.nextStatus === "cancelled" ? "danger" : "info"} title={projectAction?.title || "Update project status?"} description={projectAction?.description || "This change will be reflected in the public project record."} confirmLabel={projectAction?.nextStatus === "cancelled" ? "Cancel Project" : projectAction?.nextStatus === "completed" ? "Mark Completed" : "Confirm Status Change"} />
+      <ConfirmDialog open={Boolean(projectAction)} onClose={() => !saving && (setProjectAction(null), setProjectReason(""))} onConfirm={runProjectAction} loading={saving} tone={projectAction?.nextStatus === "cancelled" ? "danger" : "info"} title={projectAction?.title || "Update project status?"} description={projectAction?.description || "This change will be reflected in the public project record."} confirmLabel={projectAction?.nextStatus === "cancelled" ? "Cancel Project" : projectAction?.nextStatus === "completed" ? "Mark Completed" : "Confirm Status Change"}>
+        {["on_hold", "cancelled", "completed"].includes(projectAction?.nextStatus) ? <TextArea label="Reason / Completion Explanation" required value={projectReason} onChange={(event) => setProjectReason(event.target.value)} placeholder="Explain this change for the resident-visible project timeline." /> : null}
+      </ConfirmDialog>
     </div>
   );
 };
 
 export default AdminProjects;
+

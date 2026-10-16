@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
+import { Alert, Badge, ButtonLink, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
@@ -110,7 +110,7 @@ const UserDashboard = () => {
 
       <section className="space-y-4">
         <div><p className="text-xs font-bold uppercase tracking-[0.24em] text-[var(--brand-500)]">Needs Your Attention</p><h2 className="mt-1 text-2xl font-black text-[var(--brand-900)]">Important next steps</h2></div>
-        {!attentionItems.length ? <Alert tone="success" title="You're all caught up">There are no urgent resident tasks waiting for you right now.</Alert> : attentionItems.map((item, index) => <Alert key={`${item.title}-${index}`} tone={item.tone} title={item.title} actions={<NavLink to={item.to}><Button variant="secondary">{item.cta}</Button></NavLink>}><p>{item.body}</p></Alert>)}
+        {!attentionItems.length ? <Alert tone="success" title="You're all caught up">There are no urgent resident tasks waiting for you right now.</Alert> : attentionItems.map((item, index) => <Alert key={`${item.title}-${index}`} tone={item.tone} title={item.title} actions={<ButtonLink to={item.to} variant="secondary">{item.cta}</ButtonLink>}><p>{item.body}</p></Alert>)}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -133,3 +133,4 @@ const UserDashboard = () => {
 };
 
 export default UserDashboard;
+

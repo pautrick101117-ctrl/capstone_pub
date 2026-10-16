@@ -1,7 +1,6 @@
 import { Clock3, KeyRound, Mail, UserCircle2 } from "lucide-react";
-import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { Alert, Button, Card, PageHeader } from "../../components/ui";
+import { Alert, ButtonLink, Card, PageHeader } from "../../components/ui";
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -20,7 +19,7 @@ const SettingsPage = () => {
         </Card>
 
         <div className="space-y-6">
-          <Card><div className="flex items-center gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><KeyRound className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Password</h2><p className="mt-1 text-sm text-stone-500">Update your password any time.</p></div></div><NavLink to="/change-password" className="mt-5 inline-block"><Button>Change Password</Button></NavLink></Card>
+          <Card><div className="flex items-center gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><KeyRound className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Password</h2><p className="mt-1 text-sm text-stone-500">Update your password any time.</p></div></div><ButtonLink to="/change-password" className="mt-5">Change Password</ButtonLink></Card>
           <Card><div className="flex items-center gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><Mail className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Password Recovery</h2><p className="mt-1 text-sm text-stone-500">Forgot-password verification codes are sent to your resident email.</p></div></div><p className="mt-4 rounded-2xl bg-stone-50 p-4 text-sm font-semibold text-stone-700">{recoveryEmail}</p></Card>
           <Card><div className="flex items-center gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><Clock3 className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Session Security</h2><p className="mt-1 text-sm leading-6 text-stone-500">For security, your portal session automatically expires after 30 minutes of inactivity. Activity extends the session.</p></div></div></Card>
         </div>
@@ -29,3 +28,4 @@ const SettingsPage = () => {
   );
 };
 export default SettingsPage;
+

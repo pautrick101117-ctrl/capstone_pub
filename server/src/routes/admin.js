@@ -5,11 +5,17 @@ import multer from "multer";
 import zlib from "zlib";
 import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection } from "../lib/projects.js";
+import { mapVotingRpcError } from "../lib/votingOutcome.js";
 import { uploadAsset } from "../lib/storage.js";
 import { sendAccountCreatedEmail, sendPasswordResetEmail, sendSystemEmail } from "../lib/mailer.js";
 import { validateResendConfig } from "../lib/env.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { adminActivityMiddleware, logAudit } from "../utils/audit.js";
+import { createAuditWorkbook } from "../lib/auditExcel.js";
+import { cleanAuditValue } from "../utils/auditValues.js";
+import { configuredHotlines, validateHotlines } from "../lib/hotlines.js";
+import { validateConcernLimits } from "../lib/concernLimits.js";
+import { attachCaseHistories, parseNewCaseResponse, updateCaseWithHistory } from "../lib/caseHistory.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
 import {
   buildUsername,
@@ -23,7 +29,7 @@ import {
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.use(requireAuth, requireCurrentUser({ allowPasswordChange: true }), requireRole("admin"));
+router.use(requireAuth, requireCurrentUser(), requireRole("admin"));
 router.use(adminActivityMiddleware("admin"));
 router.use(adminVotingRoutes);
 
@@ -494,15 +500,6 @@ const parseUploadedRows = (file) => {
   return parseDelimitedText(file.buffer.toString("utf8"));
 };
 
-const addTimelineEntry = async (db, requestId, status, note = "") => {
-  const { error } = await db.from("request_timeline").insert({
-    request_id: requestId,
-    status,
-    note,
-  });
-  if (error) throw error;
-};
-
 const getElectionMetrics = async (db, electionId) => {
   const [election, options, votes, completions, residents] = await Promise.all([
     db.from("elections").select("*").eq("id", electionId).single(),
@@ -957,133 +954,96 @@ router.patch("/users/:userId", async (req, res, next) => {
   }
 });
 
+// Reset credentials are staged: the resident's existing password keeps working
+// until they successfully sign in with the emailed temporary password.
 router.post("/users/:userId/reset-password", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const { data: targetUser, error: targetError } = await db
-      .from("users")
-      .select("id, role, email, full_name, first_name, username")
-      .eq("id", req.params.userId)
-      .maybeSingle();
-    if (targetError) throw targetError;
-    if (!targetUser) throw Object.assign(new Error("User not found."), { status: 404 });
-    if (normalizeRole(targetUser.role) !== "resident") {
-      throw Object.assign(new Error("Only super admins can reset admin account passwords."), { status: 403 });
+    const { data: resident, error: lookupError } = await db.from("users")
+      .select("id, role, is_active, status, email, full_name, first_name, username, pending_password_hash, pending_password_expires_at, pending_password_requested_at")
+      .eq("id", req.params.userId).maybeSingle();
+    if (lookupError) throw lookupError;
+    if (!resident) throw Object.assign(new Error("Resident not found."), { status: 404 });
+    if (normalizeRole(resident.role) !== "resident") {
+      throw Object.assign(new Error("Only resident accounts can receive a temporary password."), { status: 403 });
     }
-    if (!targetUser.email) {
-      throw Object.assign(new Error("Resident has no email address on file. Add an email before resetting the password."), { status: 400 });
+    if (!resident.is_active || resident.status !== "approved") {
+      throw Object.assign(new Error("Activate the resident account before issuing a reset."), { status: 409 });
     }
-
-    const tempPassword = createTemporaryPassword();
-    const passwordHash = await bcrypt.hash(tempPassword, 12);
-    const { data, error } = await db
-      .from("users")
-      .update({ password_hash: passwordHash, must_change_password: true, updated_at: new Date().toISOString() })
-      .eq("id", req.params.userId)
-      .select("*")
-      .single();
-    if (error) throw error;
-
-    let emailDelivery = { delivered: false, reason: "unknown" };
-    try {
-      emailDelivery = await sendPasswordResetEmail({
-        email: targetUser.email,
-        fullName: targetUser.full_name || targetUser.first_name,
-        username: targetUser.username,
-        temporaryPassword: tempPassword,
-        role: "resident",
-      });
-    } catch (emailError) {
-      console.warn("[EMAIL RESET ERROR]", emailError.message);
-      emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
+    if (!resident.email) {
+      throw Object.assign(new Error("Resident has no email address on file. Add an email before requesting a reset."), { status: 400 });
     }
-
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "reset_user_password",
-      entityType: "user",
-      entityId: req.params.userId,
-      details: { emailDelivered: Boolean(emailDelivery.delivered) },
-    });
-
-    res.json({
-      message: emailDelivery.delivered
-        ? "Password reset successful. The temporary password was emailed to the resident."
-        : "Password reset successful, but the email could not be delivered. Copy the temporary password and provide it securely to the resident.",
-      // Only return the temporary password when email delivery failed so the admin
-      // has a recovery fallback. Successful delivery keeps the credential out of the browser.
-      temporaryPassword: emailDelivery.delivered ? undefined : tempPassword,
-      emailDelivery,
-      user: sanitizeUser(data),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-
-router.post("/users/:userId/resend-temporary-password", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const temporaryPassword = `${req.body.temporaryPassword || ""}`;
-    if (!temporaryPassword) throw Object.assign(new Error("Temporary password is required."), { status: 400 });
-
-    const { data: targetUser, error } = await db
-      .from("users")
-      .select("id, role, email, full_name, first_name, username, password_hash, must_change_password")
-      .eq("id", req.params.userId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!targetUser) throw Object.assign(new Error("Resident not found."), { status: 404 });
-    if (normalizeRole(targetUser.role) !== "resident") throw Object.assign(new Error("This action is only available for resident accounts."), { status: 403 });
-    if (!targetUser.email) throw Object.assign(new Error("Resident has no email address on file."), { status: 400 });
-    if (!targetUser.must_change_password) throw Object.assign(new Error("The resident has already changed the temporary password. Reset the password again only if access needs to be restored."), { status: 409 });
-
-    const matchesCurrentPassword = await bcrypt.compare(temporaryPassword, targetUser.password_hash);
-    if (!matchesCurrentPassword) throw Object.assign(new Error("The temporary password shown is no longer current. Do not resend stale credentials."), { status: 409 });
+    if (resident.pending_password_requested_at && Date.now() - new Date(resident.pending_password_requested_at).getTime() < 120_000) {
+      throw Object.assign(new Error("Please wait two minutes before issuing another temporary password."), { status: 429 });
+    }
+    validateResendConfig();
+    const temporaryPassword = createTemporaryPassword();
+    const pendingHash = await bcrypt.hash(temporaryPassword, 12);
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const { error: stageError } = await db.from("users").update({
+      pending_password_hash: pendingHash,
+      pending_password_expires_at: expiresAt,
+      pending_password_requested_at: now,
+      updated_at: now,
+    }).eq("id", resident.id);
+    if (stageError) throw stageError;
 
     let emailDelivery;
     try {
       emailDelivery = await sendPasswordResetEmail({
-        email: targetUser.email,
-        fullName: targetUser.full_name || targetUser.first_name,
-        username: targetUser.username,
+        email: resident.email,
+        fullName: resident.full_name || resident.first_name,
+        username: resident.username,
         temporaryPassword,
         role: "resident",
       });
     } catch (emailError) {
-      console.warn("[EMAIL RESEND ERROR]", emailError.message);
+      console.warn("[RESIDENT RESET EMAIL ERROR]", { code: emailError.code || "PROVIDER_FAILURE", providerStatus: emailError.providerStatus || null });
       emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
     }
-
+    if (!emailDelivery?.delivered) {
+      // Conditional restoration protects a newer concurrent request. No password
+      // is revealed to staff, and the resident's existing login stays valid.
+      const { error: restoreError } = await db.from("users").update({
+        pending_password_hash: resident.pending_password_hash || null,
+        pending_password_expires_at: resident.pending_password_expires_at || null,
+        pending_password_requested_at: resident.pending_password_requested_at || null,
+      }).eq("id", resident.id).eq("pending_password_hash", pendingHash);
+      if (restoreError) throw Object.assign(new Error("Email was not accepted, and reset rollback could not be confirmed. Check the account before retrying."), { status: 503 });
+      await logAudit({ actorId: req.currentUser.id, actorRole: normalizeRole(req.currentUser.role),
+        action: "resident_password_reset_delivery_failed", entityType: "user", entityId: resident.id,
+        module: "residents", outcome: "failed", details: { deliveryStatus: emailDelivery.reason } , req });
+      throw Object.assign(new Error("The reset email could not be accepted by Resend. The resident's existing password is unchanged; please try again later."),
+        { status: 502, code: "RESET_EMAIL_NOT_ACCEPTED" });
+    }
     await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "resend_temporary_password",
-      entityType: "user",
-      entityId: targetUser.id,
-      details: { emailDelivered: Boolean(emailDelivery?.delivered) },
+      actorId: req.currentUser.id, actorRole: normalizeRole(req.currentUser.role),
+      action: "resident_password_reset_issued", entityType: "user", entityId: resident.id,
+      module: "residents", req,
+      details: { emailAcceptedByProvider: true, expiresAt },
     });
-
     res.json({
-      emailDelivery,
-      message: emailDelivery?.delivered
-        ? `Temporary credentials were sent to ${targetUser.email}.`
-        : "Email could not be delivered. The current temporary password has not been changed.",
+      message: "Resend accepted the reset email. The resident can use the temporary password for 48 hours; their current password remains valid until they use it.",
+      emailDelivery, expiresAt,
+      user: { id: resident.id, username: resident.username, email: resident.email },
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 });
 
+// Discontinued: accepting a temporary password from an administrator's browser
+// exposes a credential and could resend one that has been superseded. Issue a
+// fresh staged reset instead (old login remains usable until it is redeemed).
+router.post("/users/:userId/resend-temporary-password", (_req, _res, next) => {
+  next(Object.assign(new Error("For security, issue a new reset email instead of resending a password from the browser."), { status: 410 }));
+});
 
 router.get("/complaints", async (_req, res, next) => {
   try {
     const db = requireSupabase();
     const { data, error } = await db.from("complaints").select("*").order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ complaints: data || [] });
+    res.json({ complaints: await attachCaseHistories(db, "complaint", data || []) });
   } catch (error) {
     next(error);
   }
@@ -1096,19 +1056,21 @@ router.patch("/complaints/:id", async (req, res, next) => {
     if (!["pending", "in_review", "resolved"].includes(status)) {
       throw Object.assign(new Error("Complaint status must be pending, in_review, or resolved."), { status: 400 });
     }
-    const updates = {
-      status,
-      admin_note: `${req.body.adminNote || req.body.admin_note || ""}`.trim(),
-      updated_at: new Date().toISOString(),
-    };
-    const { data, error } = await db.from("complaints").update(updates).eq("id", req.params.id).select("*").single();
-    if (error) throw error;
+    const response = parseNewCaseResponse(req.body);
+    const { data: existing, error: findError } = await db.from("complaints").select("id,status").eq("id", req.params.id).maybeSingle();
+    if (findError) throw findError;
+    if (!existing) throw Object.assign(new Error("Concern not found"), { status: 404 });
+    if (status === "resolved" && existing.status !== "resolved" && response.message.length < 3) {
+      throw Object.assign(new Error("Add a resolution explanation for the resident."), { status: 400 });
+    }
+    const data = await updateCaseWithHistory(db, { entityType: "complaint", id: req.params.id,
+      currentStatus: req.body.expectedStatus || existing.status, status, response, actorId: req.currentUser.id, operationId: req.body.operationId });
 
-    if (data.user_id) {
+    if (data.user_id && (status !== existing.status || (response.visibility === "resident" && response.message))) {
       await db.from("notifications").insert({
         user_id: data.user_id,
-        title: "Community concern updated",
-        body: `Your concern is now ${status.replace("_", " ")}.${updates.admin_note ? ` ${updates.admin_note}` : ""}`,
+        title: status === existing.status ? "New response to your concern" : "Community concern updated",
+        body: `Your concern is now ${status.replace("_", " ")}.${response.visibility === "resident" && response.message ? ` ${response.message}` : ""}`,
         kind: status === "resolved" ? "success" : "info",
         broadcast: false,
       });
@@ -1120,7 +1082,7 @@ router.patch("/complaints/:id", async (req, res, next) => {
       action: "update_complaint",
       entityType: "complaint",
       entityId: data.id,
-      details: updates,
+      details: { status, responseVisibility: response.visibility },
     });
 
     res.json({ complaint: data, message: "Community concern updated." });
@@ -1137,7 +1099,7 @@ router.get("/requests", async (_req, res, next) => {
       .select("*, request_timeline(*)")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ requests: data || [] });
+    res.json({ requests: await attachCaseHistories(db, "request", data || []) });
   } catch (error) {
     next(error);
   }
@@ -1146,31 +1108,33 @@ router.get("/requests", async (_req, res, next) => {
 router.patch("/requests/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const payload = {
-      status: req.body.status,
-      admin_note: req.body.adminNote || "",
-      updated_at: new Date().toISOString(),
-    };
-    const { data, error } = await db.from("requests").update(payload).eq("id", req.params.id).select("*").single();
-    if (error) throw error;
+    const response = parseNewCaseResponse(req.body);
+    const { data: existing, error: findError } = await db.from("requests").select("id,status").eq("id",req.params.id).maybeSingle();
+    if (findError) throw findError;
+    if (!existing) throw Object.assign(new Error("Document request not found"), { status: 404 });
+    const data = await updateCaseWithHistory(db, { entityType: "request", id: req.params.id,
+      currentStatus: req.body.expectedStatus || existing.status, status: req.body.status || existing.status,
+      response, actorId: req.currentUser.id, operationId: req.body.operationId });
+    const payload = { status: data.status, admin_note: response.visibility === "resident" ? response.message : "" };
 
-    await addTimelineEntry(db, data.id, payload.status, payload.admin_note);
-
+    const shouldNotify = data.status !== existing.status || (response.visibility === "resident" && Boolean(response.message));
+    if (shouldNotify) {
     const { data: resident } = await db.from("users").select("email, full_name, first_name").eq("id", data.user_id).maybeSingle();
     await sendSystemEmail({
       to: resident?.email,
-      subject: "Request status updated",
+      subject: data.status === existing.status ? "New response to your document request" : "Request status updated",
       text: `Your ${data.request_type} request is now ${payload.status}.${payload.admin_note ? ` Note: ${payload.admin_note}` : ""}`,
     }).catch((emailError) => {
       console.warn(`[EMAIL NOTIFICATION ERROR] ${resident?.email}: ${emailError.message}`);
     });
     await db.from("notifications").insert({
       user_id: data.user_id,
-      title: "Request status updated",
+      title: data.status === existing.status ? "New response to your document request" : "Request status updated",
       body: `${data.request_type} is now ${payload.status}. ${payload.admin_note || ""}`.trim(),
       kind: "info",
       broadcast: false,
     });
+    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -1178,7 +1142,7 @@ router.patch("/requests/:id", async (req, res, next) => {
       action: "update_request",
       entityType: "request",
       entityId: req.params.id,
-      details: payload,
+      details: { status: data.status, responseVisibility: response.visibility },
     });
 
     res.json({ request: data });
@@ -1195,7 +1159,7 @@ router.get("/id-requests", async (_req, res, next) => {
       .select("*, users!id_requests_user_id_fkey(full_name, first_name, last_name, contact_number)")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ requests: data || [] });
+    res.json({ requests: await attachCaseHistories(db, "id_request", data || []) });
   } catch (error) {
     next(error);
   }
@@ -1204,30 +1168,41 @@ router.get("/id-requests", async (_req, res, next) => {
 router.patch("/id-requests/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const payload = {
-      status: req.body.status,
-      admin_note: req.body.adminNote || "",
-      preferred_date: req.body.preferredDate || null,
-      time_slot: req.body.timeSlot || null,
-    };
-    const { data, error } = await db.from("id_requests").update(payload).eq("id", req.params.id).select("*").single();
-    if (error) throw error;
+    const response = parseNewCaseResponse(req.body);
+    const { data: existing, error: findError } = await db.from("id_requests").select("id,status").eq("id",req.params.id).maybeSingle();
+    if (findError) throw findError;
+    if (!existing) throw Object.assign(new Error("Barangay ID request not found"), { status: 404 });
+    const status = req.body.status || existing.status;
+    if (status === "cancelled" && existing.status !== "cancelled" && response.message.length < 3) {
+      throw Object.assign(new Error("An explanation is required when cancelling."), { status: 400 });
+    }
+    const extra = {};
+    if (req.body.preferredDate !== undefined) extra.preferred_date = req.body.preferredDate;
+    if (req.body.timeSlot !== undefined) extra.time_slot = req.body.timeSlot;
+    const data = await updateCaseWithHistory(db, { entityType: "id_request", id: req.params.id,
+      currentStatus: req.body.expectedStatus || existing.status, status,
+      response, actorId: req.currentUser.id, extra, operationId: req.body.operationId });
+    const payload = { status: data.status, preferred_date: data.preferred_date,
+      time_slot: data.time_slot, admin_note: response.visibility === "resident" ? response.message : "" };
 
+    const shouldNotify = data.status !== existing.status || (response.visibility === "resident" && Boolean(response.message));
+    if (shouldNotify) {
     const { data: resident } = await db.from("users").select("email, full_name, first_name").eq("id", data.user_id).maybeSingle();
     await sendSystemEmail({
       to: resident?.email,
-      subject: "Barangay ID schedule updated",
+      subject: data.status === existing.status ? "New response about your Barangay ID request" : "Barangay ID schedule updated",
       text: `Your Barangay ID request is now ${payload.status}. Pickup: ${payload.preferred_date || "to be scheduled"} ${payload.time_slot || ""}. ${payload.admin_note || ""}`.trim(),
     }).catch((emailError) => {
       console.warn(`[EMAIL NOTIFICATION ERROR] ${resident?.email}: ${emailError.message}`);
     });
     await db.from("notifications").insert({
       user_id: data.user_id,
-      title: "Barangay ID schedule updated",
+      title: data.status === existing.status ? "New response about your Barangay ID request" : "Barangay ID schedule updated",
       body: `Status: ${payload.status}. ${payload.admin_note || ""}`.trim(),
       kind: "info",
       broadcast: false,
     });
+    }
 
     res.json({ request: data });
   } catch (error) {
@@ -1246,19 +1221,98 @@ router.get("/content", async (_req, res, next) => {
   }
 });
 
+// Phase 7: hotline settings live in their own validated, concurrency-safe endpoint.
+// The general content endpoint may only update the general office contact.
 router.put("/content", async (req, res, next) => {
   try {
-    const db = requireSupabase();
-    for (const [key_name, value] of Object.entries(req.body || {})) {
-      const { error } = await db
-        .from("landing_content")
-        .upsert({ key_name, value, updated_at: new Date().toISOString() });
-      if (error) throw error;
+    const body = req.body || {};
+    if (Object.keys(body).length !== 1 || !Object.hasOwn(body, "contact")) {
+      const error = new Error("Use System Setup to edit hotlines; only general office contact is allowed here.");
+      error.status = 400;
+      throw error;
     }
-    res.json({ message: "Content updated." });
-  } catch (error) {
-    next(error);
-  }
+    const contact = body.contact;
+    if (!contact || typeof contact !== "object" || Array.isArray(contact)
+      || Object.keys(contact).some((field) => !["phone", "email", "address", "facebook"].includes(field))
+      || Object.values(contact).some((value) => typeof value !== "string" || value.length > 180)) {
+      const error = new Error("Invalid general contact information."); error.status = 400; throw error;
+    }
+    const db = requireSupabase();
+    const { error } = await db.from("landing_content").upsert({
+      key_name: "contact", value: contact, updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    res.json({ message: "General contact information saved." });
+  } catch (error) { next(error); }
+});
+
+router.get("/system-setup/hotlines", async (_req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data, error } = await db.from("landing_content")
+      .select("value, updated_at").eq("key_name", "hotlines").maybeSingle();
+    if (error) throw error;
+    if (!data) { const error = new Error("Phase 7 hotline configuration is missing."); error.status = 503; throw error; }
+    res.json({ hotlines: configuredHotlines({ hotlines: data.value }), updated_at: data.updated_at });
+  } catch (error) { next(error); }
+});
+
+router.put("/system-setup/hotlines", async (req, res, next) => {
+  try {
+    const hotlines = validateHotlines(req.body?.hotlines);
+    const version = req.body?.expectedUpdatedAt;
+    if (typeof version !== "string" || !Number.isFinite(Date.parse(version))) {
+      const error = new Error("Reload the latest hotline settings before saving."); error.status = 400; throw error;
+    }
+    const db = requireSupabase();
+    const { data, error } = await db.rpc("bgy_phase7_save_hotlines", {
+      p_hotlines: { hotlines }, p_expected_updated_at: version,
+    });
+    if (error) {
+      if (error.code === "40001" || /updated by someone else/i.test(error.message || "")) {
+        const conflict = new Error("Hotline settings were changed by another administrator. Reload before saving again.");
+        conflict.status = 409; throw conflict;
+      }
+      throw error;
+    }
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.updated_at) throw new Error("Hotline settings were not saved.");
+    res.json({ message: "Hotline settings saved.", hotlines: validateHotlines(saved.value?.hotlines), updated_at: saved.updated_at });
+  } catch (error) { next(error); }
+});
+
+// Phase 8: quota configuration is separate from hotlines and public contact.
+router.get("/system-setup/concern-limits", async (_req, res, next) => {
+  try {
+    const { data, error } = await requireSupabase().from("landing_content")
+      .select("value, updated_at").eq("key_name", "concern_submission_limits").maybeSingle();
+    if (error) throw error;
+    if (!data) throw Object.assign(new Error("Phase 8 concern policy is missing."), { status: 503 });
+    res.json({ policy: validateConcernLimits(data.value), updated_at: data.updated_at });
+  } catch (error) { next(error); }
+});
+
+router.put("/system-setup/concern-limits", async (req, res, next) => {
+  try {
+    const policy = validateConcernLimits(req.body?.policy);
+    const expectedUpdatedAt = req.body?.expectedUpdatedAt;
+    if (typeof expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+      throw Object.assign(new Error("Reload current concern limits before saving."), { status: 400 });
+    }
+    const { data, error } = await requireSupabase().rpc("bgy_phase8_save_concern_limits", {
+      p_policy: policy,
+      p_expected_updated_at: expectedUpdatedAt,
+    });
+    if (error) {
+      if (error.code === "40001" || /changed by another administrator/i.test(error.message || "")) {
+        throw Object.assign(new Error("Another administrator changed these limits. Reload before trying again."), { status: 409, code: "CONCERN_POLICY_STALE" });
+      }
+      throw error;
+    }
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved?.updated_at) throw new Error("Concern submission settings were not saved.");
+    res.json({ message: "Community concern limits saved.", policy: validateConcernLimits(saved.value), updated_at: saved.updated_at });
+  } catch (error) { next(error); }
 });
 
 router.post("/broadcast", async (req, res, next) => {
@@ -1299,51 +1353,106 @@ router.post("/audit/page-view", async (req, res, next) => {
   }
 });
 
+// Phase 1 Audit history. Module/date/action filters are applied in PostgreSQL before
+// pagination. Legacy V4 rows remain visible in the Activity/Legacy view.
+const auditFilter = (db, params, { includeCount = false } = {}) => {
+  let query = db.from("audit_logs").select("*", includeCount ? { count: "exact" } : undefined);
+  const category = `${params.category || "all"}`;
+  const module = `${params.module || "all"}`;
+  const outcome = `${params.outcome || "all"}`;
+  const actor = `${params.actor || ""}`.trim();
+  const action = `${params.action || ""}`.trim();
+  const search = `${params.search || ""}`.trim().slice(0, 100);
+  if (["change", "activity", "security"].includes(category)) query = query.eq("event_category", category);
+  if (category === "legacy") query = query.is("event_category", null);
+  if (module !== "all") query = query.eq("module", module);
+  if (["success", "failed", "denied", "partial"].includes(outcome)) query = query.eq("outcome", outcome);
+  if (actor) query = query.eq("actor_id", actor);
+  if (action) query = query.ilike("action", `%${action.replace(/[%,()\\]/g, "").slice(0, 100)}%`);
+  if (search) {
+    // Escape PostgREST OR operators; search remains a literal text fragment.
+    const safe = search.replace(/[^a-zA-Z0-9 ._@-]/g, " ").trim();
+    if (safe) query = query.or(["action","entity_type","entity_id","module","actor_name_snapshot","target_label"].map((key) => `${key}.ilike.%${safe}%`).join(","));
+  }
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (params.from && datePattern.test(`${params.from}`)) query = query.gte("created_at", `${params.from}T00:00:00+08:00`);
+  if (params.to && datePattern.test(`${params.to}`)) {
+    const nextDay = new Date(`${params.to}T00:00:00.000Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    query = query.lt("created_at", `${nextDay.toISOString().slice(0,10)}T00:00:00+08:00`);
+  }
+  return query.order("created_at", { ascending: false }).order("id", { ascending: false });
+};
+
+const auditEnrichNames = async (db, logs) => {
+  const withoutName = [...new Set(logs.filter((item) => !item.actor_name_snapshot && item.actor_id).map((item) => item.actor_id))];
+  let names = new Map();
+  if (withoutName.length) {
+    const result = await db.from("users").select("id, full_name, username").in("id", withoutName);
+    if (result.error) throw result.error;
+    names = new Map((result.data || []).map((user) => [user.id, user.full_name || user.username]));
+  }
+  return logs.map((log) => ({ ...log,
+    details: cleanAuditValue(log.details), before_data: cleanAuditValue(log.before_data),
+    after_data: cleanAuditValue(log.after_data), changed_fields: cleanAuditValue(log.changed_fields),
+    actor_name: log.actor_name_snapshot || names.get(log.actor_id) || null,
+  }));
+};
+
 router.get("/audit-logs", async (req, res, next) => {
   try {
-    if (normalizeRole(req.currentUser.role) !== "super_admin") {
-      throw Object.assign(new Error("Only super admins can view audit logs."), { status: 403 });
-    }
     const db = requireSupabase();
-    const page = Math.max(1, Number(req.query.page || 1));
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 25)));
-    const module = `${req.query.module || "all"}`.trim();
-    const outcome = `${req.query.outcome || "all"}`.trim();
-    const action = `${req.query.action || ""}`.trim();
-    const search = `${req.query.search || ""}`.trim();
-
-    let query = db.from("audit_logs").select("*", { count: "exact" }).order("created_at", { ascending: false });
-    if (module !== "all") query = query.eq("module", module);
-    if (outcome !== "all") query = query.eq("outcome", outcome);
-    if (action) query = query.ilike("action", `%${action}%`);
-    if (search) query = query.or(`action.ilike.%${search}%,entity_type.ilike.%${search}%,module.ilike.%${search}%`);
-
+    const page = Math.max(1, Math.min(100000, Number(req.query.page || 1) || 1));
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 25) || 25));
     const from = (page - 1) * limit;
-    let result = await query.range(from, from + limit - 1);
+    const { data, error, count } = await auditFilter(db, req.query, { includeCount: true }).range(from, from + limit - 1);
+    if (error) throw error;
+    const logs = await auditEnrichNames(db, data || []);
+    res.json({ logs, pagination: { page, limit, total: count || 0, totalPages: Math.max(1, Math.ceil((count || 0) / limit)) } });
+  } catch (error) { next(error); }
+});
 
-    // V3 compatibility when expanded V4 audit columns do not exist yet.
-    if (result.error && /module|outcome/i.test(result.error.message || "")) {
-      result = await db.from("audit_logs").select("*", { count: "exact" }).order("created_at", { ascending: false }).range(from, from + limit - 1);
+router.get("/audit-logs/export", async (req, res, next) => {
+  try {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const { from, to } = req.query;
+    if (!datePattern.test(`${from || ""}`) || !datePattern.test(`${to || ""}`))
+      throw Object.assign(new Error("Select a valid From and To date to export."), { status: 400 });
+    const days = (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000;
+    if (days < 0 || days > 366 || !Number.isFinite(days))
+      throw Object.assign(new Error("Audit export date range must be between 0 and 366 days."), { status: 400 });
+    const db = requireSupabase();
+    // PostgREST/Supabase may cap a single request at 1,000 rows. Fetch EVERY
+    // matching event in stable pages, bounded by a shared snapshot timestamp.
+    // An incomplete report must be rejected, never silently downloaded.
+    const snapshot = new Date().toISOString();
+    const chunkSize = 500;
+    const first = await auditFilter(db, req.query, { includeCount: true })
+      .lte("created_at", snapshot).range(0, chunkSize - 1);
+    if (first.error) throw first.error;
+    const total = first.count || 0;
+    if (total > 10000)
+      throw Object.assign(new Error("More than 10,000 events match. Narrow the date range before exporting."), { status: 422 });
+    const rows = [...(first.data || [])];
+    for (let offset = rows.length; offset < total; offset += chunkSize) {
+      const nextPage = await auditFilter(db, req.query).lte("created_at", snapshot)
+        .range(offset, Math.min(total - 1, offset + chunkSize - 1));
+      if (nextPage.error) throw nextPage.error;
+      rows.push(...(nextPage.data || []));
     }
-    if (result.error) throw result.error;
-
-    const users = await db.from("users").select("id, full_name, first_name, last_name, username");
-    if (users.error) throw users.error;
-    const names = new Map((users.data || []).map((user) => [user.id, user.full_name || [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || null]));
-    const logs = (result.data || []).map((item) => ({
-      ...item,
-      actor_name: item.actor_name_snapshot || names.get(item.actor_id) || null,
-    }));
-
-    const modules = [...new Set(logs.map((item) => item.module).filter(Boolean))].sort();
-    res.json({
-      logs,
-      modules,
-      pagination: { page, limit, total: result.count || 0, totalPages: Math.max(1, Math.ceil((result.count || 0) / limit)) },
-    });
-  } catch (error) {
-    next(error);
-  }
+    if (rows.length !== total)
+      throw Object.assign(new Error("Report data changed during export. Please retry."), { status: 409 });
+    const logs = await auditEnrichNames(db, rows);
+    const workbook = createAuditWorkbook(logs);
+    // Audit report access is itself an activity. Await before releasing the file.
+    await logAudit({ actorId: req.currentUser.id, actorRole: req.currentUser.role,
+      action: "audit_report_exported", entityType: "audit_report", entityId: req.auditRequestId,
+      eventCategory: "activity", required: true, details: { from, to, count: logs.length, filters: { category: req.query.category, module: req.query.module, outcome: req.query.outcome } }, req });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="barangayiba-audit-${from}-to-${to}.xlsx"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(workbook);
+  } catch (error) { next(error); }
 });
 
 
@@ -1386,7 +1495,7 @@ router.post("/projects/from-election/:electionId", async (req, res, next) => {
   try {
     const db = requireSupabase();
     const project = await ensureCommunityProjectForElection(db, req.params.electionId, { createdBy: req.currentUser.id });
-    if (!project) throw Object.assign(new Error("A community project can only be created from a closed election that has at least one vote."), { status: 400 });
+    if (!project) throw Object.assign(new Error("Only a finalized election with a unique winner can create a community project."), { status: 409 });
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
@@ -1425,6 +1534,12 @@ router.patch("/projects/:id", async (req, res, next) => {
     for (const [bodyKey, dbKey] of [["plannedStartDate", "planned_start_date"], ["actualStartDate", "actual_start_date"], ["expectedCompletionDate", "expected_completion_date"]]) {
       if (req.body[bodyKey] !== undefined) updates[dbKey] = req.body[bodyKey] || null;
     }
+    const reason = `${req.body.reason || ""}`.trim();
+    if ((["on_hold", "cancelled"].includes(updates.status) ||
+         existing.status === "completed" && updates.status && updates.status !== "completed" ||
+         updates.progress_percentage !== undefined && updates.progress_percentage < existing.progress_percentage) && reason.length < 5) {
+      throw Object.assign(new Error("Provide a reason for pausing, cancelling, correcting completion or reducing progress."), { status: 400 });
+    }
     if (updates.status === "ongoing" && !existing.actual_start_date && !updates.actual_start_date) updates.actual_start_date = new Date().toISOString().slice(0, 10);
     if (updates.status === "completed") {
       updates.progress_percentage = 100;
@@ -1433,8 +1548,11 @@ router.patch("/projects/:id", async (req, res, next) => {
     if (updates.status && updates.status !== "completed") updates.completed_at = null;
     updates.updated_at = new Date().toISOString();
 
-    const { data, error } = await db.from("community_projects").update(updates).eq("id", req.params.id).select("*").single();
-    if (error) throw error;
+    const { data, error } = await db.rpc("bgy_phase10_update_project", {
+      p_actor: req.currentUser.id, p_project: req.params.id,
+      p_changes: updates, p_reason: reason || null,
+    });
+    if (error) throw mapVotingRpcError(error);
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -1481,40 +1599,17 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
       created_by: req.currentUser.id,
       updated_at: new Date().toISOString(),
     };
-    const { data: update, error } = await db.from("project_updates").insert(payload).select("*").single();
-    if (error) throw error;
+    const { data: saved, error: publishError } = await db.rpc("bgy_phase10_publish_project_update", {
+      p_actor: req.currentUser.id, p_project: project.id,
+      p_title: title, p_description: description, p_image_url: imageUrl,
+      p_progress: progress, p_status: status,
+      p_update_date: payload.update_date, p_reason: `${req.body.reason || ""}`.trim() || null,
+    });
+    if (publishError) throw mapVotingRpcError(publishError);
+    const update = saved.update;
+    const savedProject = saved.project;
 
-    const projectChanges = { updated_at: new Date().toISOString() };
-    if (progress !== null) projectChanges.progress_percentage = progress;
-    if (status) projectChanges.status = status;
-    if (status === "ongoing" && !project.actual_start_date) projectChanges.actual_start_date = payload.update_date;
-    if (status === "completed") {
-      projectChanges.status = "completed";
-      projectChanges.progress_percentage = 100;
-      projectChanges.completed_at = new Date().toISOString();
-    }
-    const { data: savedProject, error: updateProjectError } = await db.from("community_projects").update(projectChanges).eq("id", project.id).select("*").single();
-    if (updateProjectError) throw updateProjectError;
-
-    const residents = await getResidentRecipients(db);
-    if (residents.length) {
-      const notificationRows = residents.map((resident) => ({
-        user_id: resident.id,
-        title: `Project Update: ${project.title}`,
-        body: `${title} — ${description.slice(0, 220)}`,
-        kind: status === "completed" ? "success" : "info",
-        broadcast: false,
-        entity_type: "community_project",
-        entity_id: project.id,
-        destination: `/project-updates/${project.id}`,
-      }));
-      let notificationResult = await db.from("notifications").insert(notificationRows);
-      if (notificationResult.error && /entity_type|entity_id|destination/i.test(notificationResult.error.message || "")) {
-        notificationResult = await db.from("notifications").insert(notificationRows.map(({ entity_type, entity_id, destination, ...row }) => row));
-      }
-      if (notificationResult.error) console.warn(`[PROJECT NOTIFICATION ERROR] ${notificationResult.error.message}`);
-    }
-
+    // Durable in-app notification is queued inside the publish transaction.
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
@@ -1527,7 +1622,7 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
       details: payload,
       req,
     });
-    res.status(201).json({ update, project: savedProject, message: "Project update published and residents were notified." });
+    res.status(201).json({ update, project: savedProject, message: "Project update published; resident notifications have been queued." });
   } catch (error) {
     next(error);
   }
@@ -1573,33 +1668,15 @@ router.patch("/projects/:projectId/updates/:updateId", upload.single("image"), a
       updated_at: new Date().toISOString(),
     };
 
-    const { data: savedUpdate, error } = await db
-      .from("project_updates")
-      .update(payload)
-      .eq("id", existing.id)
-      .select("*")
-      .single();
-    if (error) throw error;
-
-    const projectChanges = { updated_at: new Date().toISOString() };
-    if (progress !== null && progress !== undefined) projectChanges.progress_percentage = progress;
-    if (status) projectChanges.status = status;
-    if (status === "ongoing" && !project.actual_start_date) projectChanges.actual_start_date = payload.update_date;
-    if (status === "completed") {
-      projectChanges.status = "completed";
-      projectChanges.progress_percentage = 100;
-      projectChanges.completed_at = project.completed_at || new Date().toISOString();
-    } else if (status) {
-      projectChanges.completed_at = null;
-    }
-
-    const { data: savedProject, error: projectSaveError } = await db
-      .from("community_projects")
-      .update(projectChanges)
-      .eq("id", project.id)
-      .select("*")
-      .single();
-    if (projectSaveError) throw projectSaveError;
+    const { data: savedUpdate, error } = await db.rpc("bgy_phase10_correct_project_update", {
+      p_actor: req.currentUser.id, p_project: project.id, p_update: existing.id,
+      p_title: payload.title, p_description: payload.description,
+      p_image_url: payload.image_url, p_progress: payload.progress_percentage,
+      p_status: payload.project_status, p_update_date: payload.update_date,
+    });
+    if (error) throw mapVotingRpcError(error);
+    // Correction of a historical milestone never overwrites current project progress.
+    const savedProject = project;
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -2022,3 +2099,4 @@ tableCrud({
 });
 
 export default router;
+

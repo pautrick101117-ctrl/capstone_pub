@@ -1,3 +1,5 @@
+import CaseHistory from "../../components/CaseHistory";
+import { useReviewAction } from "../../components/ActionReviewProvider";
 import { ImagePlus, Info, Lightbulb, Pencil, Send, Trophy, Vote, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -21,10 +23,14 @@ const outcomeMeta = {
   in_voting: { label: "Currently in Voting", tone: "info" },
   scheduled: { label: "Included in Voting", tone: "info" },
   not_selected: { label: "Not Selected by Vote", tone: "neutral" },
+  tied: { label: "Tied — Runoff Required", tone: "warning" },
+  no_votes: { label: "Vote Closed Without Votes", tone: "neutral" },
+  legacy_review: { label: "Historical Result Under Review", tone: "warning" },
 };
 
 const SuggestionsPage = () => {
   const { token } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [suggestions, setSuggestions] = useState([]);
   const [form, setForm] = useState({ title: "", description: "", image: null, preview: "" });
@@ -64,6 +70,7 @@ const SuggestionsPage = () => {
   const saveEdit = async (event) => {
     event.preventDefault();
     if (!editItem) return;
+    if (!await reviewAction({ title: "Confirm Project Suggestion Changes", description: "The updated suggestion will be reviewed by the barangay.", before: { title: editItem.title, description: editItem.description }, after: editForm, confirmLabel: "Save Suggestion" })) return;
     setSaving(true);
     try {
       const formData = new FormData();
@@ -84,7 +91,9 @@ const SuggestionsPage = () => {
   };
 
   const submit = async (event) => {
-    event.preventDefault(); setSaving(true);
+    event.preventDefault();
+    if (!await reviewAction({ title: "Submit Project Suggestion?", description: "Your idea will be sent to the barangay for review.", after: { title: form.title, description: form.description }, confirmLabel: "Submit Suggestion" })) return;
+    setSaving(true);
     try {
       const formData = new FormData(); formData.append("title", form.title); formData.append("description", form.description); if (form.image) formData.append("image", form.image);
       await api("/suggestions", { method: "POST", token, body: formData });
@@ -113,7 +122,7 @@ const SuggestionsPage = () => {
               const meta = getStatusMeta(item.status, "suggestion");
               const outcome = outcomeMeta[item.votingOutcome];
               const projectMeta = item.project ? getStatusMeta(item.project.status) : null;
-              return <Card key={item.id}>{item.image_url ? <img src={item.image_url} alt={item.title} className="mb-4 h-52 w-full rounded-2xl object-cover" /> : null}<div className="flex flex-wrap items-center gap-2"><Badge tone={meta.tone}>{meta.label}</Badge>{outcome ? <Badge tone={outcome.tone}>{outcome.label}</Badge> : null}{item.project ? <Badge tone={projectMeta.tone}>{projectMeta.label} · {item.project.progress_percentage || 0}%</Badge> : null}</div><h3 className="mt-3 text-lg font-bold text-[var(--brand-900)]">{item.title}</h3><p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p>{item.review_note ? <div className="mt-4 rounded-2xl bg-stone-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-stone-400">Barangay review note</p><p className="mt-1 text-sm text-stone-700">{item.review_note}</p></div> : null}<div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-stone-400">Submitted {formatDateTime(item.created_at)}</p><div className="flex flex-wrap items-center gap-2">{item.status === "pending" && !item.votingOutcome ? <Button type="button" variant="secondary" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /> Edit</Button> : null}{item.project ? <NavLink to={`/project-updates/${item.project.id}`} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Trophy className="h-4 w-4" /> View Project Updates</NavLink> : item.votingOutcome === "in_voting" ? <NavLink to="/portal/voting" className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Vote className="h-4 w-4" /> View Voting</NavLink> : null}</div></div></Card>;
+              return <Card key={item.id}>{item.image_url ? <img src={item.image_url} alt={item.title} className="mb-4 h-52 w-full rounded-2xl object-cover" /> : null}<div className="flex flex-wrap items-center gap-2"><Badge tone={meta.tone}>{meta.label}</Badge>{outcome ? <Badge tone={outcome.tone}>{outcome.label}</Badge> : null}{item.project ? <Badge tone={projectMeta.tone}>{projectMeta.label} · {item.project.progress_percentage || 0}%</Badge> : null}</div><h3 className="mt-3 text-lg font-bold text-[var(--brand-900)]">{item.title}</h3><p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p><CaseHistory events={item.case_history} compact /><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-stone-400">Submitted {formatDateTime(item.created_at)}</p><div className="flex flex-wrap items-center gap-2">{item.status === "pending" && !item.votingOutcome ? <Button type="button" variant="secondary" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /> Edit</Button> : null}{item.project ? <NavLink to={`/project-updates/${item.project.id}`} className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Trophy className="h-4 w-4" /> View Project Updates</NavLink> : item.votingOutcome === "in_voting" ? <NavLink to="/portal/voting" className="inline-flex items-center gap-2 text-sm font-bold text-[var(--brand-700)] hover:underline"><Vote className="h-4 w-4" /> View Voting</NavLink> : null}</div></div></Card>;
             })}
           </div>
         )}
@@ -133,3 +142,4 @@ const SuggestionsPage = () => {
 };
 
 export default SuggestionsPage;
+

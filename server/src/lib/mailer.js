@@ -1,4 +1,5 @@
 import { env, validateResendConfig } from "./env.js";
+import { buildResidentCredentialEmail } from "./residentCredentialEmail.js";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -67,58 +68,21 @@ export const sendVerificationEmail = async ({ email, code, fullName }) =>
     text: `Hello ${fullName || "resident"}, your verification code is ${code}. It expires in 10 minutes.`,
   });
 
-const credentialEmail = ({ fullName, username, temporaryPassword, role, reset = false }) => {
-  const roleLabel = role.replace(/_/g, " ");
-  const escapeHtml = (value) => String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-  const intro = reset
-    ? `Your Barangay Iba ${roleLabel} account password was reset by an administrator.`
-    : `Your Barangay Iba ${roleLabel} portal account has been created.`;
-  const text = [
-    `Hello ${fullName || roleLabel},`,
-    "",
-    intro,
-    `Username: ${username}`,
-    `Temporary password: ${temporaryPassword}`,
-    "",
-    "For security, sign in using this temporary password and create a new password immediately. Your new password must be at least 8 characters and include at least one uppercase letter and one number. The resident portal will remain locked until the password is changed.",
-    "",
-    "If you did not expect this message, please contact the Barangay Iba office.",
-  ].join("\n");
-
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#1f2937;line-height:1.6">
-      <h2 style="color:#1f552a">Barangay Iba Portal</h2>
-      <p>Hello ${escapeHtml(fullName || roleLabel)},</p>
-      <p>${escapeHtml(intro)}</p>
-      <div style="background:#f2f8f2;border:1px solid #beddb9;border-radius:12px;padding:16px">
-        <strong>Username:</strong> ${escapeHtml(username)}<br/>
-        <strong>Temporary password:</strong> ${escapeHtml(temporaryPassword)}
-      </div>
-      <p><strong>Required on first login:</strong> create a new password with at least 8 characters, at least one uppercase letter, and at least one number before using the resident portal.</p>
-      <p style="font-size:13px;color:#64748b">If you did not expect this message, please contact the Barangay Iba office.</p>
-    </div>`;
-  return { text, html };
-};
-
 export const sendAccountCreatedEmail = async ({ email, fullName, username, temporaryPassword, role = "resident" }) => {
-  const body = credentialEmail({ fullName, username, temporaryPassword, role, reset: false });
+  const body = buildResidentCredentialEmail({ fullName, username, temporaryPassword, reset: false, clientUrl: env.clientUrl });
   return sendSystemEmail({
     to: email,
-    subject: "Your Barangay Iba portal account is ready",
+    subject: "Welcome to Barangay Iba Portal",
     ...body,
   });
 };
 
 export const sendPasswordResetEmail = async ({ email, fullName, username, temporaryPassword, role = "resident" }) => {
-  const body = credentialEmail({ fullName, username, temporaryPassword, role, reset: true });
+  const body = buildResidentCredentialEmail({ fullName, username, temporaryPassword, reset: true, clientUrl: env.clientUrl });
   return sendSystemEmail({
     to: email,
-    subject: "Your Barangay Iba temporary password",
+    subject: "Your Barangay Iba password reset instructions",
     ...body,
   });
 };
+

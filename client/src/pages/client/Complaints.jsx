@@ -1,5 +1,8 @@
-import { Clock3, Phone, Send } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useReviewAction } from "../../components/ActionReviewProvider";
+import { Clock3, Send } from "lucide-react";
+import HotlineContacts from "../../components/HotlineContacts";
+import CaseHistory from "../../components/CaseHistory";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
@@ -10,13 +13,20 @@ import { getStatusMeta } from "../../lib/status";
 
 const INITIAL_FORM = { complaint_type: "", details: "" };
 const pageSize = 6;
+const formatPhilippineDateTime = (value) => value ? new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+}).format(new Date(value)) : "Not set";
 
 const Complaints = () => {
   const { token, refreshNotifications } = useAuth();
+  const reviewAction = useReviewAction();
   const toast = useToast();
   const [form, setForm] = useState(INITIAL_FORM);
   const [complaints, setComplaints] = useState([]);
-  const [hotline, setHotline] = useState(null);
+  const [hotlines, setHotlines] = useState([]);
+  const [eligibility, setEligibility] = useState(null);
+  const [eligibilityError, setEligibilityError] = useState("");
+  const operationIdRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -25,13 +35,30 @@ const Complaints = () => {
   const [page, setPage] = useState(1);
   const { options: concernOptions } = useMasterData("concern_category");
 
+  const loadEligibility = async () => {
+    try {
+      const data = await api("/complaints/eligibility", { token });
+      setEligibility(data);
+      setEligibilityError("");
+    } catch (problem) {
+      setEligibility(null);
+      setEligibilityError(problem.message || "Unable to check your submission allowance.");
+    }
+  };
+
+  const updateForm = (updates) => {
+    operationIdRef.current = null;
+    setForm((previous) => ({ ...previous, ...updates }));
+  };
+
   const load = async () => {
     setLoading(true);
     setError("");
     try {
       const [mine, support] = await Promise.all([api("/complaints/mine", { token }), api("/public/community-support")]);
+      await loadEligibility();
       setComplaints(mine.complaints || []);
-      setHotline(support.hotline || null);
+      setHotlines(support.hotlines || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -41,20 +68,29 @@ const Complaints = () => {
 
   useEffect(() => { if (token) load(); }, [token]);
 
+  const quotaBlocked = Boolean(eligibility?.enabled && !eligibility.allowed);
+  const windowBlocked = eligibility?.blockedReasons?.includes("CONCERN_WINDOW_LIMIT_REACHED");
+  const openBlocked = eligibility?.blockedReasons?.includes("CONCERN_OPEN_LIMIT_REACHED");
+
   const visibleComplaints = useMemo(() => complaints.slice((page - 1) * pageSize, page * pageSize), [complaints, page]);
 
   const submitComplaint = async (event) => {
     event.preventDefault();
-    if (!form.complaint_type.trim() || !form.details.trim()) return toast.error("Concern type and details are required.");
+    if (!form.complaint_type.trim() || form.details.trim().length < 10) return toast.error("Select a concern type and enter at least 10 characters.");
+    if (!eligibility || !eligibility.allowed) return toast.error("Unable to submit right now. Review your allowance or reload to check your eligibility.");
+    if (!await reviewAction({ title: "Submit Community Concern?", description: "Your concern will be sent to the barangay for review.", after: { category: form.complaint_type, details: form.details }, confirmLabel: "Submit Concern" })) return;
     setSubmitting(true);
     try {
-      const data = await api("/complaints", { method: "POST", token, body: form });
+      if (!operationIdRef.current) operationIdRef.current = crypto.randomUUID();
+      const data = await api("/complaints", { method: "POST", token, body: { ...form, operationId: operationIdRef.current } });
+      operationIdRef.current = null;
       setSuccess(data.complaint || true);
       setForm(INITIAL_FORM);
       setActiveTab("mine");
       await Promise.all([load(), refreshNotifications()]);
     } catch (err) {
       toast.error(err.message);
+      await loadEligibility();
     } finally {
       setSubmitting(false);
     }
@@ -62,17 +98,25 @@ const Complaints = () => {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Resident Services" title="Community concerns" description="Report non-emergency community issues to barangay staff and follow the response until the concern is resolved." actions={<Button type="button" onClick={() => setActiveTab("report")}><Send className="h-4 w-4" /> Report Concern</Button>} />
+      <PageHeader eyebrow="Resident Services" title="Community concerns" description="Report non-emergency community issues to barangay staff and follow the response until the concern is resolved." actions={<Button type="button" onClick={() => { setActiveTab("report"); loadEligibility(); }}><Send className="h-4 w-4" /> Report Concern</Button>} />
 
-      {hotline ? (
-        <Alert tone="danger" title={hotline.title || "Barangay Hotline"} actions={<a href={`tel:${hotline.phone || ""}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white"><Phone className="h-4 w-4" /> {hotline.phone || "Call Hotline"}</a>}>
-          <p>For urgent matters, call the barangay instead of submitting a normal concern and waiting for review. {hotline.hours ? `Availability: ${hotline.hours}.` : ""}</p>
-        </Alert>
-      ) : null}
+      {hotlines.length ? <Alert tone="danger" title="Need immediate barangay assistance?">
+        <p>For urgent matters, call the barangay directly instead of submitting a normal concern and waiting for review.</p>
+        <HotlineContacts hotlines={hotlines} />
+      </Alert> : null}
 
       {success ? <Alert tone="success" title="Concern submitted"><p>Your report is now in the barangay review queue. Status updates and barangay responses will appear in My Concerns and Notifications.</p>{success?.id ? <p className="mt-1 text-xs font-semibold">Reference: {success.id}</p> : null}</Alert> : null}
 
-      <SegmentedTabs value={activeTab} onChange={(value) => { setSuccess(null); setActiveTab(value); }} items={[{ value: "mine", label: "My Concerns", count: complaints.length }, { value: "report", label: "Report Concern" }]} />
+      {eligibility?.enabled ? <Card className="bg-emerald-50/40">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold text-[var(--brand-900)]">Your Concern Submission Allowance</h2><Badge tone={quotaBlocked ? "danger" : "success"}>{quotaBlocked ? "Limit reached" : "Eligible"}</Badge></div>
+        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+          <p><strong>{eligibility.rollingPeriod.remaining} remaining</strong> out of {eligibility.rollingPeriod.maximum} in the preceding {eligibility.rollingPeriod.days} day(s)</p>
+          {eligibility.unresolved.enabled ? <p><strong>{eligibility.unresolved.used} unresolved</strong> out of {eligibility.unresolved.maximum} allowed</p> : null}
+        </div>
+        {quotaBlocked ? <p className="mt-3 text-sm font-medium text-rose-700" role="alert">{windowBlocked ? "You've reached your rolling submission limit. " : ""}{openBlocked ? "You have the maximum number of unresolved concerns. " : ""}{windowBlocked && eligibility.nextAvailableAt ? `Your rolling allowance may renew after ${formatPhilippineDateTime(eligibility.nextAvailableAt)} (if other limits also allow it).` : ""} You can still track concerns and call the barangay hotlines above.</p> : null}
+      </Card> : eligibilityError ? <Alert tone="danger" title="Submission allowance unavailable">{eligibilityError} You may still view existing concerns. <Button type="button" variant="secondary" onClick={loadEligibility}>Retry Check</Button></Alert> : null}
+
+      <SegmentedTabs value={activeTab} onChange={(value) => { setSuccess(null); setActiveTab(value); if (value === "report") loadEligibility(); }} items={[{ value: "mine", label: "My Concerns", count: complaints.length }, { value: "report", label: "Report Concern" }]} />
 
       {activeTab === "report" ? (
         <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
@@ -89,15 +133,16 @@ const Complaints = () => {
             <h2 className="text-xl font-bold text-[var(--brand-900)]">Concern details</h2>
             <p className="mt-1 text-sm text-stone-500">Your report will be visible to authorized barangay staff.</p>
             <form className="mt-6 space-y-5" onSubmit={submitComplaint}>
-              <SelectInput label="Concern Type" required value={form.complaint_type} onChange={(event) => setForm((current) => ({ ...current, complaint_type: event.target.value }))}><option value="">Select a concern</option>{concernOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
-              <TextArea label="Details" required minLength={10} maxLength={1500} hint="Include the exact location and enough context for barangay staff to understand what happened." value={form.details} onChange={(event) => setForm((current) => ({ ...current, details: event.target.value }))} placeholder="Describe the location, issue, and any useful details..." />
-              <Button type="submit" loading={submitting}><Send className="h-4 w-4" /> Submit Concern</Button>
+              <SelectInput label="Concern Type" required value={form.complaint_type} onChange={(event) => updateForm({ complaint_type: event.target.value })}><option value="">Select a concern</option>{concernOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+              <TextArea label="Details" required minLength={10} maxLength={1500} hint="Include the exact location and enough context for barangay staff to understand what happened." value={form.details} onChange={(event) => updateForm({ details: event.target.value })} placeholder="Describe the location, issue, and any useful details..." />
+              {(!eligibility || quotaBlocked) ? <p className="text-sm text-rose-700" role="status">{quotaBlocked ? "New concern submissions are temporarily limited. Your existing concerns remain accessible." : "Checking your submission allowance. Please wait or retry the check above."}</p> : null}
+              <Button type="submit" loading={submitting} disabled={!eligibility || quotaBlocked}><Send className="h-4 w-4" /> Submit Concern</Button>
             </form>
           </Card>
         </div>
       ) : (
         <div className="space-y-4">
-          {loading ? <LoadingState rows={3} /> : error ? <ErrorState description={error} onRetry={load} /> : complaints.length === 0 ? <EmptyState title="No concerns submitted" description="If you notice a non-emergency issue in the community, submit a report and track the barangay response here." action={<Button type="button" onClick={() => setActiveTab("report")}>Report a Concern</Button>} /> : visibleComplaints.map((complaint) => {
+          {loading ? <LoadingState rows={3} /> : error ? <ErrorState description={error} onRetry={load} /> : complaints.length === 0 ? <EmptyState title="No concerns submitted" description="If you notice a non-emergency issue in the community, submit a report and track the barangay response here." action={<Button type="button" onClick={() => { setActiveTab("report"); loadEligibility(); }}>Report a Concern</Button>} /> : visibleComplaints.map((complaint) => {
             const meta = getStatusMeta(complaint.status || "pending", "complaint");
             return (
               <Card key={complaint.id}>
@@ -106,7 +151,7 @@ const Complaints = () => {
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                 </div>
                 <p className="mt-4 text-sm leading-7 text-stone-700">{complaint.details}</p>
-                {complaint.admin_note ? <div className="mt-4 rounded-2xl bg-sky-50 p-4 text-sm text-stone-700"><p className="font-semibold text-sky-800">Barangay response</p><p className="mt-1 leading-6">{complaint.admin_note}</p></div> : complaint.status !== "resolved" ? <div className="mt-4 rounded-2xl bg-stone-50 p-4 text-sm text-stone-500">Barangay staff has not added a response yet.</div> : null}
+                <CaseHistory events={complaint.case_history} />
               </Card>
             );
           })}
@@ -118,3 +163,4 @@ const Complaints = () => {
 };
 
 export default Complaints;
+
