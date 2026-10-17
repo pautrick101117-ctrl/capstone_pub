@@ -1,3 +1,4 @@
+import { residentWriteLimiter, persistentLimit } from "../middleware/persistentLimit.js";
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
@@ -140,6 +141,7 @@ router.post(
   "/requests",
   ensureResident,
   rateLimit({ key: "borrowing-request", max: 10, windowMs: 10 * 60_000 }),
+  residentWriteLimiter,
   async (req, res, next) => {
     try {
       const db = requireSupabase();
@@ -147,6 +149,10 @@ router.post(
       const purpose = `${req.body.purpose || ""}`.trim();
       const eventLocation = `${req.body.eventLocation || ""}`.trim();
       const termsAccepted = req.body.termsAccepted === true;
+      const bookingContact=`${req.body.bookingContact||req.currentUser.contact_number||''}`.trim();
+      const expectedAttendees=req.body.expectedAttendees ? Number(req.body.expectedAttendees):null;
+      if(bookingContact.length>30)throw Object.assign(new Error('Invalid booking contact.'),{status:400});
+      if(expectedAttendees!==null&&(!Number.isInteger(expectedAttendees)||expectedAttendees<1||expectedAttendees>100000))throw Object.assign(new Error('Invalid expected attendees.'),{status:400});
 
       if (!assetId) throw Object.assign(new Error("Choose a facility or item to borrow."), { status: 400 });
       if (purpose.length < 5 || purpose.length > 500) throw Object.assign(new Error("Purpose must be between 5 and 500 characters."), { status: 400 });
@@ -173,6 +179,7 @@ router.post(
         quantity,
         purpose,
         event_location: eventLocation,
+        booking_contact:bookingContact||null, expected_attendees:expectedAttendees,
         start_at: window.startAt,
         due_at: window.dueAt,
         status: "pending",
@@ -198,7 +205,7 @@ router.post(
   }
 );
 
-router.post("/requests/:id/cancel", ensureResident, async (req, res, next) => {
+router.post("/requests/:id/cancel", ensureResident,residentWriteLimiter, async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data: existing, error: findError } = await db.from("borrowing_requests").select("*").eq("id", req.params.id).eq("user_id", req.currentUser.id).maybeSingle();

@@ -3,6 +3,9 @@ import adminVotingRoutes from "./adminVoting.js";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import zlib from "zlib";
+import { validateIdFiles, uploadPrivateIds, removePrivateIds, ID_BUCKET } from "../lib/residentIds.js";
+import { persistentLimit } from "../middleware/persistentLimit.js";
+import { getConcernPhotoUrl } from "../lib/concernEvidence.js";
 import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection } from "../lib/projects.js";
 import { mapVotingRpcError } from "../lib/votingOutcome.js";
@@ -28,6 +31,7 @@ import {
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const idUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 35, parts: 45 } });
 
 router.use(requireAuth, requireCurrentUser(), requireRole("admin"));
 router.use(adminActivityMiddleware("admin"));
@@ -167,7 +171,7 @@ const normalizeAddress = (value = "") => `${value}`.trim().toLowerCase().replace
 const createHouseholdRef = () => `HH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
 const buildCensusPayload = (body, { allowId = false } = {}) => {
-  const members = Number(body.members || 1);
+  const members = Number(body.members ?? 1);
   const householdName = `${body.household_name || body.householdName || ""}`.trim();
   const purok = `${body.purok || ""}`.trim();
   const address = `${body.address || body.house_number || body.houseNumber || ""}`.trim();
@@ -177,7 +181,7 @@ const buildCensusPayload = (body, { allowId = false } = {}) => {
   ensure(householdName, "Household name is required.");
   ensure(purok, "Purok is required.");
   ensure(address, "Address is required.");
-  ensure(Number.isInteger(members) && members >= 1, "Members must be a positive whole number.");
+  ensure(Number.isInteger(members) && members >= 0, "Members must be a non-negative whole number.");
   ensure(["active", "for update"].includes(status), "Status must be Active or For Update.");
 
   const payload = {
@@ -185,6 +189,9 @@ const buildCensusPayload = (body, { allowId = false } = {}) => {
     household_name: householdName,
     purok,
     members,
+    contact_number:`${body.contactNumber ?? body.contact_number ?? ''}`.trim(),
+    housing_tenure:body.housingTenure ?? body.housing_tenure ?? null,
+    residency_since:body.residencySince ?? body.residency_since ?? null,
     address,
     // Retained for compatibility with V3 databases and old reports.
     house_number: address,
@@ -758,10 +765,14 @@ router.get("/users", async (_req, res, next) => {
   }
 });
 
-router.post("/users", async (req, res, next) => {
+router.post("/users", idUpload.array("idImages", 5), persistentLimit("admin-create-resident", {max:10,windowSeconds:3600}), async (req, res, next) => {
   try {
     const db = requireSupabase();
-    const fullName = `${req.body.fullName || ""}`.trim();
+    const firstName = `${req.body.firstName || ""}`.trim();
+    const middleName = `${req.body.middleName || ""}`.trim();
+    const lastName = `${req.body.lastName || ""}`.trim();
+    const suffix = `${req.body.suffix || ""}`.trim();
+    const fullName = [firstName,middleName,lastName,suffix].filter(Boolean).join(" ");
     const address = `${req.body.address || ""}`.trim();
     const purok = `${req.body.purok || ""}`.trim();
     const contactNumber = normalizePhoneNumber(req.body.phoneNumber || req.body.contactNumber || "");
@@ -773,7 +784,18 @@ router.post("/users", async (req, res, next) => {
       throw Object.assign(new Error("Only super admins can create admin accounts."), { status: 403 });
     }
 
-    ensure(fullName, "Full name is required.");
+    ensure(firstName && lastName, "First name and last name are required.");
+    for (const [val,label] of [[firstName,'First name'],[middleName,'Middle name'],[lastName,'Last name'],[suffix,'Suffix']]) {
+      if (val.length > 100) throw Object.assign(new Error(`${label} is too long.`), {status:400});
+    }
+    for(const [key,label] of [['civilStatus','Civil status'],['citizenship','Citizenship'],['placeOfBirth','Place of birth']]) {
+      if(String(req.body[key]||'').length>160)throw Object.assign(new Error(`${label} is too long.`),{status:400});
+    }
+    const sex = `${req.body.sex || ''}`.trim() || null;
+    if (sex && !['male','female','other','prefer_not_to_say'].includes(sex)) throw Object.assign(new Error('Invalid sex selection.'),{status:400});
+    const {data: allowedIds,error: idTypesError} = await db.from('resident_id_types').select('id,label,is_active');
+    if (idTypesError) throw idTypesError;
+    const validatedIds = validateIdFiles(req.files,req.body.idMetadata,allowedIds || []);
     ensure(address, "Address is required.");
     ensure(purok, "Purok is required.");
     ensure(contactNumber, "Phone number is required.");
@@ -784,7 +806,7 @@ router.post("/users", async (req, res, next) => {
     // sender has not been configured on the backend deployment.
     validateResendConfig();
 
-    const nameParts = splitName(fullName);
+    const nameParts = {firstName,middleName,lastName};
     const usernameBase = buildUsername({
       fullName,
       firstName: nameParts.firstName,
@@ -799,6 +821,12 @@ router.post("/users", async (req, res, next) => {
       first_name: nameParts.firstName,
       middle_name: nameParts.middleName,
       last_name: nameParts.lastName,
+      suffix,
+      sex,
+      civil_status: `${req.body.civilStatus || ''}`.trim() || null,
+      citizenship: `${req.body.citizenship || ''}`.trim() || null,
+      place_of_birth: `${req.body.placeOfBirth || ''}`.trim() || null,
+      residency_since: req.body.residencySince || null,
       email,
       password_hash: passwordHash,
       address,
@@ -820,6 +848,14 @@ router.post("/users", async (req, res, next) => {
     const { data, error } = await db.from("users").insert(payload).select("*").single();
     if (error) throw error;
 
+    let uploadedIdPaths = [];
+    try {
+      uploadedIdPaths = (await uploadPrivateIds(validatedIds, data.id, req.currentUser.id)).map(item=>item.storage_path);
+    } catch (idError) {
+      const {error: cleanupError} = await db.from('users').delete().eq('id',data.id);
+      if (cleanupError) throw Object.assign(new Error('ID upload failed and account cleanup needs staff review.'), {status:500,code:'ACCOUNT_CREATION_REVIEW_REQUIRED'});
+      throw idError;
+    }
     let emailDelivery = { delivered: false, reason: "unknown" };
 
     try {
@@ -847,6 +883,7 @@ router.post("/users", async (req, res, next) => {
     // by the configured email provider. Never expose a newly-created password in the API response.
     if (!emailDelivery?.delivered) {
       const { error: rollbackError } = await db.from("users").delete().eq("id", data.id);
+      if (!rollbackError) await removePrivateIds(uploadedIdPaths);
       if (rollbackError) {
         console.error(`[RESIDENT CREATE ROLLBACK ERROR] ${data.id}: ${rollbackError.message}`);
         throw Object.assign(new Error("Email failed and account cleanup could not be confirmed. Check the resident list before trying again."), {
@@ -876,13 +913,54 @@ router.post("/users", async (req, res, next) => {
       action: role === "admin" ? "create_admin_user" : "create_resident_user",
       entityType: "user",
       entityId: data.id,
-      details: { username, role, emailDelivered: true },
+      details: { username, role, emailDelivered: true, idEvidenceCount: uploadedIdPaths.length },
     });
 
     res.status(201).json({ user: sanitizeUser(data), emailDelivery });
   } catch (error) {
     next(error);
   }
+});
+
+router.get('/resident-id-types', async (_req,res,next) => {
+  try {
+    const {data,error}=await requireSupabase().from('resident_id_types').select('id,label,is_active').order('label');
+    if(error) throw error;
+    res.json({types:data||[]});
+  } catch(error){next(error);}
+});
+router.post('/resident-id-types', persistentLimit('admin-id-catalog',{max:20,windowSeconds:3600}), async (req,res,next) => {
+  try {
+    const label=`${req.body.label||''}`.trim();
+    if(label.length<2 || label.length>80 || /[<>]/.test(label)) throw Object.assign(new Error('ID type name must be 2–80 characters.'),{status:400});
+    const {data,error}=await requireSupabase().from('resident_id_types').insert({label}).select('id,label,is_active').single();
+    if(error) throw error;
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role, action:'add_resident_id_type',entityType:'resident_id_type',entityId:data.id,details:{label},req});
+    res.status(201).json({type:data});
+  } catch(error){next(error);}
+});
+router.get('/users/:userId/id-evidence', async (req,res,next)=>{
+  try {
+    const db=requireSupabase();
+    const {data:user,error:ue}=await db.from('users').select('id,role').eq('id',req.params.userId).maybeSingle();
+    if(ue)throw ue;
+    if(!user || normalizeRole(user.role)!=='resident') return res.status(404).json({message:'Resident not found.'});
+    const {data,error}=await db.from('resident_id_evidence').select('id,document_label,created_at,byte_size,content_type').eq('user_id',user.id).order('created_at');
+    if(error)throw error;
+    res.json({documents:data||[]});
+  }catch(error){next(error);}
+});
+router.get('/users/:userId/id-evidence/:evidenceId/url', persistentLimit('admin-id-view',{max:60,windowSeconds:3600}), async (req,res,next)=>{
+  try {
+    const db=requireSupabase();
+    const {data,error}=await db.from('resident_id_evidence').select('id,user_id,storage_path,document_label').eq('id',req.params.evidenceId).eq('user_id',req.params.userId).maybeSingle();
+    if(error)throw error;
+    if(!data)return res.status(404).json({message:'ID image not found.'});
+    const signed=await db.storage.from(ID_BUCKET).createSignedUrl(data.storage_path,60);
+    if(signed.error)throw signed.error;
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'view_resident_id',eventCategory:'activity',entityType:'resident_id_evidence',entityId:data.id,details:{residentId:data.user_id,documentLabel:data.document_label},req});
+    res.json({url:signed.data.signedUrl,expiresIn:60});
+  }catch(error){next(error);}
 });
 
 router.patch("/users/:userId", async (req, res, next) => {
@@ -900,7 +978,14 @@ router.patch("/users/:userId", async (req, res, next) => {
     }
 
     const updates = {};
-    if (req.body.fullName !== undefined) {
+    if (req.body.firstName !== undefined || req.body.lastName !== undefined) {
+      const firstName = `${req.body.firstName || ''}`.trim();
+      const lastName = `${req.body.lastName || ''}`.trim();
+      const middleName = `${req.body.middleName || ''}`.trim();
+      const suffix = `${req.body.suffix || ''}`.trim();
+      ensure(firstName && lastName,'First and last name are required.');
+      Object.assign(updates,{first_name:firstName,middle_name:middleName,last_name:lastName,suffix,full_name:[firstName,middleName,lastName,suffix].filter(Boolean).join(' ')});
+    } else if (req.body.fullName !== undefined) {
       const fullName = `${req.body.fullName}`.trim();
       ensure(fullName, "Full name is required.");
       const parts = splitName(fullName);
@@ -909,6 +994,10 @@ router.patch("/users/:userId", async (req, res, next) => {
       updates.middle_name = parts.middleName;
       updates.last_name = parts.lastName;
     }
+    for (const [input,column] of [['sex','sex'],['civilStatus','civil_status'],['citizenship','citizenship'],['placeOfBirth','place_of_birth'],['residencySince','residency_since']]) {
+      if (req.body[input] !== undefined) updates[column] = req.body[input] || null;
+    }
+    if (updates.sex && !['male','female','other','prefer_not_to_say'].includes(updates.sex)) throw Object.assign(new Error('Invalid sex selection.'), {status:400});
     if (req.body.address !== undefined) updates.address = `${req.body.address}`.trim();
     if (req.body.purok !== undefined) updates.purok = `${req.body.purok}`.trim();
     if (req.body.contactNumber !== undefined || req.body.phoneNumber !== undefined) {
@@ -945,7 +1034,7 @@ router.patch("/users/:userId", async (req, res, next) => {
       action: "update_user",
       entityType: "user",
       entityId: req.params.userId,
-      details: updates,
+      details: { changedFields:Object.keys(updates) },
     });
 
     res.json({ user: sanitizeUser(data) });
@@ -1038,6 +1127,17 @@ router.post("/users/:userId/resend-temporary-password", (_req, _res, next) => {
   next(Object.assign(new Error("For security, issue a new reset email instead of resending a password from the browser."), { status: 410 }));
 });
 
+router.get('/complaints/:id/evidence',persistentLimit('admin-concern-evidence-view',{max:60,windowSeconds:3600}),async(req,res,next)=>{
+ try{
+  const db=requireSupabase();
+  const {data:complaint,error}=await db.from('complaints').select('id').eq('id',req.params.id).maybeSingle();
+  if(error)throw error;
+  if(!complaint)return res.status(404).json({message:'Concern not found.'});
+  const evidence=await getConcernPhotoUrl(complaint.id);
+  if(evidence)await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'view_concern_evidence',entityType:'complaint',entityId:complaint.id,req});
+  res.json({evidence});
+ }catch(error){next(error);}
+});
 router.get("/complaints", async (_req, res, next) => {
   try {
     const db = requireSupabase();
@@ -1712,6 +1812,51 @@ router.get("/census_households", async (_req, res, next) => {
   }
 });
 
+router.get('/census_households/:householdId/members', async (req,res,next)=>{
+  try {
+    const {data,error}=await requireSupabase().from('household_members').select('*').eq('household_id',req.params.householdId).order('is_head',{ascending:false}).order('created_at');
+    if(error)throw error;
+    res.json({members:data||[]});
+  }catch(error){next(error);}
+});
+router.post('/census_households/:householdId/members', async(req,res,next)=>{
+  try {
+    const db=requireSupabase();
+    const body=req.body||{};
+    const first_name=`${body.firstName||''}`.trim(),last_name=`${body.lastName||''}`.trim(),relationship=`${body.relationship||''}`.trim();
+    if(!first_name||!last_name||!relationship)throw Object.assign(new Error('First name, last name and relationship are required.'),{status:400});
+    const payload={household_id:req.params.householdId, first_name,last_name,relationship,
+      middle_name:`${body.middleName||''}`.trim(),suffix:`${body.suffix||''}`.trim(),
+      user_id:body.userId||null,is_head:Boolean(body.isHead),sex:body.sex||null,birthdate:body.birthdate||null,
+      civil_status:body.civilStatus||null,occupation:`${body.occupation||''}`.trim()||null,
+      is_senior:Boolean(body.isSenior),is_pwd:Boolean(body.isPwd),is_solo_parent:Boolean(body.isSoloParent),
+      is_4ps:Boolean(body.is4ps),is_registered_voter:Boolean(body.isRegisteredVoter)};
+    const {data,error}=await db.from('household_members').insert(payload).select('*').single();
+    if(error)throw error;
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'add_household_member',entityType:'household_member',entityId:data.id, details:{householdId:payload.household_id,relationship},req});
+    res.status(201).json({member:data});
+  }catch(error){next(error);}
+});
+router.delete('/census_households/:householdId/members/:memberId', async(req,res,next)=>{
+  try {
+    const db=requireSupabase();
+    const {data,error}=await db.from('household_members').delete().eq('id',req.params.memberId).eq('household_id',req.params.householdId).select('id,relationship').maybeSingle();
+    if(error)throw error;
+    if(!data)return res.status(404).json({message:'Household member not found.'});
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'remove_household_member',entityType:'household_member',entityId:data.id, details:{householdId:req.params.householdId,relationship:data.relationship},req});
+    res.json({message:'Household member removed.'});
+  }catch(error){next(error);}
+});
+
+router.post('/census_households/:householdId/members/:memberId/head', async(req,res,next)=>{
+ try{
+  const db=requireSupabase();
+  const {error}=await db.rpc('bgy_p105_assign_household_head',{p_household_id:req.params.householdId,p_member_id:req.params.memberId});
+  if(error)throw error;
+  await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role, action:'change_household_head',entityType:'household_member',entityId:req.params.memberId,details:{householdId:req.params.householdId},req});
+  res.json({message:'Head of household updated.'});
+ }catch(error){next(error);}
+});
 router.get("/census_households/sample", async (req, res, next) => {
   try {
     // Keep the first worksheet import-ready: only the supported header and sample rows.
@@ -1818,6 +1963,7 @@ router.patch("/census_households/:id", async (req, res, next) => {
     const { data: existing, error: existingError } = await db.from("census_households").select("*").eq("id", req.params.id).single();
     if (existingError) throw existingError;
     const payload = buildCensusPayload({ ...existing, ...req.body, household_ref: existing.household_ref || req.body.householdRef || createHouseholdRef() });
+    if(existing.membership_verified)payload.members=existing.members;
     await assertActiveMasterLabel(db, "purok", payload.purok);
     const duplicate = await findCensusDuplicate(db, payload, req.params.id);
     if (duplicate) throw Object.assign(new Error("Another household already uses this address or household reference."), { status: 409 });
@@ -1953,7 +2099,8 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
     if (validationErrors.length) throw Object.assign(new Error("The file has validation errors. Preview and correct them before importing."), { status: 400 });
 
     const mode = `${req.body.mode || req.query.mode || "append"}`.toLowerCase();
-    if (!["append", "replace_all"].includes(mode)) throw Object.assign(new Error("Import mode must be append or replace_all."), { status: 400 });
+    if (mode === 'replace_all') throw Object.assign(new Error('Destructive Census replacement has been disabled to protect household members. Use Add to Existing Records.'), {status:409,code:'CENSUS_REPLACE_DISABLED'});
+    if (mode !== 'append') throw Object.assign(new Error('Import mode must be append.'),{status:400});
 
     const payload = parsed.map((item) => item.payload);
     let inserted = 0;

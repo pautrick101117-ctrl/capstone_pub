@@ -6,12 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea } from "../../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { useMasterData } from "../../hooks/useMasterData";
 import { getStatusMeta } from "../../lib/status";
 
-const INITIAL_FORM = { complaint_type: "", details: "" };
+const INITIAL_FORM = { complaint_type: "", details: "",incidentPurok:"",incidentLocation:"",incidentAt:"",respondentName:"" };
 const pageSize = 6;
 const formatPhilippineDateTime = (value) => value ? new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
@@ -22,6 +22,7 @@ const Complaints = () => {
   const reviewAction = useReviewAction();
   const toast = useToast();
   const [form, setForm] = useState(INITIAL_FORM);
+  const [incidentPhoto,setIncidentPhoto] = useState(null);
   const [complaints, setComplaints] = useState([]);
   const [hotlines, setHotlines] = useState([]);
   const [eligibility, setEligibility] = useState(null);
@@ -77,13 +78,21 @@ const Complaints = () => {
   const submitComplaint = async (event) => {
     event.preventDefault();
     if (!form.complaint_type.trim() || form.details.trim().length < 10) return toast.error("Select a concern type and enter at least 10 characters.");
+    if(incidentPhoto && (incidentPhoto.size>5*1024*1024 || !['image/jpeg','image/png','image/webp'].includes(incidentPhoto.type))) return toast.error('Upload a JPG, PNG or WebP photo under 5 MB.');
     if (!eligibility || !eligibility.allowed) return toast.error("Unable to submit right now. Review your allowance or reload to check your eligibility.");
-    if (!await reviewAction({ title: "Submit Community Concern?", description: "Your concern will be sent to the barangay for review.", after: { category: form.complaint_type, details: form.details }, confirmLabel: "Submit Concern" })) return;
+    if (!await reviewAction({ title: "Submit Community Concern?", description: "Your concern will be sent to the barangay for review.", after: { category: form.complaint_type, details: form.details, incidentPhoto:incidentPhoto?.name||null }, confirmLabel: "Submit Concern" })) return;
     setSubmitting(true);
     try {
       if (!operationIdRef.current) operationIdRef.current = crypto.randomUUID();
       const data = await api("/complaints", { method: "POST", token, body: { ...form, operationId: operationIdRef.current } });
       operationIdRef.current = null;
+      if(incidentPhoto){
+        try{
+          const body=new FormData();body.append('image',incidentPhoto);
+          await api(`/complaints/${data.complaint.id}/evidence`,{method:'POST',token,body});
+        }catch(uploadError){toast.error(`Your concern was submitted, but the photo could not be attached: ${uploadError.message}`);}
+      }
+      setIncidentPhoto(null);
       setSuccess(data.complaint || true);
       setForm(INITIAL_FORM);
       setActiveTab("mine");
@@ -134,6 +143,13 @@ const Complaints = () => {
             <p className="mt-1 text-sm text-stone-500">Your report will be visible to authorized barangay staff.</p>
             <form className="mt-6 space-y-5" onSubmit={submitComplaint}>
               <SelectInput label="Concern Type" required value={form.complaint_type} onChange={(event) => updateForm({ complaint_type: event.target.value })}><option value="">Select a concern</option>{concernOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+              <TextInput label="Incident Purok (optional)" maxLength={100} value={form.incidentPurok} onChange={e=>updateForm({incidentPurok:e.target.value})}/>
+              <TextInput label="Exact Location / Landmark" maxLength={250} value={form.incidentLocation} onChange={e=>updateForm({incidentLocation:e.target.value})}/>
+              <TextInput label="Incident Date & Time (if known)" type="datetime-local" value={form.incidentAt} onChange={e=>updateForm({incidentAt:e.target.value})}/>
+              <TextInput label="Person involved (optional)" maxLength={180} value={form.respondentName} onChange={e=>updateForm({respondentName:e.target.value})}/>
+              <label className="block text-sm font-semibold text-stone-700">Optional incident photo (JPG, PNG or WebP, max 5 MB)
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="mt-2 block w-full text-sm" onChange={e=>setIncidentPhoto(e.target.files?.[0]||null)}/>
+              </label>
               <TextArea label="Details" required minLength={10} maxLength={1500} hint="Include the exact location and enough context for barangay staff to understand what happened." value={form.details} onChange={(event) => updateForm({ details: event.target.value })} placeholder="Describe the location, issue, and any useful details..." />
               {(!eligibility || quotaBlocked) ? <p className="text-sm text-rose-700" role="status">{quotaBlocked ? "New concern submissions are temporarily limited. Your existing concerns remain accessible." : "Checking your submission allowance. Please wait or retry the check above."}</p> : null}
               <Button type="submit" loading={submitting} disabled={!eligibility || quotaBlocked}><Send className="h-4 w-4" /> Submit Concern</Button>

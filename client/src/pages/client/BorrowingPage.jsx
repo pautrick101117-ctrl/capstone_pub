@@ -41,7 +41,7 @@ const blankRequest = {
   assetId: "",
   quantity: 1,
   purpose: "",
-  eventLocation: "",
+  eventLocation: "",bookingContact:"",expectedAttendees:"",
   termsAccepted: false,
 };
 
@@ -217,6 +217,7 @@ const BorrowingPage = () => {
         quantity: isFacility(selected) ? 1 : Number(form.quantity),
         purpose: form.purpose.trim(),
         eventLocation: form.eventLocation.trim(),
+        bookingContact:form.bookingContact.trim(),expectedAttendees:form.expectedAttendees?Number(form.expectedAttendees):null,
         termsAccepted: true,
         startAt: fromManilaInput(windowForm.startAt).toISOString(),
         dueAt: fromManilaInput(windowForm.dueAt).toISOString(),
@@ -419,6 +420,8 @@ const BorrowingPage = () => {
               required
             />
             <div className="-mt-2 text-right text-xs text-stone-400">{form.purpose.length}/500</div>
+            <TextInput label="Booking Contact Number" maxLength={30} value={form.bookingContact} onChange={e=>setForm(c=>({...c,bookingContact:e.target.value}))} placeholder="Contact person for this event"/>
+            {selected && isFacility(selected)?<TextInput label="Estimated Attendees" type="number" min="1" value={form.expectedAttendees} onChange={e=>setForm(c=>({...c,expectedAttendees:e.target.value}))}/>:null}
 
             {selected && isFacility(selected) ? (
               <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">

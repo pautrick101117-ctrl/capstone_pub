@@ -1,3 +1,4 @@
+import { residentWriteLimiter, persistentLimit } from "../middleware/persistentLimit.js";
 import express from "express";
 import multer from "multer";
 import { requireSupabase } from "../lib/supabase.js";
@@ -11,6 +12,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.use(requireAuth, requireCurrentUser());
+router.use((req,res,next)=> ['POST','PATCH','PUT','DELETE'].includes(req.method) && req.currentUser?.role === 'resident' ? residentWriteLimiter(req,res,next) : next());
 
 router.get("/mine", async (req, res, next) => {
   try {
@@ -95,22 +97,35 @@ router.get("/mine", async (req, res, next) => {
   }
 });
 
-router.post("/", upload.single("image"), async (req, res, next) => {
+router.post("/", persistentLimit("resident-suggestion",{max:3,windowSeconds:7*86400}), upload.single("image"), async (req, res, next) => {
   try {
     if (normalizeRole(req.currentUser.role) !== "resident") {
       throw Object.assign(new Error("Only resident accounts can submit suggestions."), { status: 403 });
     }
 
     const title = `${req.body.title || ""}`.trim();
+    const affectedPurok=`${req.body.affectedPurok||''}`.trim();
+    const category=`${req.body.category||''}`.trim();
+    const beneficiaries=req.body.estimatedBeneficiaries ? Number(req.body.estimatedBeneficiaries):null;
+    const cost=req.body.estimatedCost ? Number(req.body.estimatedCost):null;
+    if(beneficiaries!==null&&(!Number.isInteger(beneficiaries)||beneficiaries<1||beneficiaries>10000000))throw Object.assign(new Error('Invalid estimated beneficiaries.'),{status:400});
+    if(cost!==null&&(!Number.isFinite(cost)||cost<0||cost>100000000000))throw Object.assign(new Error('Invalid estimated cost.'),{status:400});
     const description = `${req.body.description || ""}`.trim();
     if (!title || !description) {
       throw Object.assign(new Error("Title and description are required."), { status: 400 });
     }
 
-    if (req.file && !`${req.file.mimetype}`.startsWith("image/")) {
+    if (req.file && !['image/jpeg','image/png','image/webp'].includes(req.file.mimetype)) {
       throw Object.assign(new Error("Suggestion attachment must be an image file."), { status: 400 });
     }
 
+    const bytes=req.file?.buffer;
+    if(bytes && !(bytes.subarray(0,3).equals(Buffer.from([255,216,255])) || bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || (bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP')))
+      throw Object.assign(new Error('Upload a valid JPG, PNG or WebP photo.'),{status:400});
+    const dbPrecheck=requireSupabase();
+    const {count:recent,error:recentError}=await dbPrecheck.from('project_suggestions').select('id',{count:'exact',head:true}).eq('user_id',req.currentUser.id).gt('created_at',new Date(Date.now()-7*86400_000).toISOString());
+    if(recentError)throw recentError;
+    if(recent>=3)throw Object.assign(new Error('You can submit up to 3 project suggestions in a rolling 7-day period.'),{status:429,code:'SUGGESTION_QUOTA_REACHED'});
     const imageUrl = await uploadAsset({
       file: req.file,
       folder: "project-suggestions",
@@ -124,6 +139,8 @@ router.post("/", upload.single("image"), async (req, res, next) => {
         user_id: req.currentUser.id,
         title,
         description,
+        affected_purok:affectedPurok||null,category:category||null,
+        estimated_beneficiaries:beneficiaries, estimated_cost:cost,
         image_url: imageUrl,
         status: "pending",
       })
@@ -179,7 +196,7 @@ router.patch("/:suggestionId", upload.single("image"), async (req, res, next) =>
     if (!title || !description) {
       throw Object.assign(new Error("Title and description are required."), { status: 400 });
     }
-    if (req.file && !`${req.file.mimetype}`.startsWith("image/")) {
+    if (req.file && !['image/jpeg','image/png','image/webp'].includes(req.file.mimetype)) {
       throw Object.assign(new Error("Suggestion attachment must be an image file."), { status: 400 });
     }
 
@@ -195,6 +212,14 @@ router.patch("/:suggestionId", upload.single("image"), async (req, res, next) =>
     }
 
     const updates = { title, description, image_url: imageUrl };
+    const strings = [['affectedPurok','affected_purok'],['category','category']];
+    for(const [key,col] of strings)if(req.body[key]!==undefined)updates[col]=`${req.body[key]||''}`.trim()||null;
+    for(const [key,col] of [['estimatedBeneficiaries','estimated_beneficiaries'],['estimatedCost','estimated_cost']]) {
+      if(req.body[key]!==undefined){const n=req.body[key]?Number(req.body[key]):null;
+        if(n!==null && (!Number.isFinite(n)||n<0||(key==='estimatedBeneficiaries'&&!Number.isInteger(n))))throw Object.assign(new Error('Invalid project estimate.'),{status:400});
+        updates[col]=n;
+      }
+    }
     const { data, error } = await db
       .from("project_suggestions")
       .update(updates)

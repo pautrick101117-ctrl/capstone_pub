@@ -5,6 +5,10 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export const runMaintenance = async () => {
   const db = requireSupabase();
+  if(new Date().getUTCMinutes()===0){
+    const {error:rateCleanupError}=await db.rpc('bgy_p105_prune_rate_counters');
+    if(rateCleanupError) console.warn('[RATE LIMIT MAINTENANCE]',rateCleanupError.message);
+  }
   const nowIso = new Date().toISOString();
   const { data: residents, error: residentsError } = await db
     .from("users")

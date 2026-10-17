@@ -1,3 +1,4 @@
+import { residentWriteLimiter } from "../middleware/persistentLimit.js";
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
@@ -22,7 +23,7 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-router.post("/:id/read", async (req, res, next) => {
+router.post("/:id/read", residentWriteLimiter, async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data, error } = await db
@@ -39,7 +40,7 @@ router.post("/:id/read", async (req, res, next) => {
   }
 });
 
-router.post("/read-all", async (req, res, next) => {
+router.post("/read-all", residentWriteLimiter, async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data: notes, error: selectError } = await db

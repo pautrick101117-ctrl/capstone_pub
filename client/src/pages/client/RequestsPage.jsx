@@ -52,7 +52,7 @@ const RequestsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("mine");
-  const [requestForm, setRequestForm] = useState({ requestType: requestTypes[0], details: "" });
+  const [requestForm, setRequestForm] = useState({ requestType: requestTypes[0], details: "", copiesRequested:1,purposeCategory:"Other" });
   const [idForm, setIdForm] = useState({ purpose: "", preferredDate: "", timeSlot: "" });
   const [savingRequest, setSavingRequest] = useState(false);
   const [savingId, setSavingId] = useState(false);
@@ -111,7 +111,7 @@ const RequestsPage = () => {
     try {
       const data = await api("/requests", { method: "POST", token, body: requestForm });
       setSuccess({ type: "request", id: data.request?.id, title: requestForm.requestType });
-      setRequestForm({ requestType: requestTypes[0], details: "" });
+      setRequestForm({ requestType: requestTypes[0], details: "", copiesRequested:1,purposeCategory:"Other" });
       await load();
     } catch (err) {
       toast.error(err.message);
@@ -236,6 +236,8 @@ const RequestsPage = () => {
             <p className="mt-1 text-sm text-stone-500">Provide enough information for barangay staff to process the request without needing to ask for basic details again.</p>
             <form className="mt-6 space-y-5" onSubmit={submitRequest}>
               <SelectInput label="Request Type" required value={requestForm.requestType} onChange={(event) => setRequestForm((current) => ({ ...current, requestType: event.target.value }))}>{requestTypes.map((type) => <option key={type} value={type}>{type}</option>)}</SelectInput>
+              <SelectInput label="Purpose category" required value={requestForm.purposeCategory} onChange={e=>setRequestForm(c=>({...c,purposeCategory:e.target.value}))}>{['Employment','School','Loan','Government','Personal','Other'].map(v=><option key={v}>{v}</option>)}</SelectInput>
+              <TextInput label="Number of copies" type="number" required min="1" max="10" value={requestForm.copiesRequested} onChange={e=>setRequestForm(c=>({...c,copiesRequested:Number(e.target.value)}))}/>
               <TextArea label="Purpose / Details" required minLength={5} maxLength={1000} hint="Include the purpose and any information the barangay needs to process the request." value={requestForm.details} onChange={(event) => setRequestForm((current) => ({ ...current, details: event.target.value }))} placeholder="Explain what you need and why." />
               <div className="rounded-2xl bg-stone-50 p-4 text-sm leading-6 text-stone-600"><strong className="text-stone-800">Before submitting:</strong> review the service type and details. You can track every status change from My Requests after submission.</div>
               <Button type="submit" loading={savingRequest}><SendHorizonal className="h-4 w-4" /> Submit Request</Button>

@@ -1,3 +1,4 @@
+import { checkRate, clearRate, persistentLimit } from "../middleware/persistentLimit.js";
 import express from "express";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { hashInvitationToken } from "../lib/adminInvitations.js";
@@ -86,7 +87,7 @@ router.post("/admin-invitation/accept", rateLimit({ key: "admin-invite-accept", 
   } catch (error) { next(error); }
 });
 
-router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }), async (req, res, next) => {
+router.post("/login", rateLimit({ key: "login", max: 40, windowMs: 15 * 60_000 }), async (req, res, next) => {
   try {
     const db = requireSupabase();
     const rawIdentifier = `${req.body.usernameOrEmail || ""}`.trim();
@@ -99,6 +100,11 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       throw Object.assign(new Error("Username and password are required."), { status: 400 });
     }
 
+    const guard = await checkRate('login-failures', identifier, {max:5,windowSeconds:900,increment:false});
+    if(!guard?.allowed) {
+      res.setHeader('Retry-After',String(guard.retry_after||900));
+      throw Object.assign(new Error('Too many incorrect passwords for this account. Try again later.'), {status:429,code:'LOGIN_TEMPORARILY_LOCKED'});
+    }
     let user = await getUserByIdentifier(db, rawIdentifier);
 
     if (!user) {
@@ -145,6 +151,7 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       throw Object.assign(new Error("This is an administrator account. Please use the Admin Login page."), { status: 403 });
     }
 
+    await clearRate('login-failures',identifier);
     const token = signToken({
       sub: user.id,
       role: normalizeRole(user.role),
@@ -171,6 +178,11 @@ router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }
       sessionTimeoutMinutes: SESSION_TIMEOUT_MINUTES,
     });
   } catch (error) {
+    if (error.status === 401 && req.body?.usernameOrEmail) {
+      try {
+        await checkRate('login-failures',`${req.body.usernameOrEmail}`.trim().toLowerCase(),{max:5,windowSeconds:900});
+      } catch (rateError) { console.error('[LOGIN LIMIT]',rateError.message); }
+    }
     if ([400, 401, 403].includes(error.status)) {
       // Never log passwords or raw login identifiers. Only failure type, portal, IP and time.
       logAudit({ action: "login_failed", entityType: "authentication", entityId: "attempt",
@@ -191,7 +203,8 @@ router.post("/logout", requireAuth, requireCurrentUser({ allowPasswordChange: tr
   } catch (error) { next(error); }
 });
 
-router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-request", max: 5, windowMs: 10 * 60_000 }), async (req, res, next) => {
+router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-request", max: 20, windowMs: 10 * 60_000 }),
+  persistentLimit('forgot-password-account',{max:5,windowSeconds:600,identity:req=>req.body?.usernameOrEmail||req.ip}), async (req, res, next) => {
   try {
     const db = requireSupabase();
     const rawIdentifier = `${req.body.usernameOrEmail || ""}`.trim();
@@ -255,7 +268,8 @@ router.post("/forgot-password/request-code", rateLimit({ key: "forgot-password-r
   }
 });
 
-router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", max: 5, windowMs: 10 * 60_000 }), async (req, res, next) => {
+router.post("/forgot-password/reset", rateLimit({ key: "forgot-password-reset", max: 20, windowMs: 10 * 60_000 }),
+  persistentLimit('forgot-password-reset',{max:5,windowSeconds:600,identity:req=>req.body?.usernameOrEmail||req.body?.email||req.ip}), async (req, res, next) => {
   try {
     const db = requireSupabase();
     const rawIdentifier = `${req.body.usernameOrEmail || ""}`.trim();
@@ -388,7 +402,7 @@ router.get("/me", requireAuth, requireCurrentUser({ allowPasswordChange: true })
   }
 });
 
-router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordChange: true }), async (req, res, next) => {
+router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordChange: true }), persistentLimit("change-password",{max:5,windowSeconds:900}), async (req, res, next) => {
   try {
     const { currentPassword = "", newPassword = "" } = req.body;
     ensureStrongPassword(newPassword);

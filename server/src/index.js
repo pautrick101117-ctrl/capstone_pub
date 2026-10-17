@@ -194,6 +194,11 @@ if (isMainModule) {
     throw new Error("Phase 10 Project Lifecycle migration missing. Run server/supabase-v4-phase10-project-lifecycle.sql before deploying this API.");
   }
 
+  const p105Ready = await requireSupabase().rpc('bgy_p105_ready');
+  if (p105Ready.error || p105Ready.data !== true) {
+    throw new Error('Phase 10.5 Data & Security migration missing. Run server/supabase-v4-phase10-5-data-security.sql before deploying this API.');
+  }
+
   app.listen(env.port, () =>
     console.log(
       `API listening on http://localhost:${env.port}`

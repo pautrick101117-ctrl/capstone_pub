@@ -1,5 +1,5 @@
+import { residentWriteLimiter, persistentLimit } from "../middleware/persistentLimit.js";
 import express from "express";
-import PDFDocument from "pdfkit";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
@@ -9,6 +9,7 @@ import { attachCaseHistories } from "../lib/caseHistory.js";
 const router = express.Router();
 
 router.use(requireAuth, requireCurrentUser());
+router.use((req,res,next)=> ['POST','PATCH','PUT','DELETE'].includes(req.method) && req.currentUser?.role === 'resident' ? residentWriteLimiter(req,res,next) : next());
 
 router.get("/mine", async (req, res, next) => {
   try {
@@ -25,7 +26,7 @@ router.get("/mine", async (req, res, next) => {
   }
 });
 
-router.post("/", async (req, res, next) => {
+router.post("/", persistentLimit("resident-document-request", {max:3,windowSeconds:3600}), async (req, res, next) => {
   try {
     if (normalizeRole(req.currentUser.role) !== "resident") {
       throw Object.assign(new Error("Only resident accounts can submit requests."), { status: 403 });
@@ -33,6 +34,10 @@ router.post("/", async (req, res, next) => {
 
     const requestType = `${req.body.requestType || ""}`.trim();
     const details = `${req.body.details || ""}`.trim();
+    const copiesRequested=Number(req.body.copiesRequested||1);
+    if(!Number.isInteger(copiesRequested)||copiesRequested<1||copiesRequested>10)throw Object.assign(new Error('Copies must be between 1 and 10.'),{status:400});
+    const purposeCategory=`${req.body.purposeCategory||'Other'}`.trim();
+    if(!['Employment','School','Loan','Government','Personal','Other'].includes(purposeCategory))throw Object.assign(new Error('Invalid request purpose.'),{status:400});
     if (!requestType || !details) {
       throw Object.assign(new Error("Request type and details are required."), { status: 400 });
     }
@@ -47,6 +52,8 @@ router.post("/", async (req, res, next) => {
       resident_name: residentName,
       request_type: requestType,
       details,
+      copies_requested:copiesRequested,
+      purpose_category:purposeCategory,
       status: "submitted",
       preferred_schedule_date: req.body.preferredScheduleDate || null,
       preferred_time_slot: req.body.preferredTimeSlot || null,
@@ -55,7 +62,10 @@ router.post("/", async (req, res, next) => {
     };
 
     const { data, error } = await db.from("requests").insert(payload).select("*").single();
-    if (error) throw error;
+    if (error) {
+      if (error.code === 'P0001') throw Object.assign(new Error(error.message),{status:409,code:'DUPLICATE_ACTIVE_REQUEST'});
+      throw error;
+    }
 
     await db.from("request_timeline").insert({
       request_id: data.id,
@@ -110,7 +120,7 @@ router.get("/id-mine", async (req, res, next) => {
   }
 });
 
-router.post("/id", async (req, res, next) => {
+router.post("/id", persistentLimit("resident-id-request", {max:3,windowSeconds:3600}), async (req, res, next) => {
   try {
     const purpose = `${req.body.purpose || ""}`.trim();
     const preferredDate = req.body.preferredDate || null;
@@ -132,7 +142,10 @@ router.post("/id", async (req, res, next) => {
       })
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      if(error.code==='P0001')throw Object.assign(new Error(error.message),{status:409,code:'DUPLICATE_ACTIVE_ID_REQUEST'});
+      throw error;
+    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -149,51 +162,10 @@ router.post("/id", async (req, res, next) => {
   }
 });
 
-router.get("/document/:requestId/clearance", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const { data: requestRow, error } = await db
-      .from("requests")
-      .select("*")
-      .eq("id", req.params.requestId)
-      .eq("user_id", req.currentUser.id)
-      .single();
-    if (error) throw error;
-
-    if (requestRow.status !== "completed" || requestRow.request_type !== "Barangay Clearance") {
-      throw Object.assign(new Error("This clearance is not ready for download yet."), { status: 400 });
-    }
-
-    await logAudit({ actorId: req.currentUser.id, actorRole: req.currentUser.role,
-      action: "clearance_document_downloaded", eventCategory: "activity", module: "requests",
-      entityType: "request", entityId: requestRow.id, details: { document: "Barangay Clearance" }, req });
-
-    const doc = new PDFDocument({ margin: 48 });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename=barangay-clearance-${requestRow.id}.pdf`);
-    doc.pipe(res);
-
-    doc.fontSize(18).text("BARANGAY IBA", { align: "center" });
-    doc.fontSize(11).text("Silang, Cavite", { align: "center" });
-    doc.moveDown(1.5);
-    doc.fontSize(16).text("Barangay Clearance", { align: "center" });
-    doc.moveDown();
-    doc.fontSize(11).text(`Resident: ${requestRow.resident_name}`);
-    doc.text(`Purpose: ${requestRow.details}`);
-    doc.text(`Date Issued: ${new Date().toLocaleDateString()}`);
-    doc.moveDown();
-    doc.text(
-      "This certifies that the resident named above is a bona fide resident of Barangay Iba and is hereby granted this clearance for the stated purpose.",
-      { align: "justify" }
-    );
-    doc.moveDown(3);
-    doc.text("______________________________", { align: "right" });
-    doc.text("Authorized Barangay Official", { align: "right" });
-    doc.end();
-  } catch (error) {
-    next(error);
-  }
-});
+// Phase 11 is postponed. Generic text-only clearance is not an approved official certificate.
+router.get('/document/:requestId/clearance', (_req,_res,next)=>next(Object.assign(
+ new Error('Official document downloads are unavailable until approved templates and issuance are implemented.'),
+ {status:409,code:'OFFICIAL_DOCUMENT_TEMPLATE_REQUIRED'})));
 
 export default router;
 

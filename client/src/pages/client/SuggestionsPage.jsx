@@ -33,7 +33,7 @@ const SuggestionsPage = () => {
   const reviewAction = useReviewAction();
   const toast = useToast();
   const [suggestions, setSuggestions] = useState([]);
-  const [form, setForm] = useState({ title: "", description: "", image: null, preview: "" });
+  const [form, setForm] = useState({ title: "", description: "", affectedPurok:"",category:"",estimatedBeneficiaries:"",estimatedCost:"", image: null, preview: "" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -43,7 +43,7 @@ const SuggestionsPage = () => {
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1 });
   const [success, setSuccess] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", description: "", image: null, preview: "", removeImage: false });
+  const [editForm, setEditForm] = useState({ title: "", description: "", affectedPurok:"",category:"",estimatedBeneficiaries:"",estimatedCost:"", image: null, preview: "", removeImage: false });
 
   const load = async () => {
     setLoading(true); setError("");
@@ -60,7 +60,7 @@ const SuggestionsPage = () => {
     setEditItem(item);
     setEditForm({
       title: item.title || "",
-      description: item.description || "",
+      description: item.description || "",affectedPurok:item.affected_purok||"",category:item.category||"",estimatedBeneficiaries:item.estimated_beneficiaries||"",estimatedCost:item.estimated_cost||"",
       image: null,
       preview: item.image_url || "",
       removeImage: false,
@@ -76,12 +76,13 @@ const SuggestionsPage = () => {
       const formData = new FormData();
       formData.append("title", editForm.title);
       formData.append("description", editForm.description);
+      for(const key of ['affectedPurok','category','estimatedBeneficiaries','estimatedCost'])formData.append(key,editForm[key]||'');
       if (editForm.image) formData.append("image", editForm.image);
       if (editForm.removeImage) formData.append("removeImage", "true");
       const data = await api(`/suggestions/${editItem.id}`, { method: "PATCH", token, body: formData });
       toast.success(data.message || "Project suggestion updated.");
       setEditItem(null);
-      setEditForm({ title: "", description: "", image: null, preview: "", removeImage: false });
+      setEditForm({ title: "", description: "", affectedPurok:"",category:"",estimatedBeneficiaries:"",estimatedCost:"", image: null, preview: "", removeImage: false });
       await load();
     } catch (err) {
       toast.error(err.message);
@@ -95,9 +96,9 @@ const SuggestionsPage = () => {
     if (!await reviewAction({ title: "Submit Project Suggestion?", description: "Your idea will be sent to the barangay for review.", after: { title: form.title, description: form.description }, confirmLabel: "Submit Suggestion" })) return;
     setSaving(true);
     try {
-      const formData = new FormData(); formData.append("title", form.title); formData.append("description", form.description); if (form.image) formData.append("image", form.image);
+      const formData = new FormData(); formData.append("title", form.title); formData.append("description", form.description);for(const key of ['affectedPurok','category','estimatedBeneficiaries','estimatedCost'])formData.append(key,form[key]||''); if (form.image) formData.append("image", form.image);
       await api("/suggestions", { method: "POST", token, body: formData });
-      setForm({ title: "", description: "", image: null, preview: "" }); setSuccess(true); setFilter("all"); setPage(1); setActiveTab("mine");
+      setForm({ title: "", description: "", affectedPurok:"",category:"",estimatedBeneficiaries:"",estimatedCost:"", image: null, preview: "" }); setSuccess(true); setFilter("all"); setPage(1); setActiveTab("mine");
       toast.success("Project suggestion submitted for barangay review.");
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   };
@@ -112,7 +113,8 @@ const SuggestionsPage = () => {
       {activeTab === "submit" ? (
         <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
           <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]"><div className="flex items-start gap-3"><Info className="mt-0.5 h-5 w-5 shrink-0 text-[var(--brand-600)]" /><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Make the idea easy to evaluate</h2><p className="mt-1 text-sm leading-6 text-stone-600">Explain the problem, proposed solution, location, and who would benefit. You can add a reference photo or sketch.</p></div></div></Card>
-          <Card><form className="space-y-5" onSubmit={submit}><TextInput label="Project Title" required minLength={5} maxLength={120} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Example: Solar lights for Purok 3" /><TextArea label="Description" required minLength={20} maxLength={1500} hint="Describe the problem, proposed solution, location and community benefit." value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /><label className="flex flex-col gap-2 text-sm font-medium text-stone-700"><span>Project Image <span className="font-normal text-stone-400">(optional)</span></span><div className="flex flex-col gap-3 rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-4"><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0] || null; setForm((current) => ({ ...current, image: file, preview: file ? URL.createObjectURL(file) : "" })); }} />{form.preview ? <div className="relative"><img src={form.preview} alt="Selected project" className="h-64 w-full rounded-2xl object-cover" /><button type="button" onClick={() => setForm((current) => ({ ...current, image: null, preview: "" }))} className="absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow" aria-label="Remove image"><X className="h-4 w-4" /></button></div> : <div className="flex items-center gap-3 text-sm text-stone-500"><ImagePlus className="h-5 w-5 text-[var(--brand-600)]" /> Add a photo, sketch or reference image.</div>}</div></label><Button type="submit" loading={saving}><Send className="h-4 w-4" /> Submit Suggestion</Button></form></Card>
+          <Card><form className="space-y-5" onSubmit={submit}><TextInput label="Project Title" required minLength={5} maxLength={120} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Example: Solar lights for Purok 3" /><TextArea label="Description" required minLength={20} maxLength={1500} hint="Describe the problem, proposed solution, location and community benefit." value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} /><TextInput label="Affected Purok / Location" value={form.affectedPurok} onChange={e=>setForm(c=>({...c,affectedPurok:e.target.value}))}/><SelectInput label="Project Category" value={form.category} onChange={e=>setForm(c=>({...c,category:e.target.value}))}><option value="">Choose a category (optional)</option>{['Infrastructure','Environment','Health','Education','Safety','Sports','Other'].map(x=><option key={x}>{x}</option>)}</SelectInput><TextInput label="Estimated Beneficiaries" type="number" min="1" value={form.estimatedBeneficiaries} onChange={e=>setForm(c=>({...c,estimatedBeneficiaries:e.target.value}))}/><TextInput label="Rough Estimated Cost (PHP, optional)" type="number" min="0" value={form.estimatedCost} onChange={e=>setForm(c=>({...c,estimatedCost:e.target.value}))}/>
+<label className="flex flex-col gap-2 text-sm font-medium text-stone-700"><span>Project Image <span className="font-normal text-stone-400">(optional)</span></span><div className="flex flex-col gap-3 rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-4"><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0] || null; setForm((current) => ({ ...current, image: file, preview: file ? URL.createObjectURL(file) : "" })); }} />{form.preview ? <div className="relative"><img src={form.preview} alt="Selected project" className="h-64 w-full rounded-2xl object-cover" /><button type="button" onClick={() => setForm((current) => ({ ...current, image: null, preview: "" }))} className="absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow" aria-label="Remove image"><X className="h-4 w-4" /></button></div> : <div className="flex items-center gap-3 text-sm text-stone-500"><ImagePlus className="h-5 w-5 text-[var(--brand-600)]" /> Add a photo, sketch or reference image.</div>}</div></label><Button type="submit" loading={saving}><Send className="h-4 w-4" /> Submit Suggestion</Button></form></Card>
         </div>
       ) : <>
         <SegmentedTabs value={filter} onChange={setFilter} items={filters} />

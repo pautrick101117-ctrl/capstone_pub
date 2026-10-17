@@ -20,11 +20,6 @@ export const uploadAsset = async ({ file, folder = "uploads", prefix = "asset" }
     return data.publicUrl;
   }
 
-  const fallbackUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-  console.log(
-    `[UPLOAD FALLBACK] Bucket upload failed for ${file.originalname || "asset"} in ${folder}. Using inline data URL. Reason: ${error.message}`
-  );
-  return fallbackUrl;
+  throw Object.assign(new Error('Image upload is unavailable. Please retry later; no record has been saved.'),
+    {status:503,code:'UPLOAD_STORAGE_UNAVAILABLE',cause:error});
 };
-
-

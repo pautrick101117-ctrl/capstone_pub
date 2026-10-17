@@ -95,7 +95,7 @@ test("Phase 8 resident API uses verified session identity and one atomic inserti
   assert.match(resident, /requireAuth, requireCurrentUser\(\), requireRole\("resident"\)/);
   assert.match(resident, /router\.get\("\/eligibility"/);
   assert.match(resident, /p_resident_id: req\.currentUser\.id/);
-  assert.match(resident, /bgy_phase8_submit_concern/);
+  assert.match(resident, /bgy_(phase8|p105)_submit_concern/);
   assert.match(resident, /p_operation_id: operationId/);
   assert.doesNotMatch(resident, /\.from\("complaints"\)\.insert\(/);
   assert.match(source("src/index.js"), /bgy_phase8_ready/);
