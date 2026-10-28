@@ -1,4 +1,4 @@
-import { persistentLimit } from "../middleware/persistentLimit.js";
+import { persistentLimit, submissionLimiter } from "../middleware/persistentLimit.js";
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection, ensureProjectsForClosedElections } from "../lib/projects.js";
@@ -233,8 +233,8 @@ router.get("/my-status", requireAuth, requireCurrentUser(), async (req, res, nex
 });
 
 router.post(
-  "/vote", requireAuth, requireCurrentUser(),
-  rateLimit({ key: "vote", max: 15, windowMs: 60_000 }),
+  "/vote", requireAuth, requireCurrentUser(), submissionLimiter,
+  rateLimit({ key: "vote", max: 10, windowMs: 60_000 }),
   persistentLimit("resident-vote",{max:3,windowSeconds:60,identity:req=>req.currentUser?.id||req.ip}),
   async (req, res, next) => {
     try {
@@ -280,7 +280,7 @@ router.get("/completion-status", requireAuth, requireCurrentUser(), async (req, 
   } catch (error) { next(error); }
 });
 
-router.post("/mark-completed", requireAuth, requireCurrentUser(), persistentLimit("project-completion-ack",{max:5,windowSeconds:600}), async (req, res, next) => {
+router.post("/mark-completed", requireAuth, requireCurrentUser(), submissionLimiter, persistentLimit("project-completion-ack",{max:5,windowSeconds:600}), async (req, res, next) => {
   try {
     if (normalizeRole(req.currentUser.role) !== "resident") {
       throw Object.assign(new Error("Only residents can acknowledge a completed project."), { status: 403 });

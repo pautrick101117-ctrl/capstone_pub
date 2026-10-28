@@ -1,4 +1,5 @@
 import express from "express";
+import { submissionLimiter } from "../middleware/persistentLimit.js";
 import bcrypt from "bcryptjs";
 import { requireSupabase } from "../lib/supabase.js";
 import { sendAdminInvitationEmail, newInvitationToken, hashInvitationToken, invitationExpiry } from "../lib/adminInvitations.js";
@@ -12,6 +13,7 @@ const USER_SELECT =
   "id, first_name, middle_name, last_name, full_name, username, email, role, status, is_active, must_change_password, contact_number, created_at, updated_at";
 
 router.use(requireAuth, requireCurrentUser(), requireRole("super_admin"));
+router.use(submissionLimiter);
 router.use(adminActivityMiddleware("super_admin"));
 
 const ensure = (value, message) => {

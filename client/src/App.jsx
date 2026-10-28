@@ -34,6 +34,7 @@ import AdminContentPage from "./pages/admin/AdminContentPage";
 import AdminFunds from "./pages/admin/AdminFunds";
 import AdminEvents from "./pages/admin/AdminEvents";
 import Admin_VotingResult from "./pages/admin/Admin_VotingResult";
+import AdminReports from "./pages/admin/AdminReports";
 import Admin_Census from "./pages/admin/Admin_Census";
 import Admin_UserMaintenance from "./pages/admin/Admin_UserMaintenance";
 import Admin_Complaints from "./pages/admin/Admin_Complaints";
@@ -108,6 +109,7 @@ const router = createBrowserRouter(
           <Route path="broadcasts" element={<AdminBroadcast />} />
           <Route path="settings" element={<Admin_Settings />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
+          <Route path="reports" element={<AdminReports />} />
           <Route element={<ProtectedRoute roles={["super_admin"]} redirectTo="/admin" />}>
             <Route path="admin-accounts" element={<Admin_UserMaintenance />} />
           </Route>

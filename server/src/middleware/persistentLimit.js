@@ -38,4 +38,19 @@ export const clearRate = async (scope, identity) => {
   if (error) throw error;
 };
 
-export const residentWriteLimiter = persistentLimit('resident-writes', { max: 120, windowSeconds: 60 });
+// Count attempts per operation, including rejected submissions. IDs must not
+// create fresh buckets, and nested routers must not count the same request twice.
+export const submissionScope = (req) => `${req.method}:${req.baseUrl || ''}${req.path || '/'}`
+  .toLowerCase().replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/g, '/:id')
+  .replace(/\/[0-9]+(?=\/|$)/g, '/:id').replace(/\/+$/, '');
+
+export const submissionLimiter = (req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.submissionLimitChecked
+      || req.path === '/audit/page-view') return next();
+  return persistentLimit(`submission:${submissionScope(req)}`, { max: 10, windowSeconds: 600 })(req, res, (error) => {
+    if (!error) req.submissionLimitChecked = true;
+    next(error);
+  });
+};
+
+export const residentWriteLimiter = submissionLimiter;

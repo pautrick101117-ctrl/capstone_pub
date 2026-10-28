@@ -68,10 +68,11 @@ test("email delivery uses Resend HTTPS API with a bounded timeout", async () => 
 test("V3 resident and census forms use master-data Purok dropdowns", async () => {
   const residents = await read("client/src/pages/admin/Admin_Residents.jsx");
   const census = await read("client/src/pages/admin/Admin_Census.jsx");
-  assert.match(residents, /useMasterData\("purok"\)/);
-  assert.match(residents, /<SelectInput label="Purok"/);
-  assert.match(census, /useMasterData\("purok"\)/);
-  assert.match(census, /<SelectInput label="Purok"/);
+  const masterSelect = await read("client/src/components/MasterDataSelect.jsx");
+  assert.match(residents, /<MasterDataSelect category="purok"/);
+  assert.match(masterSelect, /useMasterData\(category\)/);
+  assert.match(masterSelect, /value=\{item\.label\}/);
+  assert.match(census, /<MasterDataSelect category="purok"/);
 });
 
 test("V3 voting explains the complete resident voting process", async () => {

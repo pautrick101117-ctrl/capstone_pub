@@ -20,6 +20,7 @@ const mapAnnouncement = (item) => ({
   imageUrl: item.image_url,
   type: item.type,
   createdAt: item.created_at,
+  publishedAt: item.published_at || item.created_at,
 });
 
 router.get("/landing", async (_req, res, next) => {
@@ -43,8 +44,8 @@ router.get("/landing", async (_req, res, next) => {
       db.from("fund_projects").select("amount"),
       db.from("fund_sources").select("allocated_amount"),
       db.from("events").select("*").gte("date", new Date().toISOString().slice(0, 10)).order("date").order("time").limit(3),
-      db.from("announcements").select("*").eq("type", "news").order("created_at", { ascending: false }).limit(3),
-      db.from("announcements").select("*").eq("type", "announcement").order("created_at", { ascending: false }).limit(3),
+      db.from("announcements").select("*").eq("type", "news").order("published_at", { ascending: false }).limit(3),
+      db.from("announcements").select("*").eq("type", "announcement").order("published_at", { ascending: false }).limit(3),
       db.from("elections").select("id, title, description, ends_at, image_url").eq("status", "live").gt("ends_at", new Date().toISOString()).maybeSingle(),
       db.from("landing_content").select("*").order("key_name"),
     ]);
@@ -111,7 +112,7 @@ router.get("/announcements", async (req, res, next) => {
       .from("announcements")
       .select("*", { count: "exact" })
       .eq("type", type)
-      .order("created_at", { ascending: false })
+      .order("published_at", { ascending: false })
       .range(from, to);
     if (error) throw error;
 
@@ -130,7 +131,7 @@ router.get("/news/:id", async (req, res, next) => {
     const db = requireSupabase();
     const { data, error } = await db
       .from("announcements")
-      .select("id, title, body, image_url, type, created_at")
+      .select("id, title, body, image_url, type, created_at, published_at")
       .eq("id", req.params.id)
       .eq("type", "news")
       .maybeSingle();
@@ -139,10 +140,10 @@ router.get("/news/:id", async (req, res, next) => {
 
     const { data: related, error: relatedError } = await db
       .from("announcements")
-      .select("id, title, body, image_url, type, created_at")
+      .select("id, title, body, image_url, type, created_at, published_at")
       .eq("type", "news")
       .neq("id", data.id)
-      .order("created_at", { ascending: false })
+      .order("published_at", { ascending: false })
       .limit(3);
     if (relatedError) throw relatedError;
 

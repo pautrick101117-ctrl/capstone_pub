@@ -5,7 +5,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Button, Card, ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, Pagination, Skeleton, TableShell, TextArea, TextInput } from "../../components/ui";
-import { formatDate } from "../../lib/format";
+import { formatDateTime, toManilaDateTimeInput, fromManilaDateTimeInput } from "../../lib/format";
 
 const emptyForm = { id: "", title: "", body: "", date: "", image: null, preview: "" };
 const pageSize = 6;
@@ -60,12 +60,12 @@ const AdminContentPage = ({ type = "news" }) => {
   };
 
   const openEdit = (item) => {
-    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: item.created_at ? `${item.created_at}`.slice(0, 10) : "", image: null, preview: item.image_url || "" });
+    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: toManilaDateTimeInput(item.published_at || item.created_at), image: null, preview: item.image_url || "" });
     setForm({
       id: item.id,
       title: item.title || "",
       body: item.body || "",
-      date: item.created_at ? `${item.created_at}`.slice(0, 10) : "",
+      date: toManilaDateTimeInput(item.published_at || item.created_at),
       image: null,
       preview: item.image_url || "",
     });
@@ -81,7 +81,7 @@ const AdminContentPage = ({ type = "news" }) => {
     formData.append("title", form.title);
     formData.append("body", form.body);
     formData.append("type", type);
-    if (form.date) formData.append("date", form.date);
+    if (form.date) formData.append("publishedAt", fromManilaDateTimeInput(form.date));
     if (form.image) formData.append("image", form.image);
     if (form.preview && !form.image) formData.append("imageUrl", form.preview);
 
@@ -163,7 +163,7 @@ const AdminContentPage = ({ type = "news" }) => {
                     {paginatedItems.map((item) => (
                       <tr key={item.id} className="border-t border-stone-100 align-top transition hover:bg-stone-50/70">
                         <td className="px-4 py-4"><p className="font-semibold text-[var(--brand-900)]">{item.title}</p><p className="mt-1 line-clamp-3 max-w-2xl text-xs text-stone-500">{item.body}</p></td>
-                        <td className="px-4 py-4 text-stone-600">{formatDate(item.created_at)}</td>
+                        <td className="px-4 py-4 text-stone-600">{formatDateTime(item.published_at || item.created_at)}</td>
                         <td className="px-4 py-4">{item.image_url ? <img src={item.image_url} alt="" className="h-14 w-14 rounded-2xl object-cover" /> : <span className="text-stone-400">None</span>}</td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-2">
@@ -185,7 +185,7 @@ const AdminContentPage = ({ type = "news" }) => {
       <Modal open={open} onClose={() => !saving && closeEditor()} title={`${form.id ? "Edit" : "Create"} ${singular}`} description={form.id ? "Update the content, then save the changes." : "Review the title, message and image before publishing."}>
         <form className="space-y-4" onSubmit={save}>
           <TextInput label="Title" required maxLength={140} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-          <TextInput label="Date (optional)" type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+          <TextInput label="Post Date & Time (Philippine time)" type="datetime-local" max={toManilaDateTimeInput(new Date())} hint="Leave blank to publish now. Past dates are allowed for reports on completed activities." value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
           <TextArea label="Body" required maxLength={3000} value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
           <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
             <span>Image Upload</span>

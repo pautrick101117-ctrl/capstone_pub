@@ -4,11 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { API_URL, api } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { useMasterData } from "../../hooks/useMasterData";
+import { MasterDataSelect } from "../../components/MasterDataSelect";
+import { HouseholdMemberFields } from "../../components/HouseholdMemberFields";
+import { emptyHouseholdMember } from "../../lib/census";
 import { formatDateTime } from "../../lib/format";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 
-const emptyForm = { id: "", householdRef: "", householdName: "", purok: "", members: 1, address: "", contactNumber:"", housingTenure:"", residencySince:"", status: "active" };
+const emptyForm = { id: "", householdRef: "", householdName: "", purok: "", members: 1, address: "", contactNumber:"", housingTenure:"", residencySince:"", status: "active", householdMembers:[emptyHouseholdMember(true)] };
 const pageSize = 8;
 
 const downloadProtectedFile = async ({ url, token, filename }) => {
@@ -51,10 +53,9 @@ const Admin_Census = () => {
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [memberHousehold,setMemberHousehold] = useState(null);
   const [householdMembers,setHouseholdMembers] = useState([]);
-  const [memberForm,setMemberForm] = useState({firstName:'',middleName:'',lastName:'',suffix:'',relationship:'',isHead:false,birthdate:'',sex:'',occupation:'',userId:''});
+  const [memberForm,setMemberForm] = useState(emptyHouseholdMember());
   const [residents,setResidents]=useState([]);
   const fileInputRef = useRef(null);
-  const { options: purokOptions } = useMasterData("purok");
 
   const formGuard = useUnsavedForm({ initial: formSnapshot, current: form, enabled: open });
   useUnsavedNavigation(formGuard.dirty);
@@ -75,10 +76,11 @@ const Admin_Census = () => {
 
   useEffect(() => { if (token) load(); }, [token]);
   const openMembers=async(household)=>{
-    setMemberHousehold(household);setHouseholdMembers([]);
+    setMemberHousehold(household);setHouseholdMembers([]);setMemberForm(emptyHouseholdMember());
     try{
       const [result,people]=await Promise.all([api(`/admin/census_households/${household.id}/members`,{token}),api('/admin/users',{token})]);
       setHouseholdMembers(result.members||[]);setResidents(people.users||[]);
+      setMemberForm(emptyHouseholdMember(!(result.members || []).length));
     }catch(err){toast.error(err.message);}
   };
   const saveMember=async(event)=>{
@@ -89,7 +91,7 @@ const Admin_Census = () => {
     try{await api(`/admin/census_households/${memberHousehold.id}/members`,{method:'POST',token,body:memberForm});
       toast.success('Household member added. Member count recalculated.');
       const results=await api(`/admin/census_households/${memberHousehold.id}/members`,{token});setHouseholdMembers(results.members||[]);
-      setMemberForm({firstName:'',middleName:'',lastName:'',suffix:'',relationship:'',isHead:false,birthdate:'',sex:'',occupation:'',userId:''});await load();
+      setMemberForm(emptyHouseholdMember());await load();
     }catch(err){toast.error(err.message);}finally{setSaving(false);}
   };
   const changeHead=async(member)=>{
@@ -110,25 +112,19 @@ const Admin_Census = () => {
     setForm(emptyForm);
     setFormSnapshot(emptyForm);
     setOpen(true);
+    api('/admin/users',{token}).then(data=>setResidents(data.users || [])).catch(err=>toast.error(err.message));
   };
 
   const openEdit = (item) => {
-    setFormSnapshot({ id: item.id, householdRef: item.household_ref || "", householdName: item.household_name || "", purok: item.purok || "", members: item.members ?? 1, address: item.address || item.house_number || "", contactNumber:item.contact_number||"",housingTenure:item.housing_tenure||"",residencySince:item.residency_since||"",status: item.status || "active" });
-    setForm({
-      id: item.id,
-      householdRef: item.household_ref || "",
-      householdName: item.household_name || "",
-      purok: item.purok || "",
-      members: item.members || 1,
-      address: item.address || item.house_number || "",
-      status: item.status || "active",
-    });
-    setOpen(true);
+    const value={id:item.id,householdRef:item.household_ref || '',householdName:item.household_name || '',purok:item.purok || '',
+      members:item.members ?? 0,address:item.address || item.house_number || '',contactNumber:item.contact_number || '',
+      housingTenure:item.housing_tenure || '',residencySince:item.residency_since || '',status:item.status || 'active',householdMembers:[]};
+    setFormSnapshot(value);setForm(value);setOpen(true);
   };
 
   const save = async (event) => {
     event.preventDefault();
-    const members = Number(form.members);
+    const members = form.id ? Number(form.members) : form.householdMembers.length;
     if (!Number.isInteger(members) || members < 0 || (!form.id && members < 1)) return toast.error("Enter a valid member count.");
     const previous = households.find((entry) => entry.id === form.id) || {};
     if (!await reviewAction({ title: form.id ? "Confirm Household Changes" : "Add Household?", description: "This updates the official Census records.", subject: form.householdName || form.household_name || "Household", before: previous, after: form, confirmLabel: form.id ? "Save Household" : "Add Household" })) return;
@@ -300,14 +296,23 @@ const Admin_Census = () => {
       <Modal open={open} onClose={() => !saving && closeEditor()} title={form.id ? "Edit Household" : "Add Household"} description={form.id ? "Update the household census record. The Updated date will refresh automatically." : "Add a household with a full address. The system creates a stable household reference automatically."}>
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={save}>
           <TextInput label="Household Name" required maxLength={120} className="sm:col-span-2" value={form.householdName} onChange={(event) => setForm((current) => ({ ...current, householdName: event.target.value }))} />
-          <SelectInput label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
-          <TextInput label="Members" type="number" min="1" step="1" value={form.members} readOnly={Boolean(form.id && households.find(h=>h.id===form.id)?.membership_verified)} onKeyDown={(event) => { if (["-", "+", "e", "E", "."].includes(event.key)) event.preventDefault(); }} onChange={(event) => setForm((current) => ({ ...current, members: event.target.value === "" ? "" : Math.max(1, Number.parseInt(event.target.value, 10) || 1) }))} />
+          <MasterDataSelect category="purok" label="Purok" placeholder="Select Purok" required value={form.purok} onChange={event=>setForm(current=>({...current,purok:event.target.value}))}/>
+          <TextInput label="Members" type="number" min={form.id ? 0 : 1} step="1" value={form.id ? form.members : form.householdMembers.length} readOnly={!form.id || Boolean(households.find(h=>h.id===form.id)?.membership_verified)} onKeyDown={(event) => { if (["-", "+", "e", "E", "."].includes(event.key)) event.preventDefault(); }} onChange={(event) => setForm((current) => ({ ...current, members: event.target.value === "" ? "" : Math.max(1, Number.parseInt(event.target.value, 10) || 1) }))} />
           <TextInput label="Household Contact Number" maxLength={30} value={form.contactNumber} onChange={e=>setForm(c=>({...c,contactNumber:e.target.value}))}/>
           <SelectInput label="Housing Tenure" value={form.housingTenure} onChange={e=>setForm(c=>({...c,housingTenure:e.target.value}))}><option value="">Not specified</option><option value="owned">Owned</option><option value="rented">Rented</option><option value="shared">Shared / Staying with family</option><option value="other">Other</option></SelectInput>
           <TextInput label="Resident Since" type="date" value={form.residencySince} onChange={e=>setForm(c=>({...c,residencySince:e.target.value}))}/>
           <TextInput label="Address" required maxLength={240} className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Example: 12 Rizal Street, Purok 1, Barangay Iba, Silang, Cavite" />
           <SelectInput label="Status" required value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}><option value="active">Active</option><option value="for update">Needs Update</option></SelectInput>
           {form.householdRef ? <TextInput label="Household Ref" readOnly value={form.householdRef} /> : <div />}
+          {!form.id?<div className="sm:col-span-2 space-y-4">
+            <h3 className="font-bold text-[var(--brand-900)]">Household Members</h3><p className="text-sm text-stone-500">List everyone who lives in this household, including minors. The first member is the head. Member count is calculated automatically.</p>
+            {form.householdMembers.map((member,index)=><fieldset key={index} className="grid gap-3 rounded-2xl border border-stone-200 p-4 sm:grid-cols-2">
+              <legend className="px-2 font-semibold">{index===0?'Head of Household':`Member ${index+1}`}</legend>
+              <HouseholdMemberFields value={member} residents={residents} allowHeadChange={false} onChange={next=>setForm(current=>({...current,householdMembers:current.householdMembers.map((value,i)=>i===index?next:value)}))}/>
+              {index>0?<Button type="button" variant="ghost" onClick={()=>setForm(current=>({...current,householdMembers:current.householdMembers.filter((_,i)=>i!==index)}))}>Remove Member</Button>:null}
+            </fieldset>)}
+            <Button type="button" variant="secondary" onClick={()=>setForm(current=>({...current,householdMembers:[...current.householdMembers,emptyHouseholdMember()]}))}>Add Another Member</Button>
+          </div>:null}
           <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Add Household"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>Cancel</Button></div>
         </form>
       </Modal>
@@ -316,19 +321,7 @@ const Admin_Census = () => {
         <div className="space-y-5">
           <div className="space-y-2">{householdMembers.map(member=><div key={member.id} className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 p-3"><div><p className="font-semibold">{[member.first_name,member.middle_name,member.last_name,member.suffix].filter(Boolean).join(' ')}</p><p className="text-xs text-stone-500">{member.relationship}{member.is_head?' · Head of household':''}{member.user_id?' · Linked portal account':''}</p></div><div className="flex flex-wrap gap-2">{!member.is_head?<Button type="button" variant="secondary" onClick={()=>changeHead(member)}>Make Head</Button>:null}<Button variant="danger" type="button" onClick={()=>removeMember(member)}>Remove</Button></div></div>)}{!householdMembers.length?<Alert tone="info" title="No identified members"><p>This household has only a legacy manually entered count. Add member details to establish a verified count.</p></Alert>:null}</div>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={saveMember}>
-            <TextInput label="First Name" required value={memberForm.firstName} onChange={e=>setMemberForm(c=>({...c,firstName:e.target.value}))}/>
-            <TextInput label="Middle Name" value={memberForm.middleName} onChange={e=>setMemberForm(c=>({...c,middleName:e.target.value}))}/>
-            <TextInput label="Last Name" required value={memberForm.lastName} onChange={e=>setMemberForm(c=>({...c,lastName:e.target.value}))}/>
-            <TextInput label="Suffix" value={memberForm.suffix} onChange={e=>setMemberForm(c=>({...c,suffix:e.target.value}))}/>
-            <TextInput label="Relationship to Head" required placeholder="Head, Spouse, Child, Parent..." value={memberForm.relationship} onChange={e=>setMemberForm(c=>({...c,relationship:e.target.value}))}/>
-            <TextInput label="Birthdate" type="date" value={memberForm.birthdate} onChange={e=>setMemberForm(c=>({...c,birthdate:e.target.value}))}/>
-            <SelectInput label="Sex" value={memberForm.sex} onChange={e=>setMemberForm(c=>({...c,sex:e.target.value}))}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></SelectInput>
-            <TextInput label="Occupation (optional)" value={memberForm.occupation} onChange={e=>setMemberForm(c=>({...c,occupation:e.target.value}))}/>
-            <SelectInput label="Link to resident account (optional)" value={memberForm.userId} onChange={e=>setMemberForm(c=>({...c,userId:e.target.value}))}><option value="">No account / minor</option>{residents.filter(u=>u.role==='resident').map(u=><option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}</SelectInput>
-            <div className="sm:col-span-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">{[
-              ['isSenior','Senior citizen'],['isPwd','PWD'],['isSoloParent','Solo parent'],['is4ps','4Ps beneficiary'],['isRegisteredVoter','Registered voter']
-            ].map(([key,label])=><label key={key} className="flex items-center gap-2"><input type="checkbox" checked={Boolean(memberForm[key])} onChange={e=>setMemberForm(c=>({...c,[key]:e.target.checked}))}/>{label}</label>)}</div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={memberForm.isHead} onChange={e=>setMemberForm(c=>({...c,isHead:e.target.checked,relationship:e.target.checked?'Head':c.relationship}))}/>Head of household (one only)</label>
+            <HouseholdMemberFields value={memberForm} onChange={setMemberForm} residents={residents}/>
             <div className="sm:col-span-2"><Button type="submit" loading={saving}>Add Household Member</Button></div>
           </form>
         </div>

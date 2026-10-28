@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Gauge,
   History,
+  FileSpreadsheet,
   Landmark,
   Lightbulb,
   Construction,
@@ -46,6 +47,7 @@ const groups = [
     items: [
       { to: "/admin/census", label: "Census", icon: Gauge },
       { to: "/admin/officials", label: "Officials", icon: Landmark },
+      { to: "/admin/reports", label: "Reports", icon: FileSpreadsheet },
     ],
   },
   {

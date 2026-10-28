@@ -13,7 +13,7 @@ const router = express.Router();
 const evidenceUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1}});
 
 router.use(requireAuth, requireCurrentUser(), requireRole("resident"));
-router.use((req,res,next)=> ['POST','PATCH','PUT','DELETE'].includes(req.method) && req.currentUser?.role === 'resident' ? residentWriteLimiter(req,res,next) : next());
+router.use(residentWriteLimiter);
 
 router.get("/mine", async (req, res, next) => {
   try {

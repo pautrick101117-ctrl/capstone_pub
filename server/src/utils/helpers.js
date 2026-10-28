@@ -107,6 +107,7 @@ export const sanitizeUser = (user) => ({
   citizenship: user.citizenship || '',
   placeOfBirth: user.place_of_birth || '',
   residencySince: user.residency_since || '',
+  occupation: user.occupation || '',
   fullName: user.full_name || [user.first_name, user.middle_name, user.last_name].filter(Boolean).join(" "),
   address: user.address,
   purok: user.purok,

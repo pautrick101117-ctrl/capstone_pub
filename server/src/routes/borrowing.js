@@ -1,4 +1,4 @@
-import { residentWriteLimiter, persistentLimit } from "../middleware/persistentLimit.js";
+import { residentWriteLimiter, persistentLimit, submissionLimiter } from "../middleware/persistentLimit.js";
 import express from "express";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
@@ -22,6 +22,7 @@ import {
 
 const router = express.Router();
 router.use(requireAuth, requireCurrentUser());
+router.use(submissionLimiter);
 router.use(adminActivityMiddleware("borrowing"));
 
 const ensureResident = (req, res, next) => requireRole("resident")(req, res, next);

@@ -1,10 +1,11 @@
 import express from "express";
 import adminVotingRoutes from "./adminVoting.js";
+import adminReportsRoutes from "./adminReports.js";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import zlib from "zlib";
 import { validateIdFiles, uploadPrivateIds, removePrivateIds, ID_BUCKET } from "../lib/residentIds.js";
-import { persistentLimit } from "../middleware/persistentLimit.js";
+import { persistentLimit, submissionLimiter } from "../middleware/persistentLimit.js";
 import { getConcernPhotoUrl } from "../lib/concernEvidence.js";
 import { requireSupabase } from "../lib/supabase.js";
 import { ensureCommunityProjectForElection } from "../lib/projects.js";
@@ -20,6 +21,8 @@ import { configuredHotlines, validateHotlines } from "../lib/hotlines.js";
 import { validateConcernLimits } from "../lib/concernLimits.js";
 import { attachCaseHistories, parseNewCaseResponse, updateCaseWithHistory } from "../lib/caseHistory.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
+import { publicationDate } from "../lib/publication.js";
+import { buildHouseholdMember, buildHouseholdMembers, censusConflict, censusDate } from "../lib/census.js";
 import {
   buildUsername,
   createTemporaryPassword,
@@ -34,8 +37,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const idUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 35, parts: 45 } });
 
 router.use(requireAuth, requireCurrentUser(), requireRole("admin"));
+router.use(submissionLimiter);
 router.use(adminActivityMiddleware("admin"));
 router.use(adminVotingRoutes);
+router.use(adminReportsRoutes);
 
 const ensure = (value, message) => {
   if (!value) throw Object.assign(new Error(message), { status: 400 });
@@ -172,7 +177,7 @@ const createHouseholdRef = () => `HH-${Date.now().toString(36).toUpperCase()}-${
 
 const buildCensusPayload = (body, { allowId = false } = {}) => {
   const members = Number(body.members ?? 1);
-  const householdName = `${body.household_name || body.householdName || ""}`.trim();
+  const householdName = `${body.householdName ?? body.household_name ?? ""}`.trim();
   const purok = `${body.purok || ""}`.trim();
   const address = `${body.address || body.house_number || body.houseNumber || ""}`.trim();
   const status = `${body.status || "active"}`.trim().toLowerCase();
@@ -183,6 +188,8 @@ const buildCensusPayload = (body, { allowId = false } = {}) => {
   ensure(address, "Address is required.");
   ensure(Number.isInteger(members) && members >= 0, "Members must be a non-negative whole number.");
   ensure(["active", "for update"].includes(status), "Status must be Active or For Update.");
+  const tenure = (body.housingTenure ?? body.housing_tenure) || null;
+  ensure(!tenure || ['owned','rented','shared','other'].includes(tenure), 'Choose a valid housing tenure.');
 
   const payload = {
     household_ref: householdRef,
@@ -190,8 +197,8 @@ const buildCensusPayload = (body, { allowId = false } = {}) => {
     purok,
     members,
     contact_number:`${body.contactNumber ?? body.contact_number ?? ''}`.trim(),
-    housing_tenure:body.housingTenure ?? body.housing_tenure ?? null,
-    residency_since:body.residencySince ?? body.residency_since ?? null,
+    housing_tenure: tenure,
+    residency_since: censusDate(body.residencySince ?? body.residency_since, 'Residency start date'),
     address,
     // Retained for compatibility with V3 databases and old reports.
     house_number: address,
@@ -205,7 +212,7 @@ const buildCensusPayload = (body, { allowId = false } = {}) => {
 const dedupeHouseholds = (rows = []) => {
   const seen = new Map();
   for (const row of rows) {
-    const key = `${row.household_ref || ""}`.trim().toLowerCase() || `${row.id || ""}` || normalizeAddress(row.address || row.house_number);
+    const key = `${row.id || ""}` || `${row.household_ref || ""}`.trim().toLowerCase() || normalizeAddress(row.address || row.house_number);
     if (!seen.has(key)) seen.set(key, { ...row, address: row.address || row.house_number || "", household_ref: row.household_ref || "" });
   }
   return Array.from(seen.values()).sort((a, b) => `${a.address || ""}`.localeCompare(`${b.address || ""}`));
@@ -217,7 +224,8 @@ const findCensusDuplicate = async (db, payload, excludeId = null) => {
   const refResult = await refQuery;
   if (!refResult.error && refResult.data?.[0]) return refResult.data[0];
 
-  let addressQuery = db.from("census_households").select("id, household_ref, address, house_number").ilike("address", payload.address).limit(1);
+  let addressQuery = db.from("census_households").select("id, household_ref, address, house_number")
+    .eq("purok", payload.purok).eq("household_name", payload.household_name).ilike("address", payload.address).limit(1);
   if (excludeId) addressQuery = addressQuery.neq("id", excludeId);
   const addressResult = await addressQuery;
   if (!addressResult.error && addressResult.data?.[0]) return addressResult.data[0];
@@ -235,6 +243,7 @@ const findCensusDuplicate = async (db, payload, excludeId = null) => {
 const insertCensusHousehold = async (db, payload) => {
   const { data, error } = await db.from("census_households").insert(payload).select("*").single();
   if (error) {
+    if (error.code === '23505') throw censusConflict(error);
     // Fallback for V3 databases while still allowing the application to boot before the migration is run.
     if (`${error.message || ""}`.toLowerCase().includes("household_ref") || `${error.message || ""}`.toLowerCase().includes("address")) {
       const legacy = {
@@ -788,10 +797,12 @@ router.post("/users", idUpload.array("idImages", 5), persistentLimit("admin-crea
     for (const [val,label] of [[firstName,'First name'],[middleName,'Middle name'],[lastName,'Last name'],[suffix,'Suffix']]) {
       if (val.length > 100) throw Object.assign(new Error(`${label} is too long.`), {status:400});
     }
-    for(const [key,label] of [['civilStatus','Civil status'],['citizenship','Citizenship'],['placeOfBirth','Place of birth']]) {
+    for(const [key,label] of [['civilStatus','Civil status'],['citizenship','Citizenship'],['placeOfBirth','Place of birth'],['occupation','Occupation']]) {
+      ensure(`${req.body[key] || ''}`.trim(), `${label} is required.`);
       if(String(req.body[key]||'').length>160)throw Object.assign(new Error(`${label} is too long.`),{status:400});
     }
     const sex = `${req.body.sex || ''}`.trim() || null;
+    ensure(sex, 'Sex is required.');
     if (sex && !['male','female','other','prefer_not_to_say'].includes(sex)) throw Object.assign(new Error('Invalid sex selection.'),{status:400});
     const {data: allowedIds,error: idTypesError} = await db.from('resident_id_types').select('id,label,is_active');
     if (idTypesError) throw idTypesError;
@@ -826,7 +837,8 @@ router.post("/users", idUpload.array("idImages", 5), persistentLimit("admin-crea
       civil_status: `${req.body.civilStatus || ''}`.trim() || null,
       citizenship: `${req.body.citizenship || ''}`.trim() || null,
       place_of_birth: `${req.body.placeOfBirth || ''}`.trim() || null,
-      residency_since: req.body.residencySince || null,
+      residency_since: censusDate(req.body.residencySince, 'Residency start date'),
+      occupation: `${req.body.occupation || ''}`.trim() || null,
       email,
       password_hash: passwordHash,
       address,
@@ -929,7 +941,7 @@ router.get('/resident-id-types', async (_req,res,next) => {
     res.json({types:data||[]});
   } catch(error){next(error);}
 });
-router.post('/resident-id-types', persistentLimit('admin-id-catalog',{max:20,windowSeconds:3600}), async (req,res,next) => {
+router.post('/resident-id-types', persistentLimit('admin-id-catalog',{max:10,windowSeconds:3600}), async (req,res,next) => {
   try {
     const label=`${req.body.label||''}`.trim();
     if(label.length<2 || label.length>80 || /[<>]/.test(label)) throw Object.assign(new Error('ID type name must be 2–80 characters.'),{status:400});
@@ -994,8 +1006,12 @@ router.patch("/users/:userId", async (req, res, next) => {
       updates.middle_name = parts.middleName;
       updates.last_name = parts.lastName;
     }
-    for (const [input,column] of [['sex','sex'],['civilStatus','civil_status'],['citizenship','citizenship'],['placeOfBirth','place_of_birth'],['residencySince','residency_since']]) {
-      if (req.body[input] !== undefined) updates[column] = req.body[input] || null;
+    for (const [input,column] of [['sex','sex'],['civilStatus','civil_status'],['citizenship','citizenship'],['placeOfBirth','place_of_birth'],['residencySince','residency_since'],['occupation','occupation']]) {
+      if (req.body[input] !== undefined) {
+        const value = `${req.body[input] || ''}`.trim();
+        ensure(value.length <= 160, `${input} is too long.`);
+        updates[column] = input === 'residencySince' ? censusDate(value, 'Residency start date') : value || null;
+      }
     }
     if (updates.sex && !['male','female','other','prefer_not_to_say'].includes(updates.sex)) throw Object.assign(new Error('Invalid sex selection.'), {status:400});
     if (req.body.address !== undefined) updates.address = `${req.body.address}`.trim();
@@ -1823,17 +1839,15 @@ router.post('/census_households/:householdId/members', async(req,res,next)=>{
   try {
     const db=requireSupabase();
     const body=req.body||{};
-    const first_name=`${body.firstName||''}`.trim(),last_name=`${body.lastName||''}`.trim(),relationship=`${body.relationship||''}`.trim();
-    if(!first_name||!last_name||!relationship)throw Object.assign(new Error('First name, last name and relationship are required.'),{status:400});
-    const payload={household_id:req.params.householdId, first_name,last_name,relationship,
-      middle_name:`${body.middleName||''}`.trim(),suffix:`${body.suffix||''}`.trim(),
-      user_id:body.userId||null,is_head:Boolean(body.isHead),sex:body.sex||null,birthdate:body.birthdate||null,
-      civil_status:body.civilStatus||null,occupation:`${body.occupation||''}`.trim()||null,
-      is_senior:Boolean(body.isSenior),is_pwd:Boolean(body.isPwd),is_solo_parent:Boolean(body.isSoloParent),
-      is_4ps:Boolean(body.is4ps),is_registered_voter:Boolean(body.isRegisteredVoter)};
+    const payload={...buildHouseholdMember(body),household_id:req.params.householdId};
+    if(payload.user_id){
+      const linked=await db.from('users').select('id').eq('id',payload.user_id).eq('role','resident').maybeSingle();
+      if(linked.error)throw linked.error;
+      ensure(linked.data,'Only resident accounts may be linked.');
+    }
     const {data,error}=await db.from('household_members').insert(payload).select('*').single();
     if(error)throw error;
-    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'add_household_member',entityType:'household_member',entityId:data.id, details:{householdId:payload.household_id,relationship},req});
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:'add_household_member',entityType:'household_member',entityId:data.id, details:{householdId:payload.household_id,relationship:payload.relationship},req});
     res.status(201).json({member:data});
   }catch(error){next(error);}
 });
@@ -1937,7 +1951,10 @@ router.post("/census_households", async (req, res, next) => {
     await assertActiveMasterLabel(db, "purok", payload.purok);
     const duplicate = await findCensusDuplicate(db, payload);
     if (duplicate) throw Object.assign(new Error("A household with the same reference or address already exists. Edit the existing record instead."), { status: 409 });
-    const data = await insertCensusHousehold(db, payload);
+    const members = buildHouseholdMembers(req.body.householdMembers);
+    const result = await db.rpc('bgy_register_census_household', {p_household:payload,p_members:members});
+    if (result.error) throw censusConflict(result.error);
+    const data = result.data;
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -1969,6 +1986,7 @@ router.patch("/census_households/:id", async (req, res, next) => {
     if (duplicate) throw Object.assign(new Error("Another household already uses this address or household reference."), { status: 409 });
 
     let update = await db.from("census_households").update(payload).eq("id", req.params.id).select("*").single();
+    if (update.error?.code === '23505') throw censusConflict(update.error);
     if (update.error && (`${update.error.message || ""}`.toLowerCase().includes("household_ref") || `${update.error.message || ""}`.toLowerCase().includes("address"))) {
       const legacyPayload = {
         household_name: payload.household_name,
@@ -2056,13 +2074,13 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
     const db = requireSupabase();
     const [{ data: activePuroks, error: purokError }, { data: existingRows, error: existingError }] = await Promise.all([
       db.from("master_data_values").select("label").eq("category", "purok").eq("is_active", true),
-      db.from("census_households").select("id, household_ref, purok, address, house_number"),
+      db.from("census_households").select("id, household_ref, household_name, purok, address, house_number"),
     ]);
     if (purokError) throw purokError;
     if (existingError) throw existingError;
 
     const allowedPuroks = new Set((activePuroks || []).map((item) => `${item.label}`.toLowerCase()));
-    const existingKeys = new Set((existingRows || []).map((item) => `${item.purok || ""}|${normalizeAddress(item.address || item.house_number || "")}`.toLowerCase()));
+    const existingKeys = new Set((existingRows || []).map((item) => `${normalizeAddress(item.purok)}|${normalizeAddress(item.address || item.house_number || "")}|${normalizeAddress(item.household_name)}`));
     const fileKeys = new Set();
     const preview = [];
     let duplicateCount = 0;
@@ -2072,7 +2090,7 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
       const rowErrors = [];
       if (!allowedPuroks.has(`${payload.purok}`.toLowerCase())) rowErrors.push(`Invalid or inactive Purok: ${payload.purok}.`);
       if (!["active", "for update"].includes(payload.status)) rowErrors.push(`Invalid status: ${payload.status}. Use active or for update.`);
-      const key = `${payload.purok}|${normalizeAddress(payload.address)}`.toLowerCase();
+      const key = `${normalizeAddress(payload.purok)}|${normalizeAddress(payload.address)}|${normalizeAddress(payload.household_name)}`;
       const duplicateExisting = existingKeys.has(key);
       const duplicateFile = fileKeys.has(key);
       if (duplicateExisting || duplicateFile) duplicateCount += 1;
@@ -2114,12 +2132,17 @@ router.post("/census_households/batch", upload.single("file"), async (req, res, 
       inserted = Number(result?.[0]?.inserted_count ?? result?.inserted_count ?? payload.length);
     } else {
       for (const item of payload) {
-        const key = `${item.purok}|${normalizeAddress(item.address)}`.toLowerCase();
+        const key = `${normalizeAddress(item.purok)}|${normalizeAddress(item.address)}|${normalizeAddress(item.household_name)}`;
         if (existingKeys.has(key)) {
           skipped += 1;
           continue;
         }
-        await insertCensusHousehold(db, item);
+        try {
+          await insertCensusHousehold(db, item);
+        } catch (insertError) {
+          if (insertError.code === 'DUPLICATE_HOUSEHOLD' || insertError.code === '23505') { skipped += 1; continue; }
+          throw insertError;
+        }
         existingKeys.add(key);
         inserted += 1;
       }
@@ -2171,6 +2194,9 @@ tableCrud({
   fileFolder: "announcements",
   filePrefix: "announcement",
   mapPayload: async ({ body, assetUrl, db, existingId }) => {
+    ensure(`${body.title || ''}`.trim(), 'Title is required.');
+    ensure(`${body.body || ''}`.trim(), 'Body is required.');
+    ensure(['news', 'announcement'].includes(body.type), 'Choose news or announcement.');
     const payload = {
       title: body.title,
       body: body.body,
@@ -2178,9 +2204,7 @@ tableCrud({
       type: body.type,
     };
 
-    if (body.date && !existingId) {
-      payload.created_at = body.date;
-    }
+    if (body.publishedAt || body.date || !existingId) payload.published_at = publicationDate(body.publishedAt || body.date);
 
     if (!existingId) {
       const residents = await getResidentRecipients(db);

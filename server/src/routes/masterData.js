@@ -1,4 +1,5 @@
 import express from "express";
+import { submissionLimiter } from "../middleware/persistentLimit.js";
 import { requireSupabase } from "../lib/supabase.js";
 import { requireAuth, requireCurrentUser, requireRole } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
@@ -50,7 +51,7 @@ router.get("/admin", requireAuth, requireCurrentUser(), requireRole("admin"), as
   }
 });
 
-router.post("/admin", requireAuth, requireCurrentUser(), requireRole("admin"), async (req, res, next) => {
+router.post("/admin", requireAuth, requireCurrentUser(), requireRole("admin"), submissionLimiter, async (req, res, next) => {
   try {
     const db = requireSupabase();
     const category = ensureCategory(req.body.category);
@@ -73,7 +74,7 @@ router.post("/admin", requireAuth, requireCurrentUser(), requireRole("admin"), a
   }
 });
 
-router.patch("/admin/:id", requireAuth, requireCurrentUser(), requireRole("admin"), async (req, res, next) => {
+router.patch("/admin/:id", requireAuth, requireCurrentUser(), requireRole("admin"), submissionLimiter, async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data: existing, error: findError } = await db.from("master_data_values").select("*").eq("id", req.params.id).maybeSingle();

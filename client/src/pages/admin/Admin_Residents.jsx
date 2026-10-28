@@ -7,12 +7,12 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
-import { useMasterData } from "../../hooks/useMasterData";
+import { MasterDataSelect } from "../../components/MasterDataSelect";
 
 const pageSize = 8;
 
 const initialForm = {
-  firstName:"", middleName:"", lastName:"", suffix:"", sex:"", civilStatus:"", citizenship:"Filipino", placeOfBirth:"", residencySince:"",
+  firstName:"", middleName:"", lastName:"", suffix:"", sex:"", civilStatus:"", citizenship:"Filipino", placeOfBirth:"", residencySince:"", occupation:"",
   address: "",
   purok: "",
   phoneNumber: "",
@@ -49,11 +49,10 @@ const Admin_Residents = () => {
   const [credentialResult, setCredentialResult] = useState(null);
   const [selectedResident, setSelectedResident] = useState(null);
   const [editResident, setEditResident] = useState(null);
-  const { options: purokOptions } = useMasterData("purok");
   const createGuard = useUnsavedForm({ initial: {...initialForm,evidenceCount:0}, current: {...form,evidenceCount:idDocuments.filter(item=>item.file).length}, enabled: showCreateModal });
   const originalResident = users.find((entry) => entry.id === editResident?.id);
   const editGuard = useUnsavedForm({
-    initial: originalResident ? { firstName:originalResident.firstName||'', middleName:originalResident.middleName||'',lastName:originalResident.lastName||'',suffix:originalResident.suffix||'',sex:originalResident.sex||'',civilStatus:originalResident.civilStatus||'',citizenship:originalResident.citizenship||'',placeOfBirth:originalResident.placeOfBirth||'',residencySince:originalResident.residencySince||'', fullName: originalResident.fullName || "", birthdate: originalResident.birthdate || "", address: originalResident.address || "", purok: originalResident.purok || "", contactNumber: originalResident.contactNumber || "", email: originalResident.email || "" } : null,
+    initial: originalResident ? { firstName:originalResident.firstName||'', middleName:originalResident.middleName||'',lastName:originalResident.lastName||'',suffix:originalResident.suffix||'',sex:originalResident.sex||'',civilStatus:originalResident.civilStatus||'',citizenship:originalResident.citizenship||'',placeOfBirth:originalResident.placeOfBirth||'',residencySince:originalResident.residencySince||'',occupation:originalResident.occupation||'', fullName: originalResident.fullName || "", birthdate: originalResident.birthdate || "", address: originalResident.address || "", purok: originalResident.purok || "", contactNumber: originalResident.contactNumber || "", email: originalResident.email || "" } : null,
     current: editResident, enabled: Boolean(editResident),
   });
   useUnsavedNavigation(createGuard.dirty || editGuard.dirty);
@@ -193,7 +192,7 @@ const Admin_Residents = () => {
     setEditResident({
       id: resident.id,
       firstName:resident.firstName||'', middleName:resident.middleName||'',lastName:resident.lastName||'',suffix:resident.suffix||'',
-      sex:resident.sex||'',civilStatus:resident.civilStatus||'',citizenship:resident.citizenship||'',placeOfBirth:resident.placeOfBirth||'',residencySince:resident.residencySince||'',
+      sex:resident.sex||'',civilStatus:resident.civilStatus||'',citizenship:resident.citizenship||'',placeOfBirth:resident.placeOfBirth||'',residencySince:resident.residencySince||'',occupation:resident.occupation||'',
       fullName: resident.fullName || "",
       birthdate: resident.birthdate || "",
       address: resident.address || "",
@@ -208,7 +207,7 @@ const Admin_Residents = () => {
     if (!editResident) return;
     const before = users.find((user) => user.id === editResident.id) || {};
     const original = {firstName:before.firstName,middleName:before.middleName,lastName:before.lastName,suffix:before.suffix,
-      sex:before.sex,civilStatus:before.civilStatus,citizenship:before.citizenship,placeOfBirth:before.placeOfBirth,residencySince:before.residencySince,fullName: before.fullName, birthdate: before.birthdate, address: before.address, purok: before.purok, contactNumber: before.contactNumber, email: before.email };
+      sex:before.sex,civilStatus:before.civilStatus,citizenship:before.citizenship,placeOfBirth:before.placeOfBirth,residencySince:before.residencySince,occupation:before.occupation,fullName: before.fullName, birthdate: before.birthdate, address: before.address, purok: before.purok, contactNumber: before.contactNumber, email: before.email };
     if (!reviewChanges(original, editResident).length) return toast.info("No changes to save.");
     if (!await reviewAction({ title: "Confirm Resident Changes", description: "Review changed fields before updating this resident.", subject: editResident.fullName, before: original, after: editResident, confirmLabel: "Save Changes" })) return;
     setSaving(true);
@@ -219,7 +218,7 @@ const Admin_Residents = () => {
         body: {
           firstName:editResident.firstName, middleName:editResident.middleName,lastName:editResident.lastName,suffix:editResident.suffix,
           sex:editResident.sex,civilStatus:editResident.civilStatus,citizenship:editResident.citizenship,
-          placeOfBirth:editResident.placeOfBirth,residencySince:editResident.residencySince,
+          placeOfBirth:editResident.placeOfBirth,residencySince:editResident.residencySince,occupation:editResident.occupation,
           birthdate: editResident.birthdate,
           address: editResident.address,
           purok: editResident.purok,
@@ -417,17 +416,15 @@ const Admin_Residents = () => {
           <TextInput label="Middle Name" maxLength={100} value={form.middleName} onChange={(event)=>setForm(current=>({...current,middleName:event.target.value}))}/>
           <TextInput label="Last Name" required maxLength={100} value={form.lastName} onChange={(event)=>setForm(current=>({...current,lastName:event.target.value}))}/>
           <TextInput label="Suffix (optional)" placeholder="Jr., III" maxLength={20} value={form.suffix} onChange={(event)=>setForm(current=>({...current,suffix:event.target.value}))}/>
-          <SelectInput label="Sex" value={form.sex} onChange={(event)=>setForm(current=>({...current,sex:event.target.value}))}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></SelectInput>
-          <SelectInput label="Civil Status" value={form.civilStatus} onChange={(event)=>setForm(current=>({...current,civilStatus:event.target.value}))}><option value="">Not specified</option>{['Single','Married','Widowed','Separated','Other'].map(value=><option key={value} value={value}>{value}</option>)}</SelectInput>
-          <TextInput label="Citizenship" maxLength={80} value={form.citizenship} onChange={(event)=>setForm(current=>({...current,citizenship:event.target.value}))}/>
-          <TextInput label="Place of Birth" maxLength={160} value={form.placeOfBirth} onChange={(event)=>setForm(current=>({...current,placeOfBirth:event.target.value}))}/>
+          <SelectInput label="Sex" required value={form.sex} onChange={(event)=>setForm(current=>({...current,sex:event.target.value}))}><option value="">Not specified</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></SelectInput>
+          <SelectInput label="Civil Status" required value={form.civilStatus} onChange={(event)=>setForm(current=>({...current,civilStatus:event.target.value}))}><option value="">Not specified</option>{['Single','Married','Widowed','Separated','Other'].map(value=><option key={value} value={value}>{value}</option>)}</SelectInput>
+          <TextInput label="Citizenship" required maxLength={80} value={form.citizenship} onChange={(event)=>setForm(current=>({...current,citizenship:event.target.value}))}/>
+          <TextInput label="Place of Birth" required maxLength={160} value={form.placeOfBirth} onChange={(event)=>setForm(current=>({...current,placeOfBirth:event.target.value}))}/>
+          <TextInput label="Occupation" required maxLength={160} placeholder="Occupation, student, unemployed, retired..." value={form.occupation} onChange={e=>setForm(c=>({...c,occupation:e.target.value}))}/>
           <TextInput label="Resident Since (optional)" type="date" value={form.residencySince} onChange={(event)=>setForm(current=>({...current,residencySince:event.target.value}))}/>
           <TextInput label="Birthdate" required type="date" max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().slice(0, 10); })()} hint="Resident must be at least 18 years old." value={form.birthdate} onChange={(event) => setForm((current) => ({ ...current, birthdate: event.target.value }))} />
           <TextInput label="Address" required autoComplete="street-address" maxLength={180} className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
-          <SelectInput label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))}>
-            <option value="">Select Purok</option>
-            {purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}
-          </SelectInput>
+          <MasterDataSelect category="purok" placeholder="Select Purok" label="Purok" required value={form.purok} onChange={(event) => setForm((current) => ({ ...current, purok: event.target.value }))} />
           <TextInput label="Phone Number" required type="tel" inputMode="tel" autoComplete="tel" maxLength={20} placeholder="09XX XXX XXXX" value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} />
           <TextInput label="Email" required type="email" autoComplete="email" maxLength={180} className="sm:col-span-2" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
           <div className="sm:col-span-2 space-y-3 rounded-2xl border border-stone-200 p-4">
@@ -461,7 +458,7 @@ const Admin_Residents = () => {
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               ["Full Name", selectedResident.fullName], ["Username", selectedResident.username],
-              ["Birthdate", selectedResident.birthdate ? formatDate(selectedResident.birthdate) : "Not set"], ["Purok", selectedResident.purok || "Not set"],
+              ["Sex", selectedResident.sex || "Not set"], ["Civil Status", selectedResident.civilStatus || "Not set"], ["Citizenship", selectedResident.citizenship || "Not set"], ["Place of Birth", selectedResident.placeOfBirth || "Not set"], ["Occupation", selectedResident.occupation || "Not set"], ["Resident Since", selectedResident.residencySince ? formatDate(selectedResident.residencySince) : "Not set"], ["Birthdate", selectedResident.birthdate ? formatDate(selectedResident.birthdate) : "Not set"], ["Purok", selectedResident.purok || "Not set"],
               ["Address", selectedResident.address || "Not set"], ["Contact", selectedResident.contactNumber || "Not set"],
               ["Email", selectedResident.email || "Not set"], ["Created", formatDate(selectedResident.createdAt)],
               ["Last Updated", formatDate(selectedResident.updatedAt || selectedResident.createdAt)], ["Account", selectedResident.isActive ? "Active" : "Inactive"],
@@ -481,10 +478,11 @@ const Admin_Residents = () => {
           <TextInput label="Civil Status" value={editResident.civilStatus} onChange={e=>setEditResident(v=>({...v,civilStatus:e.target.value}))}/>
           <TextInput label="Citizenship" value={editResident.citizenship} onChange={e=>setEditResident(v=>({...v,citizenship:e.target.value}))}/>
           <TextInput label="Place of Birth" value={editResident.placeOfBirth} onChange={e=>setEditResident(v=>({...v,placeOfBirth:e.target.value}))}/>
+          <TextInput label="Occupation" maxLength={160} value={editResident.occupation} onChange={e=>setEditResident(c=>({...c,occupation:e.target.value}))}/>
           <TextInput label="Resident Since" type="date" value={editResident.residencySince} onChange={e=>setEditResident(v=>({...v,residencySince:e.target.value}))}/>
           <TextInput label="Birthdate" required type="date" value={editResident.birthdate} onChange={(e) => setEditResident((v) => ({ ...v, birthdate: e.target.value }))} />
           <TextInput label="Address" required className="sm:col-span-2" value={editResident.address} onChange={(e) => setEditResident((v) => ({ ...v, address: e.target.value }))} />
-          <SelectInput label="Purok" required value={editResident.purok} onChange={(e) => setEditResident((v) => ({ ...v, purok: e.target.value }))}><option value="">Select Purok</option>{purokOptions.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</SelectInput>
+          <MasterDataSelect category="purok" placeholder="Select Purok" label="Purok" required value={editResident.purok} onChange={(e) => setEditResident((v) => ({ ...v, purok: e.target.value }))} />
           <TextInput label="Contact Number" required value={editResident.contactNumber} onChange={(e) => setEditResident((v) => ({ ...v, contactNumber: e.target.value }))} />
           <TextInput label="Email" required type="email" className="sm:col-span-2" value={editResident.email} onChange={(e) => setEditResident((v) => ({ ...v, email: e.target.value }))} />
           <div className="sm:col-span-2 flex gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" onClick={closeEdit} disabled={saving}>Cancel</Button></div>
