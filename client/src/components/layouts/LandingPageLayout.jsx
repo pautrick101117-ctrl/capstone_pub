@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api";
+import { isResidentSession, residentDestination } from "../../lib/residentAccess";
 
 const menuGroups = [
   {
@@ -30,7 +31,9 @@ const LandingPageLayout = () => {
   const [expandedGroup, setExpandedGroup] = useState(null);
   const location = useLocation();
   const [support, setSupport] = useState(null);
-  const { isAuthenticated, user, logout } = useAuth();
+  const auth = useAuth();
+  const { logout } = auth;
+  const residentSignedIn = isResidentSession(auth);
   const reviewAction = useReviewAction();
   const confirmLogout = async () => {
     if (await reviewAction({ title: "Log out of your account?", description: "Your current session will end, and you'll need to sign in again to continue.", confirmLabel: "Log Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
@@ -40,12 +43,8 @@ const LandingPageLayout = () => {
     api("/public/community-support").then(setSupport).catch(() => {});
   }, []);
 
-  const portalPath = ["admin", "super_admin"].includes(user?.role) ? "/admin" : "/portal";
   const contact = support?.contact || {};
-  // Unauthenticated users sign in first; signed-in residents go straight to the service.
-  const destinationFor = (item) => item.residentTo && isAuthenticated
-    ? user?.role === "resident" ? item.residentTo : "/admin"
-    : item.residentTo ? `/login?next=${encodeURIComponent(item.residentTo)}` : item.to;
+  const destinationFor = (item) => item.residentTo ? residentDestination(auth, item.residentTo) : item.to;
 
   useEffect(() => { setOpen(false); setExpandedGroup(null); }, [location.pathname]);
   useEffect(() => {
@@ -87,9 +86,9 @@ const LandingPageLayout = () => {
           </nav>
 
           <div className="hidden items-center gap-3 lg:flex">
-            {isAuthenticated ? (
+            {residentSignedIn ? (
               <>
-                <NavLink to={portalPath} className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">Open Portal</NavLink>
+                <NavLink to="/portal" className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">Open Portal</NavLink>
                 <button onClick={confirmLogout} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">Logout</button>
               </>
             ) : (
@@ -115,9 +114,9 @@ const LandingPageLayout = () => {
             ))}
             <NavLink to="/help-center" onClick={() => setOpen(false)} className="mt-3 block rounded-2xl px-3 py-3 text-sm font-bold text-[var(--brand-800)]">Help Center</NavLink>
             <div className="mt-4 border-t border-stone-200 pt-4">
-              {isAuthenticated ? (
+              {residentSignedIn ? (
                 <div className="grid gap-2">
-                  <NavLink to={portalPath} onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-3 text-center text-sm font-semibold text-white">Open Portal</NavLink>
+                  <NavLink to="/portal" onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-3 text-center text-sm font-semibold text-white">Open Portal</NavLink>
                   <button onClick={async () => { setOpen(false); await confirmLogout(); }} className="rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-700">Logout</button>
                 </div>
               ) : <NavLink to="/login" onClick={() => setOpen(false)} className="block rounded-full bg-[var(--brand-500)] px-4 py-3 text-center text-sm font-semibold text-white">Resident Login</NavLink>}

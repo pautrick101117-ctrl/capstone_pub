@@ -7,14 +7,13 @@ import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
 import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
 import { isStrongPassword, passwordPolicyChecks, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
+import { isResidentSession } from "../../lib/residentAccess";
 
 const initialResetForm = {
   usernameOrEmail: "",
   code: "",
   newPassword: "",
 };
-
-const isAdminRole = (role) => role === "admin" || role === "super_admin";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -23,7 +22,8 @@ const Login = () => {
   const requestedNext = searchParams.get("next");
   const safeDestination = allowedNext.has(requestedNext) ? requestedNext : "/portal";
   const toast = useToast();
-  const { login, loading, isAuthenticated, user } = useAuth();
+  const auth = useAuth();
+  const { login, loading, user } = auth;
   const [form, setForm] = useState({ username: "", password: "" });
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetForm, setResetForm] = useState(initialResetForm);
@@ -38,7 +38,7 @@ const Login = () => {
         usernameOrEmail: form.username,
         password: form.password,
       });
-      navigate(loggedInUser.mustChangePassword ? "/change-password" : isAdminRole(loggedInUser.role) ? "/admin" : safeDestination, { replace: true });
+      navigate(loggedInUser.mustChangePassword ? "/change-password" : safeDestination, { replace: true });
     } catch (error) {
       toast.error(error.message);
     }
@@ -83,8 +83,8 @@ const Login = () => {
     }
   };
 
-  if (isAuthenticated) {
-    return <Navigate to={isAdminRole(user?.role) ? "/admin" : safeDestination} replace />;
+  if (isResidentSession(auth)) {
+    return <Navigate to={user?.mustChangePassword ? "/change-password" : safeDestination} replace />;
   }
 
   return (

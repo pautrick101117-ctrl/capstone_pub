@@ -1,10 +1,10 @@
 import { Home } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { ButtonLink, Card } from "../../components/ui";
+import { isResidentSession } from "../../lib/residentAccess";
 
 const NotFoundPage = () => {
-  const { isAuthenticated, user } = useAuth();
-  const destination = !isAuthenticated ? "/" : ["admin", "super_admin"].includes(user?.role) ? "/admin" : "/portal";
+  const destination = isResidentSession(useAuth()) ? "/portal" : "/";
   return <main className="section-shell flex min-h-[60vh] items-center justify-center py-12">
     <Card className="w-full max-w-xl text-center">
       <p className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--brand-500)]">Page not found</p>

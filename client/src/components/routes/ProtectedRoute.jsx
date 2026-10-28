@@ -12,8 +12,7 @@ export const ProtectedRoute = ({ roles, redirectTo = "/login" }) => {
   }
 
   if (roles && !hasAllowedRole(user?.role, roles)) {
-    const safeHome = user?.role === "admin" || user?.role === "super_admin" ? "/admin" : "/portal";
-    return <Navigate to={safeHome} replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   if (isPasswordChangeRequired && location.pathname !== "/change-password") {

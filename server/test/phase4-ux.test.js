@@ -61,8 +61,8 @@ test("Phase 4: public services and resident login safely preserve their destinat
   const home = await client("pages/client/Home.jsx");
   const login = await client("pages/client/Login.jsx");
   assert.match(landing, /destinationFor\(item\)/);
-  assert.match(landing, /encodeURIComponent\(item\.residentTo\)/);
-  assert.match(home, /encodeURIComponent\(to\)/);
+  assert.match(landing, /residentDestination\(auth, item\.residentTo\)/);
+  assert.match(home, /residentDestination\(auth, to\)/);
   assert.match(login, /const allowedNext = new Set/);
   assert.match(login, /allowedNext\.has\(requestedNext\)/);
   assert.match(login, /safeDestination/);
@@ -83,10 +83,11 @@ test("Phase 4: mobile navigation and shared components provide accessibility con
   assert.match(shared, /sm:inline-flex/);
 });
 
-test("Phase 4: unknown paths have a role-appropriate return destination", async () => {
+test("Phase 4: public unknown paths return residents to their portal and other visitors home", async () => {
   const app = await client("App.jsx");
   const fallback = await client("pages/client/NotFoundPage.jsx");
   assert.match(app, /<Route path="\*" element=\{<NotFoundPage \/>\}/);
-  assert.match(fallback, /\["admin", "super_admin"\]/);
+  assert.match(fallback, /isResidentSession\(useAuth\(\)\)/);
+  assert.doesNotMatch(fallback, /"\/admin"/);
   assert.match(fallback, /ButtonLink to=\{destination\}/);
 });
