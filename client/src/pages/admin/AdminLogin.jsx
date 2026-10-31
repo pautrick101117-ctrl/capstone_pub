@@ -4,8 +4,8 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 
 const isAdminRole = (role) => role === "admin" || role === "super_admin";
 

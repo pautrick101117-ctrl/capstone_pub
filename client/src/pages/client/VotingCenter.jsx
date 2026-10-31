@@ -1,9 +1,9 @@
 import { CheckCircle2, Circle, Clock3, Info, Vote } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader } from "../../components/ui";
 import { countdownText, formatDateTime } from "../../lib/format";
 
@@ -28,7 +28,7 @@ const VotingCenter = () => {
 
   const isResident = user?.role === "resident";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -47,11 +47,11 @@ const VotingCenter = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => { load(); }, [load, token]);
 
-  const options = election?.options || [];
+  const options = useMemo(() => election?.options || [], [election]);
   const selectedOption = useMemo(() => options.find((option) => option.id === selectedOptionId) || null, [options, selectedOptionId]);
   const canVote = election?.phaseStatus === "live" && !hasVoted && isResident;
 

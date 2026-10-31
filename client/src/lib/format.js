@@ -1,15 +1,18 @@
 export const formatDate = (value, options = {}) => {
   if (!value) return "Not set";
+  if (!Number.isFinite(new Date(value).getTime())) return "Invalid date";
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "Asia/Manila",
     ...options,
   }).format(new Date(value));
 };
 
 export const formatDateTime = (value) => {
   if (!value) return "Not set";
+  if (!Number.isFinite(new Date(value).getTime())) return "Invalid date";
   return new Intl.DateTimeFormat("en-PH", {
     timeZone: "Asia/Manila",
     month: "short",
@@ -22,6 +25,7 @@ export const formatDateTime = (value) => {
 
 export const toManilaDateTimeInput = (value) => {
   if (!value) return "";
+  if (!Number.isFinite(new Date(value).getTime())) return "";
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hourCycle: "h23",
@@ -29,7 +33,11 @@ export const toManilaDateTimeInput = (value) => {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 };
 
-export const fromManilaDateTimeInput = (value) => value ? new Date(`${value}:00+08:00`).toISOString() : "";
+export const fromManilaDateTimeInput = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value || '')) return '';
+  const date=new Date(`${value.length===16?`${value}:00`:value}+08:00`);
+  return Number.isFinite(date.getTime()) && toManilaDateTimeInput(date)===value.slice(0,16) ? date.toISOString() : '';
+};
 
 export const formatCurrency = (value) =>
   new Intl.NumberFormat("en-PH", {
@@ -41,6 +49,7 @@ export const formatCurrency = (value) =>
 export const countdownText = (endDate) => {
   if (!endDate) return "No deadline";
   const diff = new Date(endDate).getTime() - Date.now();
+  if (!Number.isFinite(diff)) return "No deadline";
   if (diff <= 0) return "Closed";
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const days = Math.floor(hours / 24);

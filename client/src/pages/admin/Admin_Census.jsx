@@ -1,9 +1,9 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { AlertTriangle, Download, FileSpreadsheet, Pencil, Plus, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_URL, api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
 import { HouseholdMemberFields } from "../../components/HouseholdMemberFields";
 import { emptyHouseholdMember } from "../../lib/census";
@@ -61,7 +61,7 @@ const Admin_Census = () => {
   useUnsavedNavigation(formGuard.dirty);
   const closeEditor = () => formGuard.closeSafely(() => { setOpen(false); setForm(emptyForm); });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -72,9 +72,9 @@ const Admin_Census = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
   const openMembers=async(household)=>{
     setMemberHousehold(household);setHouseholdMembers([]);setMemberForm(emptyHouseholdMember());
     try{

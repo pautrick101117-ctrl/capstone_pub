@@ -1,8 +1,8 @@
 import { CheckCircle2, Send } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Alert, Button, Card, ConfirmDialog, PageHeader, TextArea, TextInput } from "../../components/ui";
 
 const AdminBroadcast = () => {

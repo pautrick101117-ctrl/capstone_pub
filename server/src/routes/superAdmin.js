@@ -94,7 +94,7 @@ router.post("/users", async (req, res, next) => {
     let deliveryStatus = "sent";
     try {
       const delivery = await sendAdminInvitationEmail({ email, fullName, username, token });
-      if (!delivery?.delivered) throw new Error("Email provider did not accept the invitation.");
+      if (!delivery?.accepted) throw new Error("Email provider did not accept the invitation.");
     } catch (deliveryError) {
       deliveryStatus = "delivery_failed";
       console.warn("[ADMIN INVITATION EMAIL ERROR]", deliveryError.code || "send_failed");
@@ -134,7 +134,7 @@ router.post("/users/:userId/resend-invitation", async (req, res, next) => {
     let deliveryStatus = "sent";
     try {
       const delivery = await sendAdminInvitationEmail({ email: user.email, fullName: user.full_name, username: user.username, token });
-      if (!delivery?.delivered) throw new Error("Email not accepted.");
+      if (!delivery?.accepted) throw new Error("Email not accepted.");
     } catch (sendError) {
       deliveryStatus = "delivery_failed";
       console.warn("[ADMIN INVITATION RESEND ERROR]", sendError.code || "send_failed");

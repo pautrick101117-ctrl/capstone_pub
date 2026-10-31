@@ -1,9 +1,9 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { Edit3, Plus, Upload } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
 import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
 
@@ -29,7 +29,7 @@ const Admin_Officials = () => {
   useUnsavedNavigation(formGuard.dirty);
   const closeEditor = () => formGuard.closeSafely(() => { setOpen(false); setForm(emptyForm); });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -40,11 +40,11 @@ const Admin_Officials = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (token) load();
-  }, [token]);
+  }, [load, token]);
 
   const openCreate = () => {
     setForm(emptyForm);

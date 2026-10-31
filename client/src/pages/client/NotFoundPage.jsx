@@ -1,5 +1,5 @@
 import { Home } from "lucide-react";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { ButtonLink, Card } from "../../components/ui";
 import { isResidentSession } from "../../lib/residentAccess";
 

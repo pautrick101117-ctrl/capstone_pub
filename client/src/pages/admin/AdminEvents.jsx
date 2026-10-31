@@ -1,10 +1,10 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { CalendarPlus, Clock3, Edit3, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, TableShell, TextArea, TextInput } from "../../components/ui";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
 
@@ -43,15 +43,15 @@ const AdminEvents = () => {
   const closeEvent = () => eventGuard.closeSafely(() => { setEventOpen(false); setEventForm(emptyEvent); });
   const closeSlot = () => slotGuard.closeSafely(() => { setSlotOpen(false); setSlotForm(emptySlot); });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const [eventData, slotData] = await Promise.all([api("/admin/events", { token }), api("/admin/id_pickup_slots", { token })]);
       setEvents(eventData.events || []); setSlots(slotData.id_pickup_slots || []);
     } catch (loadError) { setError(loadError.message || "Unable to load events and pickup slots."); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { if (token) load(); }, [token]);
+  }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
 
   const visibleEvents = useMemo(() => events.slice((eventPage - 1) * pageSize, eventPage * pageSize), [events, eventPage]);
   const visibleSlots = useMemo(() => slots.slice((slotPage - 1) * pageSize, slotPage * pageSize), [slots, slotPage]);

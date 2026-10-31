@@ -1,5 +1,5 @@
 import { FileText, ReceiptText, WalletCards } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SelectInput, TableShell } from "../../components/ui";
 import { formatCurrency, formatDate } from "../../lib/format";
@@ -16,14 +16,14 @@ const FundTransparency = () => {
   const [sourcePage, setSourcePage] = useState(1);
   const [projectPage, setProjectPage] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try { setData(await api("/public/funds")); }
     catch (err) { setError(err.message); setData({ sources: [], projects: [] }); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const terms = useMemo(() => ["all", ...Array.from(new Set([...(data.sources || []).map((item) => item.term), ...(data.projects || []).map((item) => item.term)].filter(Boolean)))], [data]);
   const sources = useMemo(() => term === "all" ? data.sources || [] : (data.sources || []).filter((item) => item.term === term), [data, term]);

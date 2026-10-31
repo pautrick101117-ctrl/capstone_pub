@@ -4,3 +4,10 @@
 **/node_modules/
 **/dist/
 **/.DS_Store
+.npm-cache/
+artifacts/browser-report/
+artifacts/browser-results/
+*-audit.json
+*-tests.txt
+baseline-lint.txt
+lint-details.json

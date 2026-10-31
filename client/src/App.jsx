@@ -45,10 +45,11 @@ import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 import AdminProjectSuggestions from "./pages/admin/AdminProjectSuggestions";
 import AdminProjects from "./pages/admin/AdminProjects";
 import { ActionReviewProvider } from "./components/ActionReviewProvider";
+import RouteError from "./components/routes/RouteError";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
-    <>
+    <Route errorElement={<RouteError />}>
       <Route path="/" element={<LandingPageLayout />}>
         <Route index element={<Home />} />
         <Route path="news" element={<PublicFeedPage type="news" />} />
@@ -116,7 +117,7 @@ const router = createBrowserRouter(
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
-    </>
+    </Route>
   )
 );
 

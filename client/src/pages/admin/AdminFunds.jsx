@@ -1,8 +1,8 @@
 import { Edit3, Eye, Plus, ReceiptText, WalletCards } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
 import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatCurrency, formatDate } from "../../lib/format";
@@ -27,7 +27,7 @@ const AdminFunds = () => {
   const [saving, setSaving] = useState(false);
   const [confirmSave, setConfirmSave] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -38,9 +38,9 @@ const AdminFunds = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const openSourceCreate = () => { setSourceForm(emptySource); setSourceOpen(true); };
   const openSourceEdit = (source) => { setSourceForm({ id: source.id, name: source.name || "", term: source.term || "", allocatedAmount: source.allocated_amount ?? "" }); setSourceOpen(true); };

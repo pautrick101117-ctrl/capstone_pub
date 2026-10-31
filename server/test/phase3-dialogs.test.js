@@ -28,7 +28,7 @@ test("manual logout entry points route through the shared confirmation", async (
 });
 
 test("shared review has safe dismissal and a field-by-field comparison", async () => {
-  const review = await readClient("components/ActionReviewProvider.jsx");
+  const review = await readClient("components/ActionReviewProvider.jsx") + await readClient("hooks/useActionReview.js");
   const ui = await readClient("components/ui.jsx");
   assert.match(review, /useUnsavedNavigation/);
   assert.match(review, /reviewChanges\(config\.before, config\.after\)/);

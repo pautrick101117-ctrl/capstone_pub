@@ -1,10 +1,10 @@
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { CheckCircle2, Lightbulb, Search, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
@@ -34,7 +34,7 @@ const AdminProjectSuggestions = () => {
   const [visibility, setVisibility] = useState("resident");
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -48,9 +48,9 @@ const AdminProjectSuggestions = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search, status, token]);
 
-  useEffect(() => { if (token) load(); }, [token, status, page]);
+  useEffect(() => { if (token) load(); }, [token, status, page, load]);
   useEffect(() => { setPage(1); }, [status]);
 
   const submitSearch = (event) => { event.preventDefault(); setPage(1); load(); };

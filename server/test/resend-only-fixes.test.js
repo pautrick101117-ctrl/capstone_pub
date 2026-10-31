@@ -55,7 +55,8 @@ test("Resend sends to external recipients and uses verified-domain sender", asyn
       email: "resident@example.net", fullName: "Test <Resident>",
       username: "test1", temporaryPassword: "Pw123456!", role: "resident",
     });
-    assert.equal(result.delivered, true);
+    assert.equal(result.accepted, true);
+    assert.equal(result.delivered, false);
     assert.equal(result.provider, "resend");
     assert.equal(captured.url, "https://api.resend.com/emails");
     assert.equal(captured.options.headers.Authorization, "Bearer re_test_key");

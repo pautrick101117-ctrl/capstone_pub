@@ -1,5 +1,5 @@
 import { ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { Card, EmptyState, ErrorState, PageHeader, Skeleton } from "../../components/ui";
 
@@ -8,13 +8,13 @@ const Officials = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try { const data = await api("/public/officials"); setOfficials(data.officials || []); }
     catch (err) { setError(err.message); setOfficials([]); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const [head, ...rest] = officials;
   return (

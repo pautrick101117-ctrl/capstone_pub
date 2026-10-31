@@ -1,10 +1,10 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { CheckCircle2, Construction, ImagePlus, PauseCircle, Pencil, PlayCircle, Plus, X, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
@@ -52,15 +52,15 @@ const AdminProjects = () => {
   const closeEdit = () => editGuard.closeSafely(() => setEdit(null));
   const closeUpdate = () => updateGuard.closeSafely(() => setUpdateForm(null));
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const data = await api(`/admin/projects?status=${status}&page=${page}&limit=${pageSize}`, { token });
       setItems(data.projects || []); setPagination(data.pagination || { total: 0 });
     } catch (loadError) { setError(loadError.message || "Unable to load community projects."); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { if (token) load(); }, [token, status, page]);
+  }, [page, status, token]);
+  useEffect(() => { if (token) load(); }, [token, status, page, load]);
   useEffect(() => { setPage(1); }, [status]);
   useEffect(() => {
     const targetId = searchParams.get("recordId");

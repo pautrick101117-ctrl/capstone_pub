@@ -1,16 +1,13 @@
 import {
-  createContext,
   startTransition,
-  useContext,
   useEffect,
-  useEffectEvent,
-  useMemo,
+  useCallback,
   useRef,
   useState,
 } from "react";
 import { api } from "../lib/api";
 
-const AuthContext = createContext(null);
+import { AuthContext } from "./auth";
 const STORAGE_KEY = "barangay-iba-auth";
 const SESSION_MINUTES = 30;
 const SESSION_MS = SESSION_MINUTES * 60 * 1000;
@@ -37,29 +34,22 @@ export const AuthProvider = ({ children }) => {
   const timeoutRef = useRef(null);
   const lastBumpRef = useRef(0);
 
-  const persist = (value) => {
-    setSession(value);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  };
+  const persist = useCallback(value => setSession(value), []);
+  useEffect(() => {
+    if (session.token) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    else localStorage.removeItem(STORAGE_KEY);
+  }, [session]);
 
-  const clearSession = useEffectEvent(() => {
-    startTransition(() => {
-      setSession(blankSession);
-      localStorage.removeItem(STORAGE_KEY);
-    });
-  });
+  const clearSession = useCallback(() => {
+    startTransition(() => setSession(blankSession));
+  }, []);
 
-  const extendSession = useEffectEvent(() => {
-    if (!session.token) return;
+  const extendSession = useCallback(() => {
     const now = Date.now();
     if (now - lastBumpRef.current < 60_000) return;
     lastBumpRef.current = now;
-    persist({
-      ...session,
-      expiresAt: now + SESSION_MS,
-      lastActivityAt: now,
-    });
-  });
+    setSession(current => current.token ? { ...current, expiresAt: now + SESSION_MS, lastActivityAt: now } : current);
+  }, []);
 
   useEffect(() => {
     if (timeoutRef.current) {
@@ -87,21 +77,17 @@ export const AuthProvider = ({ children }) => {
     return () => events.forEach((eventName) => window.removeEventListener(eventName, handler));
   }, [session.token, extendSession]);
 
+  const activeToken = session.token;
   useEffect(() => {
-    if (!session.token) return;
-
-    api("/auth/me", { token: session.token })
-      .then((data) => {
-        persist({
-          ...session,
-          user: data.user,
-          notifications: data.notifications || [],
-          expiresAt: Date.now() + (data.sessionTimeoutMinutes || SESSION_MINUTES) * 60 * 1000,
-          lastActivityAt: Date.now(),
-        });
-      })
-      .catch(() => clearSession());
-  }, []);
+    if (!activeToken) return;
+    let cancelled = false;
+    api("/auth/me", { token: activeToken }).then(data => {
+      if (!cancelled) setSession(current => current.token === activeToken ? { ...current,
+        user: data.user, notifications: data.notifications || [],
+      } : current);
+    }).catch(() => { if (!cancelled) clearSession(); });
+    return () => { cancelled = true; };
+  }, [activeToken, clearSession]);
 
   const login = async ({ usernameOrEmail, password, adminOnly = false }) => {
     setLoading(true);
@@ -209,8 +195,7 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
-  const value = useMemo(
-    () => ({
+  const value = {
       token: session.token,
       user: session.user,
       notifications: session.notifications,
@@ -227,13 +212,7 @@ export const AuthProvider = ({ children }) => {
       changePassword,
       markNotificationRead,
       markAllNotificationsRead,
-    }),
-    [session, loading]
-  );
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-export const useAuth = () => useContext(AuthContext);
-
-

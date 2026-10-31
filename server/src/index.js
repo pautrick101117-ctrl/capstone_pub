@@ -14,6 +14,7 @@ import notificationRoutes from "./routes/notifications.js";
 import complaintRoutes from "./routes/complaints.js";
 import publicRoutes from "./routes/public.js";
 import requestRoutes from "./routes/requests.js";
+import documentRoutes from "./routes/documents.js";
 import suggestionRoutes from "./routes/suggestions.js";
 import borrowingRoutes from "./routes/borrowing.js";
 import masterDataRoutes from "./routes/masterData.js";
@@ -111,6 +112,7 @@ export const createApp = () => {
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/complaints", complaintRoutes);
   app.use("/api/requests", requestRoutes);
+  app.use("/api/documents", documentRoutes);
   app.use("/api/suggestions", suggestionRoutes);
   app.use("/api/borrowing", borrowingRoutes);
   app.use("/api/master-data", masterDataRoutes);
@@ -126,7 +128,7 @@ export const createApp = () => {
           eventCategory: "security", details: { status: deniedStatus }, req });
       } catch (auditError) { console.warn("[DENIED ACCESS AUDIT ERROR]", auditError.message); }
     }
-    const status = error.status || 500;
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : error.name === 'MulterError' ? 400 : error.status || 500;
 
     console.error("[API ERROR]", {
       status,
@@ -135,8 +137,9 @@ export const createApp = () => {
     });
 
     res.status(status).json({
-      message: error.message || "Unexpected server error.",
+      message: status >= 500 ? "The service could not complete this request. Please retry or contact the barangay office." : error.code === 'LIMIT_FILE_SIZE' ? "File exceeds the upload size limit." : error.message || "Unexpected server error.",
       code: error.code || null,
+      reference: req.auditRequestId || null,
     });
   });
 
@@ -197,6 +200,11 @@ if (isMainModule) {
   const p105Ready = await requireSupabase().rpc('bgy_p105_ready');
   if (p105Ready.error || p105Ready.data !== true) {
     throw new Error('Phase 10.5 Data & Security migration missing. Run server/supabase-v4-phase10-5-data-security.sql before deploying this API.');
+  }
+
+  const documentsReady = await requireSupabase().rpc('bgy_phase11_ready');
+  if (documentsReady.error || documentsReady.data !== true) {
+    throw new Error('Phase 11 migration missing. Apply server/supabase-v4-phase11-documents.sql before starting this API.');
   }
 
   app.listen(env.port, () =>

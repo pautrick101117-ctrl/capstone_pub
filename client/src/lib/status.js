@@ -1,5 +1,10 @@
 const STATUS_META = {
   submitted: { label: "Submitted", tone: "info" },
+  under_review: { label: "Under Review", tone: "info" },
+  needs_revision: { label: "Needs Revision", tone: "warning" },
+  document_prepared: { label: "Document Prepared", tone: "success" },
+  ready_for_pickup: { label: "Ready for Pickup", tone: "success" },
+  claimed: { label: "Claimed", tone: "success" },
   acknowledged: { label: "Acknowledged", tone: "info" },
   processing: { label: "Processing", tone: "warning" },
   completed: { label: "Completed", tone: "success" },

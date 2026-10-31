@@ -2,8 +2,8 @@ import { Download, ExternalLink, FileDiff, History, Search, ShieldAlert, Eye } f
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api, API_URL } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SelectInput, TextInput } from "../../components/ui";
 
 const PER_PAGE = 25;

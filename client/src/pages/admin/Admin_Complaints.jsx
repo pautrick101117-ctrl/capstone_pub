@@ -1,11 +1,11 @@
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 
@@ -34,13 +34,13 @@ const Admin_Complaints = () => {
   useUnsavedNavigation(concernGuard.dirty);
   const closeConcern = () => concernGuard.closeSafely(() => { setSelected(null); if (searchParams.has("recordId")) setSearchParams({}, { replace: true }); });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try { const data = await api("/admin/complaints", { token }); setComplaints(data.complaints || []); }
     catch (err) { setError(err.message || "Unable to load community concerns."); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { if (token) load(); }, [token]);
+  }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
   useEffect(() => { setPage(1); }, [status, search]);
   useEffect(() => {
     const id = searchParams.get("recordId");

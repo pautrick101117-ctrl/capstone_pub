@@ -1,10 +1,11 @@
+import { usePathState } from "../../hooks/usePathState";
 import HotlineContacts from "../HotlineContacts";
-import { useReviewAction } from "../ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { LOGO_URL } from "../../lib/assets";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
+import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../../context/auth";
 import { api } from "../../lib/api";
 import { isResidentSession, residentDestination } from "../../lib/residentAccess";
 
@@ -27,9 +28,8 @@ const menuGroups = [
 const navClass = ({ isActive }) => `text-sm font-semibold transition ${isActive ? "text-[var(--brand-600)]" : "text-stone-600 hover:text-[var(--brand-500)]"}`;
 
 const LandingPageLayout = () => {
-  const [open, setOpen] = useState(false);
-  const [expandedGroup, setExpandedGroup] = useState(null);
-  const location = useLocation();
+  const [open, setOpen] = usePathState(false);
+  const [expandedGroup, setExpandedGroup] = usePathState(null);
   const [support, setSupport] = useState(null);
   const auth = useAuth();
   const { logout } = auth;
@@ -46,7 +46,6 @@ const LandingPageLayout = () => {
   const contact = support?.contact || {};
   const destinationFor = (item) => item.residentTo ? residentDestination(auth, item.residentTo) : item.to;
 
-  useEffect(() => { setOpen(false); setExpandedGroup(null); }, [location.pathname]);
   useEffect(() => {
     const onEscape = (event) => {
       if (event.key === "Escape") { setOpen(false); setExpandedGroup(null); }
@@ -55,7 +54,7 @@ const LandingPageLayout = () => {
     document.addEventListener("keydown", onEscape);
     document.addEventListener("pointerdown", onOutside);
     return () => { document.removeEventListener("keydown", onEscape); document.removeEventListener("pointerdown", onOutside); };
-  }, []);
+  }, [setExpandedGroup, setOpen]);
 
   return (
     <div className="min-h-screen bg-[var(--surface)]">

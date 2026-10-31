@@ -1,4 +1,5 @@
-import { useReviewAction } from "../ActionReviewProvider";
+import { usePathState } from "../../hooks/usePathState";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { LOGO_URL } from "../../lib/assets";
 import {
   Banknote,
@@ -24,9 +25,9 @@ import {
   Vote,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { Button } from "../ui";
 import { api } from "../../lib/api";
 import SessionExpiryBanner from "../SessionExpiryBanner";
@@ -83,7 +84,7 @@ const itemClass = ({ isActive }) =>
   }`;
 
 const AdminPageLayout = () => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePathState(false);
   const { user, logout, token } = useAuth();
   const reviewAction = useReviewAction();
   const confirmLogout = async () => {
@@ -91,7 +92,6 @@ const AdminPageLayout = () => {
   };
   const location = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
-  useEffect(() => { setOpen(false); }, [location.pathname]);
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
@@ -99,7 +99,7 @@ const AdminPageLayout = () => {
     const onEscape = (event) => { if (event.key === "Escape") setOpen(false); };
     document.addEventListener("keydown", onEscape);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onEscape); };
-  }, [open]);
+  }, [open, setOpen]);
 
   useEffect(() => {
     if (!token) return;

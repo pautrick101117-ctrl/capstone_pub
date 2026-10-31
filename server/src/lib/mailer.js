@@ -12,8 +12,8 @@ const parseResendError = async (response) => {
   }
 };
 
-export const sendSystemEmail = async ({ to, subject, text, html }) => {
-  if (!to) return { delivered: false, reason: "missing_email" };
+export const sendSystemEmail = async ({ to, subject, text, html, idempotencyKey }) => {
+  if (!to) return { accepted: false, delivered: false, reason: "missing_email" };
 
   // Never log message bodies because account emails may contain temporary credentials.
   validateResendConfig();
@@ -27,6 +27,7 @@ export const sendSystemEmail = async ({ to, subject, text, html }) => {
       headers: {
         Authorization: `Bearer ${env.resendApiKey}`,
         "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from: env.resendFromEmail,
@@ -48,7 +49,7 @@ export const sendSystemEmail = async ({ to, subject, text, html }) => {
 
     const data = await response.json();
     console.log(`[EMAIL ACCEPTED] Provider: Resend | To: ${to} | Subject: ${subject} | ID: ${data?.id || "unknown"}`);
-    return { delivered: true, provider: "resend", id: data?.id || null };
+    return { accepted: true, delivered: false, provider: "resend", id: data?.id || null };
   } catch (error) {
     if (error?.name === "AbortError") {
       const timeoutError = new Error(`Email delivery timed out after ${env.emailSendTimeoutMs}ms.`);

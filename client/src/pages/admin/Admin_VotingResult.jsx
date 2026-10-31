@@ -1,10 +1,10 @@
-import { useReviewAction, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { CheckCircle2, Pencil, Plus, Trash2, Trophy, Vote, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import {
   Alert,
   Badge,
@@ -74,7 +74,7 @@ const Admin_VotingResult = () => {
   const [closeTarget, setCloseTarget] = useState(null);
   const [closeReason, setCloseReason] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -94,9 +94,9 @@ const Admin_VotingResult = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, token]);
 
-  useEffect(() => { if (token) load(); }, [token, page]);
+  useEffect(() => { if (token) load(); }, [token, page, load]);
   useEffect(() => { setPage(1); }, [tab]);
 
   const selectedResults = elections.find((item) => item.id === selectedElectionId) || elections[0] || null;
@@ -109,7 +109,7 @@ const Admin_VotingResult = () => {
   const suggestionPages = suggestionPagination.totalPages || 1;
   const visibleSuggestions = approved;
 
-  const loadApprovedSuggestions = async () => {
+  const loadApprovedSuggestions = useCallback(async () => {
     if (!token || !builderOpen) return;
     try {
       const params = new URLSearchParams({ status: "approved", page: String(suggestionPage), limit: String(suggestionPageSize) });
@@ -121,11 +121,11 @@ const Admin_VotingResult = () => {
       toast.error(suggestionError.message || "Unable to load approved suggestions.");
       setApproved([]);
     }
-  };
+  }, [builderOpen, suggestionPage, suggestionSearch, toast, token]);
 
   useEffect(() => {
     if (builderOpen) loadApprovedSuggestions();
-  }, [builderOpen, suggestionPage, suggestionSearch, token]);
+  }, [builderOpen, loadApprovedSuggestions, suggestionPage, suggestionSearch, token]);
 
   const startRunoff = () => {
     if (!selectedResults || selectedResults.resultKind !== "tie" || !selectedResults.finalized) return;

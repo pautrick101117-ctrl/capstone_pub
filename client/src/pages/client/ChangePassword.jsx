@@ -1,8 +1,8 @@
-import { useReviewAction } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Button, Card, PageHeader, PasswordInput } from "../../components/ui";
 import { isStrongPassword, passwordPolicyChecks, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 

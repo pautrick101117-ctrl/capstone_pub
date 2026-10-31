@@ -1,5 +1,5 @@
 import { BellRing, Newspaper } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Card, EmptyState, ErrorState, Modal, PageHeader, Pagination, Skeleton } from "../../components/ui";
@@ -14,7 +14,7 @@ const PublicFeedPage = ({ type = "news" }) => {
   const [selected, setSelected] = useState(null);
   const isNews = type === "news";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -28,9 +28,9 @@ const PublicFeedPage = ({ type = "news" }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, type]);
 
-  useEffect(() => { load(); }, [type, page]);
+  useEffect(() => { load(); }, [type, page, load]);
   useEffect(() => { setPage(1); }, [type]);
   const pages = Math.max(1, Math.ceil(total / 6));
 

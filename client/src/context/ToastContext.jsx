@@ -1,7 +1,7 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 
-const ToastContext = createContext(null);
+import { ToastContext } from "./toast";
 
 const TOAST_STYLES = {
   success: {
@@ -66,7 +66,3 @@ export const ToastProvider = ({ children }) => {
     </ToastContext.Provider>
   );
 };
-
-export const useToast = () => useContext(ToastContext);
-
-

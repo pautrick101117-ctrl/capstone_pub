@@ -9,9 +9,9 @@ import {
   RotateCcw,
 } from "lucide-react";
 import CaseHistory from "../../components/CaseHistory";
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
 import {
   Badge,
@@ -75,7 +75,7 @@ const BorrowingPage = () => {
   const minimumDateTime = toManilaInput(new Date());
   const visibleRequests = useMemo(() => requests.slice((minePage - 1) * pageSize, minePage * pageSize), [requests, minePage]);
 
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     setAvailabilityError("");
     try {
       const result = await api("/borrowing/assets", { token });
@@ -83,9 +83,9 @@ const BorrowingPage = () => {
     } catch (error) {
       setAvailabilityError(error.message || "Unable to load borrowing resources.");
     }
-  };
+  }, [token]);
 
-  const loadMine = async () => {
+  const loadMine = useCallback(async () => {
     setMineLoading(true);
     setMineError("");
     try {
@@ -96,7 +96,7 @@ const BorrowingPage = () => {
     } finally {
       setMineLoading(false);
     }
-  };
+  }, [token]);
 
   const validateWindow = () => {
     const start = fromManilaInput(windowForm.startAt)?.getTime();
@@ -151,7 +151,7 @@ const BorrowingPage = () => {
     if (!token) return;
     loadMine();
     loadAssets();
-  }, [token]);
+  }, [loadAssets, loadMine, token]);
 
   const selected = useMemo(() => assets.find((asset) => asset.id === form.assetId) || null, [assets, form.assetId]);
   const facilities = useMemo(() => assets.filter((asset) => asset.category === "facility"), [assets]);

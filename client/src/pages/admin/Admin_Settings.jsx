@@ -1,8 +1,8 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { Pencil, Phone, Plus, Save, ShieldCheck, ClipboardList } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
 import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 
@@ -67,7 +67,7 @@ const Admin_Settings = () => {
     setActiveTab(nextTab);
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError("");
@@ -94,9 +94,9 @@ const Admin_Settings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => { load(); }, [load, token]);
 
   const savePortalSettings = async (event) => {
     event.preventDefault();

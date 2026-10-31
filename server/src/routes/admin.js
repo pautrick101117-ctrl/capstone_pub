@@ -1,6 +1,7 @@
 import express from "express";
 import adminVotingRoutes from "./adminVoting.js";
 import adminReportsRoutes from "./adminReports.js";
+import { transitionDocument } from './documents.js';
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import zlib from "zlib";
@@ -686,7 +687,7 @@ router.get("/dashboard", async (_req, res, next) => {
 
     const residents = (users.data || []).filter((user) => normalizeRole(user.role) === "resident");
     const activeResidents = residents.filter((user) => user.is_active);
-    const pendingRequests = (requests.data || []).filter((item) => item.status !== "completed").length;
+    const pendingRequests = (requests.data || []).filter((item) => !["completed","claimed","rejected","cancelled"].includes(item.status)).length;
     const activeOfficials = (officials.data || []).filter((item) => item.is_active).length;
     const openElections = (elections.data || []).filter((item) => item.status === "live").length;
     const pendingConcerns = (complaints.data || []).filter((item) => item.status === "pending").length;
@@ -893,7 +894,7 @@ router.post("/users", idUpload.array("idImages", 5), persistentLimit("admin-crea
 
     // Resident creation is only considered complete when the one-time credentials are accepted
     // by the configured email provider. Never expose a newly-created password in the API response.
-    if (!emailDelivery?.delivered) {
+    if (!emailDelivery?.accepted) {
       const { error: rollbackError } = await db.from("users").delete().eq("id", data.id);
       if (!rollbackError) await removePrivateIds(uploadedIdPaths);
       if (rollbackError) {
@@ -1107,7 +1108,7 @@ router.post("/users/:userId/reset-password", async (req, res, next) => {
       console.warn("[RESIDENT RESET EMAIL ERROR]", { code: emailError.code || "PROVIDER_FAILURE", providerStatus: emailError.providerStatus || null });
       emailDelivery = { delivered: false, reason: emailError.code === "EMAIL_SEND_TIMEOUT" ? "timeout" : "send_failed" };
     }
-    if (!emailDelivery?.delivered) {
+    if (!emailDelivery?.accepted) {
       // Conditional restoration protects a newer concurrent request. No password
       // is revealed to staff, and the resident's existing login stays valid.
       const { error: restoreError } = await db.from("users").update({
@@ -1221,51 +1222,7 @@ router.get("/requests", async (_req, res, next) => {
   }
 });
 
-router.patch("/requests/:id", async (req, res, next) => {
-  try {
-    const db = requireSupabase();
-    const response = parseNewCaseResponse(req.body);
-    const { data: existing, error: findError } = await db.from("requests").select("id,status").eq("id",req.params.id).maybeSingle();
-    if (findError) throw findError;
-    if (!existing) throw Object.assign(new Error("Document request not found"), { status: 404 });
-    const data = await updateCaseWithHistory(db, { entityType: "request", id: req.params.id,
-      currentStatus: req.body.expectedStatus || existing.status, status: req.body.status || existing.status,
-      response, actorId: req.currentUser.id, operationId: req.body.operationId });
-    const payload = { status: data.status, admin_note: response.visibility === "resident" ? response.message : "" };
-
-    const shouldNotify = data.status !== existing.status || (response.visibility === "resident" && Boolean(response.message));
-    if (shouldNotify) {
-    const { data: resident } = await db.from("users").select("email, full_name, first_name").eq("id", data.user_id).maybeSingle();
-    await sendSystemEmail({
-      to: resident?.email,
-      subject: data.status === existing.status ? "New response to your document request" : "Request status updated",
-      text: `Your ${data.request_type} request is now ${payload.status}.${payload.admin_note ? ` Note: ${payload.admin_note}` : ""}`,
-    }).catch((emailError) => {
-      console.warn(`[EMAIL NOTIFICATION ERROR] ${resident?.email}: ${emailError.message}`);
-    });
-    await db.from("notifications").insert({
-      user_id: data.user_id,
-      title: data.status === existing.status ? "New response to your document request" : "Request status updated",
-      body: `${data.request_type} is now ${payload.status}. ${payload.admin_note || ""}`.trim(),
-      kind: "info",
-      broadcast: false,
-    });
-    }
-
-    await logAudit({
-      actorId: req.currentUser.id,
-      actorRole: normalizeRole(req.currentUser.role),
-      action: "update_request",
-      entityType: "request",
-      entityId: req.params.id,
-      details: { status: data.status, responseVisibility: response.visibility },
-    });
-
-    res.json({ request: data });
-  } catch (error) {
-    next(error);
-  }
-});
+router.patch("/requests/:id", transitionDocument);
 
 router.get("/id-requests", async (_req, res, next) => {
   try {

@@ -1,9 +1,9 @@
 import { LANDING_BG_URL } from "../../lib/assets";
 import { ArrowRight, CalendarDays, CircleAlert, FileText, IdCard, Landmark, Newspaper, PackageCheck, Vote, WalletCards } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { Badge, ButtonLink, Card, EmptyState, ErrorState, Modal, Skeleton } from "../../components/ui";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { isResidentSession, residentDestination } from "../../lib/residentAccess";
@@ -34,7 +34,7 @@ const Home = () => {
   const [error, setError] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -45,9 +45,9 @@ const Home = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const statistics = data?.statistics || {};
   const hero = data?.hero?.hero || emptyLandingData.hero.hero;

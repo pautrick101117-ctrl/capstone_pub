@@ -11,7 +11,7 @@ const parseResponse = async (response) => {
   return payload;
 };
 
-export const api = async (path, { method = "GET", body, token, headers = {} } = {}) => {
+export const api = async (path, { method = "GET", body, token, headers = {}, signal } = {}) => {
   const finalHeaders = { ...headers };
   let finalBody = body;
 
@@ -28,6 +28,7 @@ export const api = async (path, { method = "GET", body, token, headers = {} } = 
     method,
     headers: finalHeaders,
     body: finalBody,
+    signal,
   });
 
   return parseResponse(response);

@@ -1,8 +1,8 @@
 import { BellRing, CalendarClock, CircleAlert, ClipboardList, PackageCheck, Plus, Vote } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { Alert, Badge, ButtonLink, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
@@ -23,56 +23,52 @@ const Status = ({ status, feature }) => {
 
 const UserDashboard = () => {
   const { token, user, notifications } = useAuth();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => { const timer=setInterval(()=>setNow(Date.now()),60000); return ()=>clearInterval(timer); }, []);
   const [data, setData] = useState({ requests: [], idRequests: [], complaints: [], borrowing: [], election: null, hasVoted: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
-    if (!token) return;
-    setLoading(true);
-    setError("");
-    const calls = await Promise.allSettled([
-      api("/requests/mine", { token }),
-      api("/requests/id-mine", { token }),
-      api("/complaints/mine", { token }),
-      api("/borrowing/mine", { token }),
-      api("/voting/current", { token }),
-      api("/voting/my-status", { token }),
-    ]);
-
-    const failed = calls.filter((result) => result.status === "rejected");
-    if (failed.length === calls.length) {
-      setError(failed[0]?.reason?.message || "Unable to load your resident dashboard.");
-    }
-
-    const value = (index, fallback = {}) => calls[index].status === "fulfilled" ? calls[index].value : fallback;
-    setData({
-      requests: value(0).requests || [],
-      idRequests: value(1).requests || [],
-      complaints: value(2).complaints || [],
-      borrowing: value(3).requests || [],
-      election: value(4).election || null,
-      hasVoted: Boolean(value(5).hasVoted),
+  const load = useCallback((signal) => {
+    if (!token) return Promise.resolve();
+    return Promise.allSettled([
+      api("/requests/mine", { token, signal }),
+      api("/requests/id-mine", { token, signal }),
+      api("/complaints/mine", { token, signal }),
+      api("/borrowing/mine", { token, signal }),
+      api("/voting/current", { token, signal }),
+      api("/voting/my-status", { token, signal }),
+    ]).then(calls => {
+      if (signal?.aborted) return;
+      const failed = calls.filter(result => result.status === "rejected");
+      setError(failed.length === calls.length ? failed[0]?.reason?.message || "Unable to load your resident dashboard." : "");
+      const value = index => calls[index].status === "fulfilled" ? calls[index].value : {};
+      setData({ requests:value(0).requests || [], idRequests:value(1).requests || [], complaints:value(2).complaints || [],
+        borrowing:value(3).requests || [], election:value(4).election || null, hasVoted:Boolean(value(5).hasVoted) });
+      setLoading(false);
     });
-    setLoading(false);
-  };
+  }, [token]);
 
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
 
-  const activeRequests = data.requests.filter((item) => item.status !== "completed");
+  const activeRequests = data.requests.filter((item) => !["completed","claimed","rejected","cancelled"].includes(item.status));
   const activeIds = data.idRequests.filter((item) => !["completed", "cancelled"].includes(item.status));
   const activeConcerns = data.complaints.filter((item) => item.status !== "resolved");
   const activeBorrowing = data.borrowing.filter((item) => !["returned", "rejected", "cancelled"].includes(item.status));
-  const overdue = activeBorrowing.filter((item) => item.isLate || (item.status === "borrowed" && item.due_at && new Date(item.due_at).getTime() < Date.now()));
+  const overdue = activeBorrowing.filter((item) => item.isLate || (item.status === "borrowed" && item.due_at && new Date(item.due_at).getTime() < now));
   const unread = (notifications || []).filter((item) => !item.is_read);
 
-  const attentionItems = useMemo(() => {
+  const attentionItems = (() => {
     const items = [];
     overdue.slice(0, 2).forEach((item) => items.push({ tone: "danger", title: `${item.asset?.name || "Borrowed resource"} is overdue`, body: item.due_at ? `Return deadline: ${formatDateTime(item.due_at)}` : "Please contact the barangay office as soon as possible.", to: "/portal/borrowing", cta: "View Borrowing" }));
     activeIds.filter((item) => ["confirmed", "rescheduled"].includes(item.status)).slice(0, 2).forEach((item) => items.push({ tone: "info", title: `Barangay ID schedule ${item.status}`, body: `${item.preferred_date || "Date pending"}${item.time_slot ? ` · ${item.time_slot}` : ""}`, to: "/portal/requests", cta: "View Appointment" }));
     if (data.election?.status === "live" && !data.hasVoted) items.push({ tone: "success", title: "Community project voting is open", body: `Review the current project choices and submit your final vote before ${formatDateTime(data.election.endsAt)}.`, to: "/portal/voting", cta: "Vote Now" });
     return items;
-  }, [data, overdue, activeIds]);
+  })();
 
   const activeTransactions = [
     ...activeRequests.map((item) => ({ id: `request-${item.id}`, title: item.request_type, detail: item.details, status: item.status, feature: "request", to: "/portal/requests", createdAt: item.created_at })),
@@ -85,7 +81,7 @@ const UserDashboard = () => {
     return <div className="space-y-8"><PageHeader eyebrow="Resident Overview" title={`Welcome back, ${user?.firstName || "Resident"}`} description="Loading your requests, schedules and barangay updates." /><LoadingState rows={4} /></div>;
   }
 
-  if (error) return <ErrorState title="We couldn't load your dashboard." description={error} onRetry={load} />;
+  if (error) return <ErrorState title="We couldn't load your dashboard." description={error} onRetry={() => load()} />;
 
   return (
     <div className="space-y-8">

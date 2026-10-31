@@ -1,5 +1,5 @@
 import { ArrowLeft, Newspaper } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Card, ErrorState, LoadingState } from "../../components/ui";
@@ -12,15 +12,15 @@ const NewsArticlePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const data = await api(`/public/news/${id}`);
       setArticle(data.article || null); setRelated(data.related || []);
     } catch (err) { setError(err.message || "Unable to load this news article."); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [id]);
+  }, [id]);
+  useEffect(() => { load(); }, [id, load]);
 
   if (loading) return <section className="section-shell py-10 sm:py-14"><LoadingState rows={6} /></section>;
   if (error || !article) return <section className="section-shell py-10 sm:py-14"><ErrorState title="News article unavailable" description={error || "This article could not be found."} onRetry={load} /></section>;

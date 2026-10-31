@@ -1,10 +1,10 @@
-import { useReviewAction } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { Clock3, Send } from "lucide-react";
 import HotlineContacts from "../../components/HotlineContacts";
 import CaseHistory from "../../components/CaseHistory";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
@@ -36,7 +36,7 @@ const Complaints = () => {
   const [page, setPage] = useState(1);
   const { options: concernOptions } = useMasterData("concern_category");
 
-  const loadEligibility = async () => {
+  const loadEligibility = useCallback(async () => {
     try {
       const data = await api("/complaints/eligibility", { token });
       setEligibility(data);
@@ -45,14 +45,14 @@ const Complaints = () => {
       setEligibility(null);
       setEligibilityError(problem.message || "Unable to check your submission allowance.");
     }
-  };
+  }, [token]);
 
   const updateForm = (updates) => {
     operationIdRef.current = null;
     setForm((previous) => ({ ...previous, ...updates }));
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -65,9 +65,9 @@ const Complaints = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadEligibility, token]);
 
-  useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
 
   const quotaBlocked = Boolean(eligibility?.enabled && !eligibility.allowed);
   const windowBlocked = eligibility?.blockedReasons?.includes("CONCERN_WINDOW_LIMIT_REACHED");

@@ -1,12 +1,13 @@
+import DocumentQueue from "../../components/DocumentQueue";
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { CalendarCheck, CheckCircle2, Clock3, MessageSquareMore, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TableShell, TextArea, TextInput } from "../../components/ui";
-import { formatDate, formatDateTime } from "../../lib/format";
+import { formatDate } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
 const pageSize = 8;
@@ -24,9 +25,7 @@ const AdminRequests = () => {
   const [form, setForm] = useState({ status: "", adminNote: "", preferredDate: "", timeSlot: "", visibility: "resident" });
   const [saving, setSaving] = useState(false);
   const operationId = useRef(null);
-  const [filters, setFilters] = useState({ type: "all", status: "active" });
   const [idFilter, setIdFilter] = useState("active");
-  const [requestPage, setRequestPage] = useState(1);
   const [idPage, setIdPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,8 +34,7 @@ const AdminRequests = () => {
   const actionGuard = useUnsavedForm({ initial: initialAction, current: form, enabled: Boolean(selected) });
   useUnsavedNavigation(actionGuard.dirty);
 
-  const load = async () => {
-    setLoading(true);
+  const load = useCallback(async () => {
     setError("");
     try {
       const [requestData, idData, slotData] = await Promise.all([
@@ -52,24 +50,12 @@ const AdminRequests = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { if (token) load(); }, [token]);
-  useEffect(() => { setRequestPage(1); }, [filters]);
+  useEffect(() => { if (token) load(); }, [load, token]);
   useEffect(() => { setIdPage(1); }, [idFilter]);
 
-  const requestTypes = useMemo(() => ["all", ...Array.from(new Set(requests.map((item) => item.request_type).filter(Boolean)))], [requests]);
-  const filteredRequests = useMemo(() => requests.filter((item) => {
-    const typeMatch = filters.type === "all" || item.request_type === filters.type;
-    const statusMatch = filters.status === "all" || (filters.status === "active" ? item.status !== "completed" : item.status === filters.status);
-    return typeMatch && statusMatch;
-  }).sort((a, b) => {
-    const priority = { submitted: 0, acknowledged: 1, processing: 2, completed: 3 };
-    return (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || new Date(b.created_at) - new Date(a.created_at);
-  }), [requests, filters]);
-
   const filteredIds = useMemo(() => idRequests.filter((item) => idFilter === "all" || (idFilter === "active" ? !["completed", "cancelled"].includes(item.status) : item.status === idFilter)), [idRequests, idFilter]);
-  const paginatedRequests = filteredRequests.slice((requestPage - 1) * pageSize, requestPage * pageSize);
   const paginatedIds = filteredIds.slice((idPage - 1) * pageSize, idPage * pageSize);
 
   const availableTimeSlots = useMemo(() => idSlots.filter((slot) => slot.is_active && slot.slot_date === form.preferredDate).map((slot) => slot.time_slot), [idSlots, form.preferredDate]);
@@ -99,8 +85,8 @@ const AdminRequests = () => {
     try {
       const path = selected.mode === "id" ? `/admin/id-requests/${selected.id}` : `/admin/requests/${selected.id}`;
       await api(path, { method: "PATCH", token, body: { ...form, expectedStatus: selected.status, operationId: operationId.current } });
-      toast.success("Request updated and resident notification sent.");
-      closeModal();
+      toast.success("Appointment updated. Check the resident portal for the saved response.");
+      setSelected(null);
       await load();
     } catch (err) {
       toast.error(err.message);
@@ -118,33 +104,12 @@ const AdminRequests = () => {
       <PageHeader eyebrow="Resident Services" title="Requests & ID appointments" description="Process document requests and Barangay ID schedules from separate queues so each workflow is clear and action-oriented." />
 
       <SegmentedTabs value={activeTab} onChange={setActiveTab} items={[
-        { value: "documents", label: "Document Requests", count: requests.filter((item) => item.status !== "completed").length },
+        { value: "documents", label: "Document Requests", count: requests.filter((item) => !["completed","claimed","rejected","cancelled"].includes(item.status)).length },
         { value: "id", label: "Barangay ID Appointments", count: idRequests.filter((item) => !["completed", "cancelled"].includes(item.status)).length },
       ]} />
 
       {loading ? <LoadingState rows={5} /> : error ? <ErrorState description={error} onRetry={load} /> : activeTab === "documents" ? (
-        <div className="space-y-5">
-          <Card className="p-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
-              <SelectInput label="Request Type" value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}>{requestTypes.map((type) => <option key={type} value={type}>{type === "all" ? "All request types" : type}</option>)}</SelectInput>
-              <SelectInput label="Status" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="active">Needs action / In progress</option><option value="submitted">Submitted</option><option value="acknowledged">Acknowledged</option><option value="processing">Processing</option><option value="completed">Completed</option><option value="all">All statuses</option></SelectInput>
-              <p className="pb-3 text-sm text-stone-500">{filteredRequests.length} request{filteredRequests.length === 1 ? "" : "s"}</p>
-            </div>
-          </Card>
-
-          {!filteredRequests.length ? <EmptyState title="No document requests in this queue" description="Try another status or request type filter." /> : (
-            <TableShell><table className="min-w-full text-sm"><thead className="bg-stone-50 text-left text-stone-500"><tr><th className="px-4 py-3 font-semibold">Resident</th><th className="px-4 py-3 font-semibold">Request</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Submitted</th><th className="px-4 py-3 font-semibold">Next Action</th></tr></thead><tbody>{paginatedRequests.map((request) => (
-              <tr key={request.id} className="border-t border-stone-100 align-top hover:bg-stone-50/70">
-                <td className="px-4 py-4"><p className="font-semibold text-[var(--brand-900)]">{request.resident_name}</p><p className="mt-1 max-w-sm text-xs leading-5 text-stone-500">{request.details}</p></td>
-                <td className="px-4 py-4 text-stone-700">{request.request_type}</td>
-                <td className="px-4 py-4"><Status status={request.status} /></td>
-                <td className="px-4 py-4 text-stone-500">{formatDateTime(request.created_at)}</td>
-                <td className="px-4 py-4">{request.status === "submitted" ? <Button onClick={() => openAction(request, "request", "acknowledged")}><MessageSquareMore className="h-4 w-4" /> Acknowledge</Button> : request.status === "acknowledged" ? <Button onClick={() => openAction(request, "request", "processing")}><Clock3 className="h-4 w-4" /> Start Processing</Button> : request.status === "processing" ? <Button onClick={() => openAction(request, "request", "completed")}><CheckCircle2 className="h-4 w-4" /> Complete</Button> : <span className="text-xs font-semibold text-emerald-700">No action needed</span>} <Button variant="ghost" onClick={() => openAction(request, "request", request.status)}>History / Reply</Button></td>
-              </tr>
-            ))}</tbody></table></TableShell>
-          )}
-          <Pagination page={requestPage} totalPages={Math.max(1, Math.ceil(filteredRequests.length / pageSize))} onPageChange={setRequestPage} />
-        </div>
+        <DocumentQueue requests={requests} onChanged={load}/>
       ) : (
         <div className="space-y-5">
           <Card className="p-4"><div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><SelectInput className="w-full md:max-w-sm" label="Appointment Status" value={idFilter} onChange={(event) => setIdFilter(event.target.value)}><option value="active">Upcoming / Needs action</option><option value="submitted">Awaiting confirmation</option><option value="confirmed">Confirmed</option><option value="rescheduled">Rescheduled</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="all">All statuses</option></SelectInput><p className="pb-3 text-sm text-stone-500">{filteredIds.length} appointment{filteredIds.length === 1 ? "" : "s"}</p></div></Card>

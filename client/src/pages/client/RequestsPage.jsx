@@ -1,15 +1,17 @@
+import DocumentApplication from "../../components/DocumentApplication";
+import { documentClosed } from "../../lib/documents";
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { ArrowRight, CheckCircle2, Download, FileText, IdCard, SendHorizonal } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { api, API_URL } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "../../lib/api";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
-const requestTypes = ["Barangay Clearance", "Certificate of Residency", "Certificate of Indigency", "Other"];
+
 const pageSize = 5;
 
 const RequestStatus = ({ status, feature = "request" }) => {
@@ -18,15 +20,14 @@ const RequestStatus = ({ status, feature = "request" }) => {
 };
 
 const RequestTimeline = ({ request }) => {
-  const steps = ["submitted", "acknowledged", "processing", "completed"];
+  const steps = ["submitted", "under_review", "approved", "document_prepared", "ready_for_pickup", "claimed"];
   const timeline = request.request_timeline || [];
-  const currentIndex = Math.max(0, steps.indexOf(request.status));
 
   return (
     <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {steps.map((step, index) => {
         const row = timeline.find((item) => item.status === step);
-        const done = index <= currentIndex;
+        const done = Boolean(row) || (request.status === step);
         return (
           <div key={step} className={`rounded-2xl border p-4 ${done ? "border-[var(--brand-100)] bg-[var(--brand-50)]" : "border-stone-200 bg-stone-50"}`}>
             <div className="flex items-center gap-2">
@@ -52,16 +53,16 @@ const RequestsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("mine");
-  const [requestForm, setRequestForm] = useState({ requestType: requestTypes[0], details: "", copiesRequested:1,purposeCategory:"Other" });
+  const [revision, setRevision] = useState(null);
   const [idForm, setIdForm] = useState({ purpose: "", preferredDate: "", timeSlot: "" });
-  const [savingRequest, setSavingRequest] = useState(false);
+
   const [savingId, setSavingId] = useState(false);
   const [success, setSuccess] = useState(null);
   const [filter, setFilter] = useState("all");
   const [requestPage, setRequestPage] = useState(1);
   const [idPage, setIdPage] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -78,9 +79,9 @@ const RequestsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
 
   const slotOptions = useMemo(() => {
     const grouped = new Map();
@@ -94,8 +95,8 @@ const RequestsPage = () => {
   }, [slots]);
 
   const filteredRequests = useMemo(() => {
-    if (filter === "active") return requests.filter((item) => item.status !== "completed");
-    if (filter === "completed") return requests.filter((item) => item.status === "completed");
+    if (filter === "active") return requests.filter((item) => !documentClosed.includes(item.status));
+    if (filter === "completed") return requests.filter((item) => documentClosed.includes(item.status));
     return requests;
   }, [requests, filter]);
 
@@ -103,22 +104,6 @@ const RequestsPage = () => {
 
   const paginatedRequests = useMemo(() => filteredRequests.slice((requestPage - 1) * pageSize, requestPage * pageSize), [filteredRequests, requestPage]);
   const paginatedIdRequests = useMemo(() => idRequests.slice((idPage - 1) * pageSize, idPage * pageSize), [idRequests, idPage]);
-
-  const submitRequest = async (event) => {
-    event.preventDefault();
-    if (!await reviewAction({ title: "Submit Document Request?", description: "Barangay staff will review and process this request.", after: requestForm, confirmLabel: "Submit Request" })) return;
-    setSavingRequest(true);
-    try {
-      const data = await api("/requests", { method: "POST", token, body: requestForm });
-      setSuccess({ type: "request", id: data.request?.id, title: requestForm.requestType });
-      setRequestForm({ requestType: requestTypes[0], details: "", copiesRequested:1,purposeCategory:"Other" });
-      await load();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setSavingRequest(false);
-    }
-  };
 
   const submitIdRequest = async (event) => {
     event.preventDefault();
@@ -136,28 +121,12 @@ const RequestsPage = () => {
     }
   };
 
-  const downloadClearance = async (requestId) => {
-    try {
-      const response = await fetch(`${API_URL}/requests/document/${requestId}/clearance`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw new Error("Failed to download clearance PDF.");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `barangay-clearance-${requestId}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      toast.error(err.message);
-    }
-  };
-
   return (
     <div className="space-y-8">
       <PageHeader eyebrow="Resident Services" title="Requests & documents" description="Apply for barangay documents, schedule a Barangay ID pickup, and track every status update in one place." actions={<Button type="button" onClick={() => setActiveTab("new")}><FileText className="h-4 w-4" /> New Request</Button>} />
 
       {success ? (
-        <Alert tone="success" title={success.type === "id" ? "Barangay ID request submitted" : "Request submitted successfully"} actions={<Button type="button" variant="secondary" onClick={() => { setSuccess(null); setActiveTab("mine"); }}>View My Requests <ArrowRight className="h-4 w-4" /></Button>}>
+        <Alert tone="success" title={success.type === "id" ? "ID appointment request submitted" : "Request submitted successfully"} actions={<Button type="button" variant="secondary" onClick={() => { setSuccess(null); setActiveTab("mine"); }}>View My Requests <ArrowRight className="h-4 w-4" /></Button>}>
           <p>{success.type === "id" ? "Your requested pickup schedule is waiting for barangay confirmation. Submitted does not mean confirmed yet." : `Your ${success.title} request is now in the barangay queue. We'll notify you when its status changes.`}</p>
           {success.id ? <p className="mt-1 text-xs font-semibold">Reference: {success.id}</p> : null}
         </Alert>
@@ -166,7 +135,7 @@ const RequestsPage = () => {
       <SegmentedTabs value={activeTab} onChange={(value) => { setSuccess(null); setActiveTab(value); }} items={[
         { value: "mine", label: "My Requests", count: requests.length + idRequests.length },
         { value: "new", label: "New Request" },
-        { value: "id", label: "Barangay ID", count: idRequests.filter((item) => !["completed", "cancelled"].includes(item.status)).length },
+        { value: "id", label: "ID pickup appointments", count: idRequests.filter((item) => !["completed", "cancelled"].includes(item.status)).length },
       ]} />
 
       {activeTab === "mine" ? (
@@ -190,9 +159,10 @@ const RequestsPage = () => {
                       <p className="mt-2 text-sm leading-6 text-stone-600">{request.details}</p>
                       <p className="mt-2 text-xs text-stone-400">Submitted {formatDateTime(request.created_at)}</p>
                     </div>
-                    {request.request_type === "Barangay Clearance" && request.status === "completed" ? <Button type="button" onClick={() => downloadClearance(request.id)}><Download className="h-4 w-4" /> Download PDF</Button> : null}
+                    {request.status === "needs_revision" ? <Button onClick={()=>setRevision(request)}>Correct application</Button> : null}
+                    {["submitted","needs_revision"].includes(request.status) ? <Button variant="ghost" onClick={async()=>{if(!await reviewAction({title:"Cancel this application?",after:{reference:request.id},confirmLabel:"Cancel application",tone:"danger"}))return;try{await api(`/requests/${request.id}`,{method:"PATCH",token,body:{status:"cancelled",expectedVersion:request.lock_version,operationId:crypto.randomUUID()}});await load();}catch(e){toast.error(e.message);}}}>Cancel application</Button>:null}
                   </div>
-                  <RequestTimeline request={request} /><CaseHistory events={request.case_history} />
+                  {request.revision_instructions && request.status === "needs_revision" ? <Alert title="Corrections required">{request.revision_instructions}</Alert> : null}{request.rejection_reason && request.status === "rejected" ? <Alert tone="danger" title="Reason">{request.rejection_reason}</Alert> : null}<RequestTimeline request={request} /><CaseHistory events={request.case_history} />
                 </Card>
               ))}
             </div>
@@ -216,35 +186,8 @@ const RequestsPage = () => {
         </div>
       ) : null}
 
-      {activeTab === "new" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-          <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]">
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-[var(--brand-500)]">Choose a service</p>
-            <h2 className="mt-2 text-2xl font-black text-[var(--brand-900)]">What do you need?</h2>
-            <div className="mt-5 grid gap-3">
-              {requestTypes.map((type) => (
-                <button key={type} type="button" onClick={() => setRequestForm((current) => ({ ...current, requestType: type }))} className={`flex items-center justify-between rounded-2xl border p-4 text-left transition ${requestForm.requestType === type ? "border-[var(--brand-300)] bg-white shadow-sm" : "border-stone-200 bg-white/60 hover:border-[var(--brand-200)]"}`}>
-                  <span className="font-semibold text-[var(--brand-900)]">{type}</span>{requestForm.requestType === type ? <CheckCircle2 className="h-5 w-5 text-[var(--brand-600)]" /> : null}
-                </button>
-              ))}
-            </div>
-            <button type="button" onClick={() => setActiveTab("id")} className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-dashed border-[var(--brand-300)] p-4 text-left text-sm font-semibold text-[var(--brand-700)]"><IdCard className="h-5 w-5" /> Need a Barangay ID? Use the dedicated scheduling flow.</button>
-          </Card>
-
-          <Card>
-            <h2 className="text-xl font-bold text-[var(--brand-900)]">Request details</h2>
-            <p className="mt-1 text-sm text-stone-500">Provide enough information for barangay staff to process the request without needing to ask for basic details again.</p>
-            <form className="mt-6 space-y-5" onSubmit={submitRequest}>
-              <SelectInput label="Request Type" required value={requestForm.requestType} onChange={(event) => setRequestForm((current) => ({ ...current, requestType: event.target.value }))}>{requestTypes.map((type) => <option key={type} value={type}>{type}</option>)}</SelectInput>
-              <SelectInput label="Purpose category" required value={requestForm.purposeCategory} onChange={e=>setRequestForm(c=>({...c,purposeCategory:e.target.value}))}>{['Employment','School','Loan','Government','Personal','Other'].map(v=><option key={v}>{v}</option>)}</SelectInput>
-              <TextInput label="Number of copies" type="number" required min="1" max="10" value={requestForm.copiesRequested} onChange={e=>setRequestForm(c=>({...c,copiesRequested:Number(e.target.value)}))}/>
-              <TextArea label="Purpose / Details" required minLength={5} maxLength={1000} hint="Include the purpose and any information the barangay needs to process the request." value={requestForm.details} onChange={(event) => setRequestForm((current) => ({ ...current, details: event.target.value }))} placeholder="Explain what you need and why." />
-              <div className="rounded-2xl bg-stone-50 p-4 text-sm leading-6 text-stone-600"><strong className="text-stone-800">Before submitting:</strong> review the service type and details. You can track every status change from My Requests after submission.</div>
-              <Button type="submit" loading={savingRequest}><SendHorizonal className="h-4 w-4" /> Submit Request</Button>
-            </form>
-          </Card>
-        </div>
-      ) : null}
+      {activeTab === "new" ? <DocumentApplication onSaved={async(request)=>{setSuccess({type:"request",id:request.id,title:request.request_type});setActiveTab("mine");await load();}}/> : null}
+      {revision ? <DocumentApplication key={revision.id} request={revision} onCancel={()=>setRevision(null)} onSaved={async()=>{setRevision(null);await load();}}/> : null}
 
       {activeTab === "id" ? (
         <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">

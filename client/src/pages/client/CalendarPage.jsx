@@ -1,5 +1,5 @@
 import { CalendarDays, MapPin } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import { Card, EmptyState, ErrorState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, Skeleton } from "../../components/ui";
 import { formatDate } from "../../lib/format";
@@ -18,7 +18,7 @@ const CalendarPage = () => {
   const [total, setTotal] = useState(0);
   const { options: categoryOptions } = useMasterData("event_category");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const typeQuery = category === "all" ? "" : `&type=${encodeURIComponent(category)}`;
@@ -26,8 +26,8 @@ const CalendarPage = () => {
       setEvents(data.items || []); setTotal(data.pagination?.total || 0);
     } catch (err) { setError(err.message); setEvents([]); setTotal(0); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [page, category]);
+  }, [category, page]);
+  useEffect(() => { load(); }, [page, category, load]);
   useEffect(() => { setPage(1); }, [category]);
 
   const grouped = useMemo(() => events.reduce((acc, event) => { (acc[event.date] ||= []).push(event); return acc; }, {}), [events]);

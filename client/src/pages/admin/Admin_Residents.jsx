@@ -1,11 +1,12 @@
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { reviewChanges } from "../../lib/actionReview";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { Eye, KeyRound, Pencil, Power, Printer, UserPlus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
-import { Badge, Button, Card, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
+import { Badge, Button, Card, ErrorState, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
 
@@ -34,6 +35,7 @@ const Admin_Residents = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const [users, setUsers] = useState([]);
+  const [loadError,setLoadError]=useState('');
   const [form, setForm] = useState(initialForm);
   const [idDocuments,setIdDocuments] = useState([{file:null,typeId:'',customLabel:''}]);
   const [idTypes,setIdTypes] = useState([]);
@@ -59,15 +61,18 @@ const Admin_Residents = () => {
   const closeCreate = () => createGuard.closeSafely(() => { setShowCreateModal(false); setForm(initialForm); setIdDocuments([{file:null,typeId:'',customLabel:''}]); });
   const closeEdit = () => editGuard.closeSafely(() => setEditResident(null));
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    try {
     const [data,typesResult] = await Promise.all([api('/admin/users',{token}),api('/admin/resident-id-types',{token})]);
     setUsers(data.users || []);setIdTypes(typesResult.types||[]);
     setSelectedResident((current) => current ? (data.users || []).find((entry) => entry.id === current.id) || null : null);
-  };
+    setLoadError('');
+    } catch(error){setLoadError(error.message || 'Unable to load resident records.');}
+  }, [token]);
 
   useEffect(() => {
     if (token) load();
-  }, [token]);
+  }, [load, token]);
 
   useEffect(() => {
     setPage(1);
@@ -146,7 +151,7 @@ const Admin_Residents = () => {
     setEvidenceLoading(true);
     api(`/admin/users/${selectedResident.id}/id-evidence`,{token})
       .then(data=>setEvidence(data.documents||[])).catch(err=>toast.error(err.message)).finally(()=>setEvidenceLoading(false));
-  },[selectedResident?.id,token]);
+  },[selectedResident?.id, toast, token]);
 
   const openPrivateEvidence = async(item)=>{
     try{
@@ -323,6 +328,7 @@ const Admin_Residents = () => {
 
   return (
     <div className="space-y-8">
+      {loadError?<ErrorState description={loadError} onRetry={load}/>:null}
       <PageHeader
         eyebrow="Resident Management"
         title="Create and maintain resident accounts"
@@ -523,14 +529,14 @@ const Admin_Residents = () => {
         open={Boolean(credentialResult)}
         onClose={() => setCredentialResult(null)}
         title={credentialResult?.action === "reset" ? "Reset instructions sent" : "Resident account created"}
-        description={credentialResult?.emailDelivery?.delivered ? "Resend accepted the email for delivery." : "Email delivery could not be confirmed."}
+        description={credentialResult?.emailDelivery?.accepted ? "Resend accepted the email for delivery." : "Email delivery could not be confirmed."}
         widthClass="max-w-xl"
       >
         {credentialResult ? (
           <div className="space-y-4">
-            <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.delivered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.accepted ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
               {credentialResult.action === "reset"
-                ? (credentialResult.emailDelivery?.delivered
+                ? (credentialResult.emailDelivery?.accepted
                     ? "Resend accepted the temporary password email. The old password keeps working until the resident uses the temporary password, then they must set a personal password."
                     : "Email delivery was not confirmed. The resident's existing password stays unchanged.")
                 : "The resident account was created and Resend accepted its welcome email. For security, temporary credentials are not displayed to administrators."}

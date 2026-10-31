@@ -1,6 +1,7 @@
 import { Clock3, KeyRound, Mail, UserCircle2 } from "lucide-react";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { Alert, ButtonLink, Card, PageHeader } from "../../components/ui";
+import ResidentPhoto from '../../components/ResidentPhoto';
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -13,6 +14,7 @@ const SettingsPage = () => {
       <Alert tone="info" title="Need to correct your personal information?"><p>Resident identity, address and purok records are controlled by the barangay. Contact the barangay office if any information below needs to be corrected.</p></Alert>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <ResidentPhoto />
         <Card>
           <div className="flex items-center gap-3"><div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><UserCircle2 className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Resident Profile</h2><p className="mt-1 text-sm text-stone-500">Read-only information currently on file.</p></div></div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">{[["Full Name", user?.fullName || "Not set"], ["Username", user?.username || "Not set"], ["Purok", user?.purok || "Not set"], ["Address", user?.address || "Not set"], ["Contact Number", user?.contactNumber || "Not set"], ["Email", recoveryEmail], ["Birthdate", user?.birthdate || "Not set"], ["Account Status", user?.isActive ? "Active" : "Inactive"]].map(([label, value]) => <div key={label} className="rounded-2xl bg-[var(--brand-50)] p-4"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-500)]">{label}</p><p className="mt-2 break-words text-sm font-semibold text-[var(--brand-900)]">{value}</p></div>)}</div>

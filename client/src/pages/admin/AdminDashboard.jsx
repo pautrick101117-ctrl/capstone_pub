@@ -1,9 +1,9 @@
 import { Activity, BellRing, CalendarCheck, CircleAlert, ClipboardList, Landmark, PackageCheck, Users, Vote } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/auth";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, StatCard } from "../../components/ui";
 import { formatDate, formatDateTime } from "../../lib/format";
 
@@ -31,7 +31,7 @@ const AdminDashboard = () => {
   const [error, setError] = useState("");
   const [activityPage, setActivityPage] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -42,11 +42,11 @@ const AdminDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { if (token) load(); }, [load, token]);
 
-  const requestsByType = dashboard?.charts?.requestsByType || [];
+  const requestsByType = useMemo(() => dashboard?.charts?.requestsByType || [], [dashboard]);
   const residentStatusBreakdown = dashboard?.charts?.residentStatusBreakdown || [];
   const votingParticipation = dashboard?.charts?.votingParticipation || [];
   const recentActivity = useMemo(() => dashboard?.recentActivity || [], [dashboard]);

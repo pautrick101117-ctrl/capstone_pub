@@ -1,5 +1,5 @@
 import { ArrowLeft, CalendarDays, CheckCircle2, Clock3, MapPin, Trophy } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { formatDate, formatDateTime } from "../../lib/format";
@@ -26,7 +26,7 @@ const ProjectDetail = ({ projectId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -36,9 +36,9 @@ const ProjectDetail = ({ projectId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
 
-  useEffect(() => { load(); }, [projectId]);
+  useEffect(() => { load(); }, [load, projectId]);
 
   if (loading) return <div className="section-shell py-10"><LoadingState rows={5} /></div>;
   if (error) return <div className="section-shell py-10"><ErrorState description={error} onRetry={load} /></div>;
@@ -116,7 +116,7 @@ const ProjectUpdatesPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (projectId) return;
     setLoading(true);
     setError("");
@@ -129,9 +129,9 @@ const ProjectUpdatesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, page, projectId]);
 
-  useEffect(() => { load(); }, [projectId, page, filter]);
+  useEffect(() => { load(); }, [projectId, page, filter, load]);
   useEffect(() => { setPage(1); }, [filter]);
 
   if (projectId) return <ProjectDetail projectId={projectId} />;

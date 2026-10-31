@@ -1,8 +1,8 @@
 import { RefreshCw, ShieldCheck, UserPlus, Mail } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, ConfirmDialog, ErrorState, LoadingState, Modal, PageHeader, Pagination, TableShell, TextInput } from "../../components/ui";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { formatDate } from "../../lib/format";
 import { api } from "../../lib/api";
 
@@ -21,14 +21,14 @@ const Admin_UserMaintenance = () => {
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!token) return;
     setLoading(true); setError("");
     try { const data = await api("/super-admin/users", { token }); setAccounts(data.users || []); }
     catch (err) { setError(err.message || "Unable to load administrator accounts."); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [token]);
+  }, [token]);
+  useEffect(() => { load(); }, [load, token]);
   useEffect(() => { setPage(1); }, [search]);
   const filtered = useMemo(() => accounts.filter((entry) =>
     [entry.fullName, entry.username, entry.email].some((value) => `${value || ""}`.toLowerCase().includes(search.trim().toLowerCase()))

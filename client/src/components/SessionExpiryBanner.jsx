@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/auth";
 import { Alert, Button } from "./ui";
 
 const SessionExpiryBanner = () => {
   const { sessionExpiresAt, keepSessionAlive } = useAuth();
   const [remaining, setRemaining] = useState(() => sessionExpiresAt ? sessionExpiresAt - Date.now() : Infinity);
 
+  const urgent = remaining <= 5 * 60_000;
   useEffect(() => {
     const update = () => setRemaining(sessionExpiresAt ? sessionExpiresAt - Date.now() : Infinity);
     update();
-    const timer = window.setInterval(update, remaining <= 5 * 60_000 ? 1000 : 15_000);
+    const timer = window.setInterval(update, urgent ? 1000 : 15_000);
     return () => window.clearInterval(timer);
-  }, [sessionExpiresAt, remaining <= 5 * 60_000]);
+  }, [sessionExpiresAt, urgent]);
 
   if (!sessionExpiresAt || remaining <= 0 || remaining > 5 * 60_000) return null;
   const minutes = Math.floor(remaining / 60_000);

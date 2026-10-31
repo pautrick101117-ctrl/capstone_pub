@@ -1,12 +1,12 @@
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction } from "../../components/ActionReviewProvider";
+import { useReviewAction } from "../../hooks/useActionReview";
 import { ImagePlus, Info, Lightbulb, Pencil, Send, Trophy, Vote, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
-import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, TextArea, TextInput } from "../../components/ui";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, LoadingState, Modal, PageHeader, Pagination, SegmentedTabs, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
@@ -45,14 +45,14 @@ const SuggestionsPage = () => {
   const [editItem, setEditItem] = useState(null);
   const [editForm, setEditForm] = useState({ title: "", description: "", affectedPurok:"",category:"",estimatedBeneficiaries:"",estimatedCost:"", image: null, preview: "", removeImage: false });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const data = await api(`/suggestions/mine?status=${filter}&page=${page}&limit=${pageSize}`, { token });
       setSuggestions(data.suggestions || []); setPagination(data.pagination || { total: 0, totalPages: 1 });
     } catch (err) { setError(err.message); } finally { setLoading(false); }
-  };
-  useEffect(() => { if (token && activeTab === "mine") load(); }, [token, activeTab, filter, page]);
+  }, [filter, page, token]);
+  useEffect(() => { if (token && activeTab === "mine") load(); }, [token, activeTab, filter, page, load]);
   useEffect(() => { setPage(1); }, [filter]);
 
 

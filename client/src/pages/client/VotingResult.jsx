@@ -1,10 +1,10 @@
 import { CheckCircle2, Trophy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
 import { countdownText, formatDateTime } from "../../lib/format";
 
@@ -29,7 +29,7 @@ const VotingResult = () => {
 
   const isResident = user?.role === "resident";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -46,11 +46,11 @@ const VotingResult = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [electionId, token, user?.role]);
 
   useEffect(() => {
     load();
-  }, [electionId, token]);
+  }, [electionId, load, token]);
 
   const markCompleted = async () => {
     if (!election?.id) return;

@@ -1,5 +1,6 @@
+import { reviewChanges } from "../../lib/actionReview";
 import CaseHistory from "../../components/CaseHistory";
-import { useReviewAction, useUnsavedForm, useUnsavedNavigation, reviewChanges } from "../../components/ActionReviewProvider";
+import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import {
   CalendarDays,
   Check,
@@ -12,9 +13,9 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { useToast } from "../../context/ToastContext";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../../context/auth";
+import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
 import {
   Badge,
@@ -75,7 +76,7 @@ const Admin_Borrowing = () => {
   const [assetPage, setAssetPage] = useState(1);
   const [calendarPage, setCalendarPage] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [assetData, requestData] = await Promise.all([
         api("/borrowing/admin/assets", { token }),
@@ -86,11 +87,11 @@ const Admin_Borrowing = () => {
     } catch (error) {
       toast.error(error.message);
     }
-  };
+  }, [toast, token]);
 
   useEffect(() => {
     if (token) load();
-  }, [token]);
+  }, [load, token]);
 
   const stats = useMemo(() => {
     const today = startOfDay();
