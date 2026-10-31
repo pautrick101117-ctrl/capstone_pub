@@ -5,7 +5,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
-import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
+import { Alert, Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
 import { isStrongPassword, passwordPolicyChecks, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 import { isResidentSession } from "../../lib/residentAccess";
 
@@ -25,6 +25,7 @@ const Login = () => {
   const auth = useAuth();
   const { login, loading, user } = auth;
   const [form, setForm] = useState({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetForm, setResetForm] = useState(initialResetForm);
   const [codeRequested, setCodeRequested] = useState(false);
@@ -33,6 +34,8 @@ const Login = () => {
 
   const onSubmit = async (event) => {
     event.preventDefault();
+    if (loading) return;
+    setLoginError("");
     try {
       const loggedInUser = await login({
         usernameOrEmail: form.username,
@@ -40,7 +43,7 @@ const Login = () => {
       });
       navigate(loggedInUser.mustChangePassword ? "/change-password" : safeDestination, { replace: true });
     } catch (error) {
-      toast.error(error.message);
+      setLoginError(error.message || "Unable to sign in. Please try again.");
     }
   };
 
@@ -114,6 +117,7 @@ const Login = () => {
           </div>
 
           <form className="space-y-4" onSubmit={onSubmit}>
+            {loginError ? <div role="alert" aria-live="assertive"><Alert tone="danger" title="Sign in failed">{loginError}</Alert></div> : null}
             <TextInput label="Username, Email, or Contact Number" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="juan.delacruz" />
 
             <PasswordInput
@@ -210,5 +214,3 @@ const Login = () => {
 };
 
 export default Login;
-
-

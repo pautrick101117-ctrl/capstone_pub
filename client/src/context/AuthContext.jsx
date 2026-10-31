@@ -33,6 +33,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const timeoutRef = useRef(null);
   const lastBumpRef = useRef(0);
+  const justSignedInTokenRef = useRef(null);
+  const loginInFlightRef = useRef(false);
 
   const persist = useCallback(value => setSession(value), []);
   useEffect(() => {
@@ -80,43 +82,48 @@ export const AuthProvider = ({ children }) => {
   const activeToken = session.token;
   useEffect(() => {
     if (!activeToken) return;
+    // The login response already contains the authenticated user. Do not immediately
+    // request /auth/me again or allow that redundant request to cancel a fresh login.
+    if (justSignedInTokenRef.current === activeToken) {
+      justSignedInTokenRef.current = null;
+      return;
+    }
     let cancelled = false;
     api("/auth/me", { token: activeToken }).then(data => {
       if (!cancelled) setSession(current => current.token === activeToken ? { ...current,
         user: data.user, notifications: data.notifications || [],
       } : current);
-    }).catch(() => { if (!cancelled) clearSession(); });
+    }).catch(error => {
+      // A timeout or a temporary outage does not prove the current token is invalid.
+      if (!cancelled && [401, 403].includes(error?.status)) clearSession();
+    });
     return () => { cancelled = true; };
   }, [activeToken, clearSession]);
 
   const login = async ({ usernameOrEmail, password, adminOnly = false }) => {
+    if (loginInFlightRef.current) throw new Error("Sign-in is already in progress.");
+    loginInFlightRef.current = true;
     setLoading(true);
     try {
       const data = await api("/auth/login", {
         method: "POST",
         body: { usernameOrEmail, password, adminOnly, portal: adminOnly ? "admin" : "resident" },
+        timeoutMs: 35_000,
       });
-
-      const expiresAt = Date.now() + (data.sessionTimeoutMinutes || SESSION_MINUTES) * 60 * 1000;
+      if (!data?.token || !data?.user) throw new Error("Invalid login response from server.");
+      const now = Date.now();
+      const expiresAt = now + (data.sessionTimeoutMinutes || SESSION_MINUTES) * 60 * 1000;
+      justSignedInTokenRef.current = data.token;
       persist({
         token: data.token,
         user: data.user,
         notifications: [],
         expiresAt,
-        lastActivityAt: Date.now(),
+        lastActivityAt: now,
       });
-
-      const me = await api("/auth/me", { token: data.token });
-      persist({
-        token: data.token,
-        user: me.user,
-        notifications: me.notifications || [],
-        expiresAt: Date.now() + (me.sessionTimeoutMinutes || SESSION_MINUTES) * 60 * 1000,
-        lastActivityAt: Date.now(),
-      });
-
-      return me.user;
+      return data.user;
     } finally {
+      loginInFlightRef.current = false;
       setLoading(false);
     }
   };

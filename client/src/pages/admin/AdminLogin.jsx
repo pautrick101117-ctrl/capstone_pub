@@ -1,7 +1,7 @@
 import { LOGO_URL } from "../../lib/assets";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
+import { Alert, Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import { isStrongPassword, PASSWORD_POLICY_MESSAGE } from "../../lib/password";
 import { useAuth } from "../../context/auth";
@@ -14,6 +14,7 @@ const AdminLogin = () => {
   const toast = useToast();
   const { login, loading, isAuthenticated, user } = useAuth();
   const [form, setForm] = useState({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recovery, setRecovery] = useState({ usernameOrEmail: "", code: "", newPassword: "" });
   const [recoveryStep, setRecoveryStep] = useState("request");
@@ -42,6 +43,8 @@ const AdminLogin = () => {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (loading) return;
+    setLoginError("");
     try {
       const loggedInUser = await login({
         usernameOrEmail: form.username,
@@ -50,7 +53,7 @@ const AdminLogin = () => {
       });
       navigate(loggedInUser.mustChangePassword ? "/change-password" : isAdminRole(loggedInUser.role) ? "/admin" : "/");
     } catch (error) {
-      toast.error(error.message);
+      setLoginError(error.message || "Unable to sign in. Please try again.");
     }
   };
 
@@ -77,6 +80,7 @@ const AdminLogin = () => {
             <h2 className="mt-4 text-3xl font-black text-[var(--brand-900)]">Admin Sign In</h2>
           </div>
           <form className="space-y-4" onSubmit={submit}>
+            {loginError ? <div role="alert" aria-live="assertive"><Alert tone="danger" title="Sign in failed">{loginError}</Alert></div> : null}
             <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="admin username" />
             <PasswordInput label="Password" required autoComplete="current-password" maxLength={128} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Enter your password" />
             <div className="flex justify-end"><button type="button" onClick={() => { setRecovery({ usernameOrEmail: form.username, code: "", newPassword: "" }); setRecoveryStep("request"); setRecoveryOpen(true); }} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">Forgot password?</button></div>
@@ -101,5 +105,3 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
-
-

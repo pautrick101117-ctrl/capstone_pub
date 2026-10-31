@@ -128,17 +128,21 @@ export const createApp = () => {
           eventCategory: "security", details: { status: deniedStatus }, req });
       } catch (auditError) { console.warn("[DENIED ACCESS AUDIT ERROR]", auditError.message); }
     }
-    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : error.name === 'MulterError' ? 400 : error.status || 500;
+    if (res.headersSent) return;
+    const upstreamTimeout = !error.status && /timeout|timed out|aborterror|signal is aborted/i.test(error.message || '');
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : error.name === 'MulterError' ? 400 : upstreamTimeout ? 503 : error.status || 500;
+    const errorCode = upstreamTimeout ? 'UPSTREAM_TIMEOUT' : error.code || null;
 
     console.error("[API ERROR]", {
+      reference: req.auditRequestId || null,
       status,
       message: error.message || "Unexpected server error.",
-      code: error.code || null,
+      code: errorCode,
     });
 
     res.status(status).json({
-      message: status >= 500 ? "The service could not complete this request. Please retry or contact the barangay office." : error.code === 'LIMIT_FILE_SIZE' ? "File exceeds the upload size limit." : error.message || "Unexpected server error.",
-      code: error.code || null,
+      message: upstreamTimeout ? "The database did not respond in time. Please try again." : status >= 500 ? "The service could not complete this request. Please retry or contact the barangay office." : error.code === 'LIMIT_FILE_SIZE' ? "File exceeds the upload size limit." : error.message || "Unexpected server error.",
+      code: errorCode,
       reference: req.auditRequestId || null,
     });
   });
@@ -222,4 +226,3 @@ if (isMainModule) {
     );
   }, 60 * 1000);
 }
-

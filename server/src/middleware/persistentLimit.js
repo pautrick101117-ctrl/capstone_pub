@@ -8,13 +8,21 @@ export const rateKey = (scope, value) => createHmac('sha256', env.jwtSecret || p
 
 export const checkRate = async (scope, identity, { max, windowSeconds, increment = true }) => {
   const db = requireSupabase();
-  const { data, error } = await db.rpc('bgy_p105_rate_check', {
-    p_key: rateKey(scope, identity), p_limit: max, p_window_seconds: windowSeconds, p_increment: increment,
-  });
-  if (error) throw Object.assign(new Error('Request protection is temporarily unavailable. Try again later.'), {
-    code: 'RATE_LIMIT_SERVICE_UNAVAILABLE', status: 503, cause: error,
-  });
-  return Array.isArray(data) ? data[0] : data;
+  const startedAt = performance.now();
+  try {
+    const { data, error } = await db.rpc('bgy_p105_rate_check', {
+      p_key: rateKey(scope, identity), p_limit: max, p_window_seconds: windowSeconds, p_increment: increment,
+    });
+    if (error) throw Object.assign(new Error('Request protection is temporarily unavailable. Try again later.'), {
+      code: 'RATE_LIMIT_SERVICE_UNAVAILABLE', status: 503, cause: error,
+    });
+    return Array.isArray(data) ? data[0] : data;
+  } finally {
+    // Log stage duration only, never the login identifier or rate-limit key.
+    if (scope === 'login-ip' || scope === 'login-failures' || scope.startsWith('submission:post:/api/auth/login')) {
+      console.info('[AUTH RATE LIMIT]', scope, `${Math.round(performance.now() - startedAt)}ms`);
+    }
+  }
 };
 
 export const persistentLimit = (scope, { max = 10, windowSeconds = 600, identity = (req) => req.currentUser?.id || req.ip } = {}) =>

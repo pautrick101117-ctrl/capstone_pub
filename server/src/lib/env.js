@@ -15,6 +15,8 @@ export const env = {
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET || "resident-valid-ids",
+  supabaseRequestTimeoutMs: Math.min(60_000, Math.max(3_000, Number(process.env.SUPABASE_REQUEST_TIMEOUT_MS) || 12_000)),
+  supabaseStorageTimeoutMs: Math.min(120_000, Math.max(10_000, Number(process.env.SUPABASE_STORAGE_TIMEOUT_MS) || 60_000)),
   resendApiKey: (process.env.RESEND_API_KEY || "").trim(),
   resendFromEmail: (process.env.RESEND_FROM_EMAIL || "").trim(),
   emailSendTimeoutMs: Math.max(3000, Number(process.env.EMAIL_SEND_TIMEOUT_MS || 12000)),
@@ -53,4 +55,3 @@ export const validateProductionEnv = () => {
   }
   validateResendConfig();
 };
-

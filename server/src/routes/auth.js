@@ -89,6 +89,12 @@ router.post("/admin-invitation/accept", rateLimit({ key: "admin-invite-accept", 
 });
 
 router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900, identity: (req) => req.ip }), async (req, res, next) => {
+  // Short stage-level timings allow diagnosing database stalls without logging PII.
+  const timed = async (stage, task) => {
+    const startedAt = performance.now();
+    try { return await task(); }
+    finally { console.info('[AUTH LOGIN]', req.auditRequestId, stage, `${Math.round(performance.now() - startedAt)}ms`); }
+  };
   try {
     const db = requireSupabase();
     const rawIdentifier = `${req.body.usernameOrEmail || ""}`.trim();
@@ -101,11 +107,11 @@ router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900,
       throw Object.assign(new Error("Username and password are required."), { status: 400 });
     }
 
-    let user = await getUserByIdentifier(db, rawIdentifier);
+    let user = await timed('user_lookup', () => getUserByIdentifier(db, rawIdentifier));
     // Username, email, and phone share one account bucket across both portals.
     // Reserve atomically before password verification to cover concurrent attempts.
     const loginIdentity = user?.id || identifier;
-    const guard = await checkRate('login-failures', loginIdentity, {max:10,windowSeconds:900});
+    const guard = await timed('account_rate_limit', () => checkRate('login-failures', loginIdentity, {max:10,windowSeconds:900}));
     if(!guard?.allowed) {
       res.setHeader('Retry-After',String(guard.retry_after||900));
       throw Object.assign(new Error('Too many incorrect passwords for this account. Try again later.'), {status:429,code:'LOGIN_TEMPORARILY_LOCKED'});
@@ -114,7 +120,7 @@ router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900,
       throw Object.assign(new Error("Invalid credentials."), { status: 401 });
     }
 
-    let valid = await comparePassword(bcrypt, password, user.password_hash);
+    let valid = await timed('password_verification', () => comparePassword(bcrypt, password, user.password_hash));
     // A staged resident reset becomes active only when the resident actually
     // enters the temporary password; the old password remains valid until then.
     if (!valid && normalizeRole(user.role) === "resident" && user.pending_password_hash
@@ -154,7 +160,7 @@ router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900,
       throw Object.assign(new Error("This is an administrator account. Please use the Admin Login page."), { status: 403 });
     }
 
-    await clearRate('login-failures',loginIdentity);
+    await timed('clear_rate_limit', () => clearRate('login-failures',loginIdentity));
     const token = signToken({
       sub: user.id,
       role: normalizeRole(user.role),
@@ -162,7 +168,7 @@ router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900,
       username: user.username,
     });
 
-    await logAudit({
+    await timed('required_audit', () => logAudit({
       actorId: user.id,
       actorName: user.full_name || user.username,
       actorRole: normalizeRole(user.role),
@@ -173,7 +179,7 @@ router.post("/login", persistentLimit("login-ip", { max: 10, windowSeconds: 900,
       details: { portal },
       required: true,
       req,
-    });
+    }));
 
     res.json({
       token,
@@ -451,5 +457,3 @@ router.post("/change-password", requireAuth, requireCurrentUser({ allowPasswordC
 });
 
 export default router;
-
-
