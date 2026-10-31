@@ -37,3 +37,22 @@ export const downloadWord = async (file, token) => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
+
+
+// Does not save or issue a document. The server renders a sample-only draft.
+export const previewTemplateWord = async ({ templateId, config, token, signal }) => {
+  const response = await fetch(`${API_URL}/documents/templates/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ templateId, ...(config === undefined ? {} : { config }) }),
+    signal,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || `Template preview failed (HTTP ${response.status}).`);
+  }
+  return response.blob();
+};

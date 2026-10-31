@@ -1,7 +1,4 @@
 import { useMemo, useState } from "react";
-import { api } from "../lib/api";
-import { useAuth } from "../context/auth";
-import { useReviewAction } from "../hooks/useActionReview";
 import { documentClosed, documentStatuses } from "../lib/documents";
 import { getStatusMeta } from "../lib/status";
 import { formatDateTime } from "../lib/format";
@@ -14,121 +11,10 @@ import {
   Pagination,
   SelectInput,
   TableShell,
-  TextArea,
   TextInput,
 } from "./ui";
 import DocumentRequestDetail from "./DocumentRequestDetail";
-function TemplateEditor() {
-  const { token, user } = useAuth();
-  const review = useReviewAction();
-  const [open, setOpen] = useState(false);
-  const [templates, setTemplates] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [config, setConfig] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const show = async () => {
-    try {
-      const data = await api("/documents/templates", { token });
-      setTemplates(data.templates);
-      setOpen(true);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-  const save = async (approve) => {
-    if (busy) return;
-    try {
-      const parsed = JSON.parse(config);
-      if (
-        !(await review({
-          title: approve
-            ? "Approve this new template version?"
-            : "Save a new draft template?",
-          description:
-            "Confirm the exact wording, authorized official, numbering, validity and pickup instructions with the barangay.",
-          after: parsed,
-          confirmLabel: "Save template",
-        }))
-      )
-        return;
-      setBusy(true);
-      await api("/documents/templates", {
-        method: "POST",
-        token,
-        body: { documentType: selected.document_type, config: parsed, approve },
-      });
-      setOpen(false);
-      setSelected(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <Button variant="secondary" onClick={show}>
-        Document templates
-      </Button>
-      {error && !open ? <p role="alert">{error}</p> : null}
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Versioned document templates"
-        closeDisabled={busy}
-      >
-        <p className="mb-4 text-sm">
-          Existing approved versions are preserved. A super administrator must
-          confirm the official wording, official's name, prefix, validity and
-          pickup details before approval.
-        </p>
-        <SelectInput
-          label="Base template"
-          value={selected?.id || ""}
-          onChange={(e) => {
-            const t = templates.find((t) => t.id === e.target.value);
-            setSelected(t);
-            setConfig(t ? JSON.stringify(t.config, null, 2) : "");
-          }}
-        >
-          <option value="">Select template version</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.document_type} v{t.version} ({t.approval_state})
-            </option>
-          ))}
-        </SelectInput>
-        {selected ? (
-          <>
-            <TextArea
-              label="Template configuration (JSON)"
-              rows={18}
-              value={config}
-              disabled={user?.role !== "super_admin"}
-              onChange={(e) => setConfig(e.target.value)}
-            />
-            {user?.role === "super_admin" ? (
-              <div className="mt-4 flex gap-3">
-                <Button disabled={busy} onClick={() => save(false)}>
-                  Save new draft
-                </Button>
-                <Button disabled={busy} onClick={() => save(true)}>
-                  Approve new version
-                </Button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-        {error ? (
-          <p role="alert" className="mt-3 text-rose-700">
-            {error}
-          </p>
-        ) : null}
-      </Modal>
-    </>
-  );
-}
+import TemplateManager from "./TemplateManager";
 export default function DocumentQueue({ requests, onChanged }) {
   const [filters, setFilters] = useState({
     status: "active",
@@ -180,7 +66,7 @@ export default function DocumentQueue({ requests, onChanged }) {
           </Card>
         ))}
       </div>
-      <TemplateEditor />
+      <TemplateManager />
       <Card>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <TextInput
@@ -293,3 +179,4 @@ export default function DocumentQueue({ requests, onChanged }) {
     </div>
   );
 }
+

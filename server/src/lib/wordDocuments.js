@@ -235,7 +235,7 @@ export const generateWordDocument = async ({
                       spacing: { after: 20, line: 120 },
                     }),
                   ),
-                  para(`ID No. ${request.control_number}`, {
+                  para(`ID No. ${request.control_number || "SAMPLE — NOT ISSUED"}`, {
                     run: { bold: true, size: 11 },
                     spacing: { after: 20, line: 120 },
                   }),
@@ -359,3 +359,4 @@ export const generateWordDocument = async ({
   });
   return Packer.toBuffer(doc);
 };
+

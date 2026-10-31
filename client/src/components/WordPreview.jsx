@@ -1,23 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { documentBlob } from "../lib/documents";
 import { useAuth } from "../context/auth";
-export default function WordPreview({ file }) {
+
+// Can show either a saved private version or an unsaved DOCX returned by
+// the template-preview endpoint. Both use the same Word renderer.
+export default function WordPreview({ file, blob, title }) {
   const { token } = useAuth();
   const frame = useRef(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
     const render = async () => {
+      setError("");
+      setLoading(true);
       try {
-        const [blob, { renderAsync }] = await Promise.all([
-          documentBlob(`/files/${file.id}`, token),
+        const [source, { renderAsync }] = await Promise.all([
+          blob ? Promise.resolve(blob) : documentBlob(`/files/${file.id}`, token),
           import("docx-preview"),
         ]);
         if (cancelled) return;
         const doc = frame.current?.contentDocument;
-        if (!doc) return;
+        if (!doc) throw new Error("Word preview frame is not available.");
         doc.body.replaceChildren();
-        await renderAsync(await blob.arrayBuffer(), doc.body, undefined, {
+        await renderAsync(await source.arrayBuffer(), doc.body, undefined, {
           inWrapper: true,
           breakPages: true,
           renderHeaders: true,
@@ -26,25 +32,25 @@ export default function WordPreview({ file }) {
         });
       } catch (e) {
         if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     render();
-    return () => {
-      cancelled = true;
-    };
-  }, [file.id, token]);
+    return () => { cancelled = true; };
+  }, [file?.id, blob, token]);
   return (
     <div>
       <p className="mb-2 text-xs text-stone-500">
-        Preview of this Word file. Check pagination in Microsoft Word before
-        printing.
+        Preview of the generated Word document. Check pagination in Microsoft Word before printing.
       </p>
-      {error ? <p role="alert">{error}</p> : null}
+      {loading ? <p role="status" className="mb-2 text-xs text-stone-600">Rendering Word document…</p> : null}
+      {error ? <p role="alert" className="mb-2 text-sm text-rose-700">{error}</p> : null}
       <iframe
         ref={frame}
-        title={`Word preview version ${file.version_number}`}
+        title={title || `Word preview version ${file?.version_number || "draft"}`}
         sandbox="allow-same-origin"
-        className="h-[600px] w-full rounded-xl border bg-stone-100"
+        className="h-[min(66vh,850px)] min-h-[450px] w-full rounded-xl border bg-stone-100"
       />
     </div>
   );

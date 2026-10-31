@@ -29,6 +29,7 @@ import {
   removeStagedFile,
 } from "../lib/documentStorage.js";
 import { generateWordDocument } from "../lib/wordDocuments.js";
+import { generateTemplatePreview } from "../lib/templatePreview.js";
 import {
   buildDocumentNotification,
   sendDocumentNotification,
@@ -809,6 +810,33 @@ router.post(
   },
 );
 
+// Preview uses the same DOCX generator as actual documents. It never creates
+// an issued document, a request, a control number, or a Storage object.
+router.post("/templates/preview", requireRole("admin"), async (req, res, next) => {
+  try {
+    const { templateId, config: proposedConfig } = req.body || {};
+    if (typeof templateId !== "string" || !/^[0-9a-f-]{36}$/i.test(templateId))
+      throw documentError("Select a template version to preview.");
+    const db = requireSupabase();
+    const template = await getTemplate(db, templateId);
+    if (!template) throw documentError("Template version not found.", 404);
+    if (!DOCUMENT_TYPES.includes(template.document_type))
+      throw documentError("Unsupported document type.");
+    if (proposedConfig !== undefined && normalizeRole(req.currentUser.role) !== "super_admin")
+      throw documentError("Only a super administrator may preview unsaved edits.", 403);
+    const buffer = await generateTemplatePreview({
+      documentType: template.document_type,
+      config: proposedConfig === undefined ? template.config : proposedConfig,
+    });
+    res.setHeader("Content-Type", DOCX_MIME);
+    res.setHeader("Content-Disposition", 'attachment; filename="template-preview.docx"');
+    res.setHeader("Cache-Control", "no-store");
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/templates", requireRole("admin"), async (_req, res, next) => {
   try {
     const { data, error } = await requireSupabase()
@@ -878,3 +906,4 @@ router.post(
   },
 );
 export default router;
+

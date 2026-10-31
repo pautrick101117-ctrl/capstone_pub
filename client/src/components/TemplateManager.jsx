@@ -1,0 +1,302 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Eye, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { api } from "../lib/api";
+import { previewTemplateWord } from "../lib/documents";
+import { useAuth } from "../context/auth";
+import { useReviewAction } from "../hooks/useActionReview";
+import { Button, Modal, SelectInput, TextArea, TextInput } from "./ui";
+import WordPreview from "./WordPreview";
+
+const businessFields = [
+  ["businessName", "Business name"],
+  ["businessAddress", "Business address"],
+  ["businessKind", "Kind of business"],
+  ["permitYear", "Permit year"],
+  ["ctcNumber", "Community Tax Certificate number"],
+  ["sssNumber", "SSS number"],
+  ["tinNumber", "TIN"],
+];
+
+const stringify = (value) => JSON.stringify(value);
+const normalizeDraft = (value) => ({
+  ...value,
+  paragraphs: Array.isArray(value?.paragraphs) ? [...value.paragraphs] : [],
+  requiredBusinessFields: Array.isArray(value?.requiredBusinessFields)
+    ? [...value.requiredBusinessFields]
+    : ["businessName", "businessAddress", "businessKind", "permitYear"],
+});
+
+const savePreviewFile = (blob, documentType) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${documentType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-sample-preview.docx`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+export default function TemplateManager() {
+  const { token, user } = useAuth();
+  const review = useReviewAction();
+  const canEdit = user?.role === "super_admin";
+  const [open, setOpen] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [config, setConfig] = useState(null);
+  const [advanced, setAdvanced] = useState(false);
+  const [jsonText, setJsonText] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [previewedConfig, setPreviewedConfig] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const abortRef = useRef(null);
+  const serialRef = useRef(0);
+  const autoPreviewRef = useRef("");
+  const selected = useMemo(() => templates.find((t) => t.id === selectedId), [templates, selectedId]);
+  const isCurrentPreview = Boolean(preview && config && previewedConfig === stringify(config));
+
+  const select = useCallback((template) => {
+    abortRef.current?.abort();
+    setSelectedId(template?.id || "");
+    const value = template ? normalizeDraft(template.config) : null;
+    setConfig(value);
+    setJsonText(value ? JSON.stringify(value, null, 2) : "");
+    setAdvanced(false);
+    setPreview(null);
+    setPreviewedConfig(null);
+    setError("");
+    setMessage("");
+  }, []);
+
+  const close = () => {
+    abortRef.current?.abort();
+    if (!busy) setOpen(false);
+  };
+
+  const show = async () => {
+    setOpen(true);
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/documents/templates", { token });
+      const items = data.templates || [];
+      setTemplates(items);
+      select(items[0] || null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPreview = useCallback(async (template, draft, { savedOnly = false } = {}) => {
+    if (!template || !draft) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort("timeout"), 45000);
+    abortRef.current = controller;
+    const serial = ++serialRef.current;
+    setPreviewing(true);
+    setError("");
+    setPreview(null);
+    setPreviewedConfig(null);
+    try {
+      const blob = await previewTemplateWord({
+        templateId: template.id,
+        config: savedOnly ? undefined : draft,
+        token,
+        signal: controller.signal,
+      });
+      if (serial !== serialRef.current || controller.signal.aborted) return;
+      setPreview(blob);
+      setPreviewedConfig(stringify(draft));
+    } catch (e) {
+      if (serial === serialRef.current) {
+        if (controller.signal.reason === "timeout") {
+          setError("Word preview timed out. Check your server and retry.");
+        } else if (!controller.signal.aborted) {
+          setError(e.message);
+        }
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (serial === serialRef.current) setPreviewing(false);
+    }
+  }, [token]);
+
+  // Show a saved Word document when a version is selected, without regenerating
+  // on every keystroke. Refresh is explicit when editing the form.
+  useEffect(() => {
+    if (!open) {
+      autoPreviewRef.current = "";
+      return;
+    }
+    if (!selected || !config || autoPreviewRef.current === selected.id) return;
+    autoPreviewRef.current = selected.id;
+    fetchPreview(selected, config, { savedOnly: !canEdit });
+  }, [selected, config, selectedId, open, canEdit, fetchPreview]);
+
+  const update = (key, value) => {
+    setConfig((current) => {
+      const next = { ...current, [key]: value };
+      setJsonText(JSON.stringify(next, null, 2));
+      return next;
+    });
+    setMessage("");
+  };
+
+  const editParagraph = (index, value) => {
+    const paragraphs = [...config.paragraphs];
+    paragraphs[index] = value;
+    update("paragraphs", paragraphs);
+  };
+
+  const applyJson = () => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("JSON must contain an object.");
+      const draft = normalizeDraft(parsed);
+      setConfig(draft);
+      setJsonText(JSON.stringify(draft, null, 2));
+      setError("");
+      setMessage("Advanced changes applied. Refresh the document preview before approval.");
+    } catch (e) {
+      setError(`Invalid JSON: ${e.message}`);
+    }
+  };
+
+  const save = async (approve) => {
+    if (!selected || !config || busy || !canEdit) return;
+    if (approve && !isCurrentPreview) {
+      setError("Preview your latest changes before approving the template.");
+      return;
+    }
+    if (advanced) {
+      // Prevent users from accidentally approving stale un-applied JSON edits.
+      try {
+        if (stringify(normalizeDraft(JSON.parse(jsonText))) !== stringify(config)) {
+          setError("Apply your Advanced JSON changes before saving.");
+          return;
+        }
+      } catch {
+        setError("Correct the Advanced JSON before saving.");
+        return;
+      }
+    }
+    if (!(await review({
+      title: approve ? "Approve this new document template version?" : "Save a new draft version?",
+      description: "This creates a new version and preserves older versions. Confirm the wording, official name, numbering, validity and pickup information.",
+      after: config,
+      confirmLabel: approve ? "Approve new version" : "Save new draft",
+    }))) return;
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await api("/documents/templates", {
+        method: "POST", token,
+        body: { documentType: selected.document_type, config, approve },
+      });
+      const refreshed = await api("/documents/templates", { token });
+      setTemplates(refreshed.templates || []);
+      const newest = refreshed.templates?.find((t) => t.id === saved.template.id) || saved.template;
+      select(newest);
+      setMessage(`Version ${newest.version} saved as ${newest.approval_state}.`);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Button type="button" variant="secondary" onClick={show}>Document templates</Button>
+      <Modal
+        open={open}
+        onClose={close}
+        closeDisabled={busy}
+        title="Document Template Manager"
+        description="Edit the official wording and review an actual Word document before creating a new version. Preview data is fictional."
+        widthClass="max-w-[96vw]"
+      >
+        {loading ? <p role="status" className="py-8 text-center">Loading document templates…</p> : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <SelectInput label="Document template version" value={selectedId} onChange={(e) => select(templates.find((t) => t.id === e.target.value))} className="min-w-[250px] flex-1">
+                <option value="">Select a version</option>
+                {templates.map((t) => (
+                  <option value={t.id} key={t.id}>{t.document_type} · Version {t.version} ({t.approval_state})</option>
+                ))}
+              </SelectInput>
+              {selected ? <span className="rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600">{selected.approval_state.toUpperCase()} · v{selected.version} · New edits become a new version</span> : null}
+            </div>
+            {selected && config ? (
+              <div className="grid items-start gap-5 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+                <section aria-label="Template settings" className="max-h-[70vh] space-y-4 overflow-y-auto rounded-2xl border border-stone-200 p-4">
+                  <h4 className="text-base font-bold text-[var(--brand-900)]">Template settings</h4>
+                  {!canEdit ? <p className="rounded-xl bg-stone-100 p-3 text-sm">Only super administrators can create or approve template versions. You may preview existing ones.</p> : null}
+                  <TextInput label="Document title" required disabled={!canEdit || busy} maxLength={700} value={config.title || ""} onChange={(e) => update("title", e.target.value)} />
+                  <div className="space-y-3 rounded-xl border border-stone-200 p-3">
+                    <div className="flex items-center justify-between gap-2"><h5 className="font-semibold">Document paragraphs</h5><span className="text-xs text-stone-500">{config.paragraphs.length}/8</span></div>
+                    <p className="text-xs text-stone-500">You can use fields like {"{{fullName}}"}, {"{{address}}"}, {"{{purpose}}"} and {"{{residencySince}}"}.</p>
+                    {config.paragraphs.map((paragraph, index) => (
+                      <div key={index} className="flex items-start gap-2">
+                        <TextArea label={`Paragraph ${index + 1}`} rows={3} maxLength={1400} disabled={!canEdit || busy} value={paragraph} onChange={(e) => editParagraph(index, e.target.value)} className="flex-1" />
+                        {canEdit ? <button type="button" aria-label={`Remove paragraph ${index + 1}`} disabled={busy || config.paragraphs.length <= 1} onClick={() => update("paragraphs", config.paragraphs.filter((_, i) => i !== index))} className="mt-8 rounded-lg border border-stone-200 p-2 text-rose-600 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button> : null}
+                      </div>
+                    ))}
+                    {canEdit && config.paragraphs.length < 8 ? <Button type="button" variant="secondary" disabled={busy} onClick={() => update("paragraphs", [...config.paragraphs, ""])}><Plus className="h-4 w-4" /> Add paragraph</Button> : null}
+                  </div>
+                  <TextInput label="Authorized official's name" required maxLength={700} disabled={!canEdit || busy} placeholder="Enter the approved official's name" value={config.chairmanName || ""} onChange={(e) => update("chairmanName", e.target.value)} />
+                  <TextInput label="Official designation" required maxLength={700} disabled={!canEdit || busy} value={config.designation || ""} onChange={(e) => update("designation", e.target.value)} />
+                  <TextInput label="Control-number prefix" required maxLength={12} hint="Uppercase letters only, e.g. I or BC" disabled={!canEdit || busy} value={config.controlPrefix || ""} onChange={(e) => update("controlPrefix", e.target.value.toUpperCase())} />
+                  <TextInput label="Validity (months)" type="number" min="1" max="60" hint="Leave blank if this document has no standard validity period" disabled={!canEdit || busy} value={config.validityMonths ?? ""} onChange={(e) => update("validityMonths", e.target.value === "" ? null : Number(e.target.value))} />
+                  <TextArea label="Footer note" rows={2} maxLength={700} disabled={!canEdit || busy} value={config.footer || ""} onChange={(e) => update("footer", e.target.value)} />
+                  <TextArea label="Pickup instructions" rows={2} maxLength={700} disabled={!canEdit || busy} value={config.pickupInstructions || ""} onChange={(e) => update("pickupInstructions", e.target.value)} />
+                  <TextInput label="Office contact" maxLength={700} disabled={!canEdit || busy} value={config.officeContact || ""} onChange={(e) => update("officeContact", e.target.value)} />
+                  {selected.document_type === "Barangay Business Clearance" ? (
+                    <fieldset className="space-y-2 rounded-xl border border-stone-200 p-3" disabled={!canEdit || busy}>
+                      <legend className="font-semibold">Required business fields</legend>
+                      {businessFields.map(([key, label]) => (
+                        <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.requiredBusinessFields.includes(key)} onChange={(e) => update("requiredBusinessFields", e.target.checked ? [...config.requiredBusinessFields, key] : config.requiredBusinessFields.filter((v) => v !== key))}/>{label}</label>
+                      ))}
+                    </fieldset>
+                  ) : null}
+                  {canEdit ? (
+                    <div className="border-t pt-3">
+                      <button type="button" className="flex w-full items-center gap-2 text-sm font-semibold text-stone-700" aria-expanded={advanced} onClick={() => { setAdvanced(!advanced); if (!advanced) setJsonText(JSON.stringify(config, null, 2)); }}><Settings2 className="h-4 w-4" /> Advanced JSON editor</button>
+                      {advanced ? <div className="mt-3 space-y-2"><TextArea label="Template configuration (JSON)" rows={12} value={jsonText} disabled={busy} onChange={(e) => setJsonText(e.target.value)}/><Button type="button" variant="secondary" disabled={busy} onClick={applyJson}>Apply JSON changes</Button></div> : null}
+                    </div>
+                  ) : null}
+                </section>
+                <section aria-label="Word document preview" className="min-w-0 space-y-3 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><h4 className="font-bold text-[var(--brand-900)]">Actual Word preview</h4><p className="text-xs text-stone-500">Uses the document generator, logos and sample resident details. No official document is issued.</p></div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="secondary" disabled={previewing || busy} onClick={() => fetchPreview(selected, config, { savedOnly: !canEdit })}><Eye className="h-4 w-4" /> Preview changes</Button>
+                      <Button type="button" variant="secondary" disabled={!preview || !isCurrentPreview || previewing} onClick={() => savePreviewFile(preview, selected.document_type)}><Download className="h-4 w-4" /> Download sample</Button>
+                    </div>
+                  </div>
+                  {previewing ? <p role="status" className="rounded-xl bg-white p-4 text-sm"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" /> Generating Word preview…</p> : null}
+                  {preview && !isCurrentPreview ? <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">The preview is outdated. Select “Preview changes” to review your latest edits.</p> : null}
+                  {preview ? <WordPreview blob={preview} title={`Sample ${selected.document_type}`} /> : !previewing ? <p className="rounded-xl border border-dashed p-8 text-center text-sm text-stone-500">No preview yet. Select Preview changes.</p> : null}
+                </section>
+              </div>
+            ) : !error ? <p className="py-12 text-center text-stone-500">No template selected.</p> : null}
+            {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
+            {message ? <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{message}</p> : null}
+            {selected && canEdit ? <div className="flex flex-wrap justify-end gap-3 border-t border-stone-200 pt-4">
+              <Button type="button" variant="secondary" loading={busy} disabled={previewing} onClick={() => save(false)}>Save new draft</Button>
+              <Button type="button" loading={busy} disabled={!isCurrentPreview || previewing} onClick={() => save(true)}>Approve new version</Button>
+            </div> : null}
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}
