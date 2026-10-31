@@ -21,6 +21,43 @@ import masterDataRoutes from "./routes/masterData.js";
 import { env, validateProductionEnv } from "./lib/env.js";
 import { runMaintenance } from "./lib/scheduler.js";
 
+// Live deployments advertise liveness immediately, but fail closed until every
+// required schema check finishes. Importing the app for tests does not launch
+// the production bootstrap sequence.
+const isMainModule = Boolean(process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url);
+const startup = { state: isMainModule ? "starting" : "ready", stage: isMainModule ? "environment" : "not_applicable" };
+
+const REQUIRED_MIGRATIONS = [
+  ["phase1_audit", "bgy_audit_phase1_ready"],
+  ["phase2_invitations", "bgy_phase2_ready"],
+  ["phase5_passwords", "bgy_phase5_ready"],
+  ["phase6_case_history", "bgy_phase6_ready"],
+  ["phase7_hotlines", "bgy_phase7_ready"],
+  ["phase8_concern_limits", "bgy_phase8_ready"],
+  ["phase9_borrowing", "bgy_phase9_ready"],
+  ["phase10_projects", "bgy_phase10_ready"],
+  ["phase10_5_security", "bgy_p105_ready"],
+  ["phase11_documents", "bgy_phase11_ready"],
+];
+
+const verifyStartup = async () => {
+  for (const [stage, functionName] of REQUIRED_MIGRATIONS) {
+    startup.stage = stage;
+    const started = performance.now();
+    console.info("[STARTUP CHECK]", stage, "begin");
+    const { data, error } = await requireSupabase().rpc(functionName);
+    const elapsed = Math.round(performance.now() - started);
+    if (error || data !== true) {
+      console.error("[STARTUP CHECK]", stage, "failed", `${elapsed}ms`, error?.message || "returned false");
+      throw new Error(`${stage} failed required database readiness verification.`);
+    }
+    console.info("[STARTUP CHECK]", stage, "passed", `${elapsed}ms`);
+  }
+  startup.state = "ready";
+  startup.stage = "complete";
+  console.info("[STARTUP READY] All mandatory database checks passed.");
+};
+
 export const createApp = () => {
   const app = express();
 
@@ -68,18 +105,35 @@ export const createApp = () => {
     res.json({ ok: true, service: "barangay-iba-api" })
   );
 
-  // Readiness confirms the database is accessible without exposing credentials
-  // or resident records. Useful for diagnosing a working UI with empty data.
+  // Readiness is separate from liveness. A cold instance must show whether
+  // startup checks are pending or the database is truly inaccessible.
   app.get("/api/health/readiness", async (_req, res) => {
+    if (startup.state !== "ready") {
+      res.setHeader("Retry-After", "10");
+      return res.status(503).json({ ok: false, database: "unchecked", state: startup.state, stage: startup.stage });
+    }
     try {
-      const { requireSupabase } = await import("./lib/supabase.js");
       const { error } = await requireSupabase().from("users").select("id").limit(1);
       if (error) throw error;
-      res.json({ ok: true, database: "connected" });
+      return res.json({ ok: true, database: "connected", state: "ready" });
     } catch (error) {
       console.error("[DATABASE READINESS ERROR]", error.message);
-      res.status(503).json({ ok: false, database: "unavailable" });
+      return res.status(503).json({ ok: false, database: "unavailable", state: "degraded" });
     }
+  });
+
+  // Never serve protected routes before required audit/security migrations pass.
+  // This gate also makes login failures fast and explains why the server is busy.
+  app.use("/api", (req, res, next) => {
+    if (startup.state === "ready") return next();
+    res.setHeader("Retry-After", "10");
+    const waiting = startup.state === "starting";
+    return res.status(503).json({
+      message: waiting ? "The Barangay Iba server is starting. Please retry shortly."
+        : "The Barangay Iba server is not ready. Please contact the administrator.",
+      code: waiting ? "SERVICE_STARTING" : "SERVICE_NOT_READY",
+      reference: req.auditRequestId || null,
+    });
   });
 
   app.get("/api/content", async (_req, res, next) => {
@@ -152,77 +206,26 @@ export const createApp = () => {
 
 export const app = createApp();
 
-const isMainModule =
-  process.argv[1] &&
-  pathToFileURL(process.argv[1]).href === import.meta.url;
-
 if (isMainModule) {
+  // Refuse to expose application routes if the backend is misconfigured.
   validateProductionEnv();
 
-  // Refuse to serve writes against a pre-Phase-1 schema: missing database
-  // triggers would otherwise leave consequential mutations unaudited.
-  const auditReady = await requireSupabase().rpc("bgy_audit_phase1_ready");
-  if (auditReady.error || auditReady.data !== true) {
-    throw new Error("Phase 1 Audit migration missing or incomplete. Run server/supabase-v4-phase1-audit-upgrade.sql before deploying this API.");
-  }
-
-  const phase2Ready = await requireSupabase().rpc("bgy_phase2_ready");
-  if (phase2Ready.error || phase2Ready.data !== true) {
-    throw new Error("Phase 2 Admin Invitations migration missing. Run server/supabase-v4-phase2-admin-invitations.sql before deploying this API.");
-  }
-
-  const phase5Ready = await requireSupabase().rpc("bgy_phase5_ready");
-  if (phase5Ready.error || phase5Ready.data !== true) {
-    throw new Error("Phase 5 staged Resident Password migration missing. Run server/supabase-v4-phase5-resident-passwords.sql before deploying this API.");
-  }
-
-  const phase6Ready = await requireSupabase().rpc("bgy_phase6_ready");
-  if (phase6Ready.error || phase6Ready.data !== true) {
-    throw new Error("Phase 6 Case History migration missing. Run server/supabase-v4-phase6-case-history.sql before deploying the API.");
-  }
-
-  const phase7Ready = await requireSupabase().rpc("bgy_phase7_ready");
-  if (phase7Ready.error || phase7Ready.data !== true) {
-    throw new Error("Phase 7 Hotline Settings migration missing. Run server/supabase-v4-phase7-hotline-settings.sql before deploying the API.");
-  }
-
-  const phase8Ready = await requireSupabase().rpc("bgy_phase8_ready");
-  if (phase8Ready.error || phase8Ready.data !== true) {
-    throw new Error("Phase 8 Concern Limits migration missing. Run server/supabase-v4-phase8-concern-limits.sql before deploying this API.");
-  }
-
-  const phase9Ready = await requireSupabase().rpc("bgy_phase9_ready");
-  if (phase9Ready.error || phase9Ready.data !== true) {
-    throw new Error("Phase 9 Borrowing Duration migration missing. Run server/supabase-v4-phase9-borrowing-duration.sql before deploying this API.");
-  }
-
-  const phase10Ready = await requireSupabase().rpc("bgy_phase10_ready");
-  if (phase10Ready.error || phase10Ready.data !== true) {
-    throw new Error("Phase 10 Project Lifecycle migration missing. Run server/supabase-v4-phase10-project-lifecycle.sql before deploying this API.");
-  }
-
-  const p105Ready = await requireSupabase().rpc('bgy_p105_ready');
-  if (p105Ready.error || p105Ready.data !== true) {
-    throw new Error('Phase 10.5 Data & Security migration missing. Run server/supabase-v4-phase10-5-data-security.sql before deploying this API.');
-  }
-
-  const documentsReady = await requireSupabase().rpc('bgy_phase11_ready');
-  if (documentsReady.error || documentsReady.data !== true) {
-    throw new Error('Phase 11 migration missing. Apply server/supabase-v4-phase11-documents.sql before starting this API.');
-  }
-
-  app.listen(env.port, () =>
-    console.log(
-      `API listening on http://localhost:${env.port}`
-    )
+  // Start listening *before* slow schema checks so liveness and readiness are
+  // available during a Render cold start; application endpoints stay blocked.
+  const server = app.listen(env.port, () =>
+    console.info(`[STARTUP HTTP] Listening on port ${env.port}; schema checks pending.`)
   );
+  void verifyStartup().catch((error) => {
+    startup.state = "failed";
+    console.error("[STARTUP FAILED]", startup.stage, error.message);
+  });
 
-  setInterval(() => {
+  const maintenance = setInterval(() => {
+    if (startup.state !== "ready") return;
     runMaintenance().catch((error) =>
-      console.error(
-        "Maintenance task failed:",
-        error.message
-      )
+      console.error("Maintenance task failed:", error.message)
     );
   }, 60 * 1000);
+  maintenance.unref?.();
+  server.on("error", (error) => console.error("[HTTP LISTENER ERROR]", error.message));
 }

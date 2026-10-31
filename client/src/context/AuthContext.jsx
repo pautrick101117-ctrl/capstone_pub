@@ -108,7 +108,8 @@ export const AuthProvider = ({ children }) => {
       const data = await api("/auth/login", {
         method: "POST",
         body: { usernameOrEmail, password, adminOnly, portal: adminOnly ? "admin" : "resident" },
-        timeoutMs: 35_000,
+        // Render Free may need about a minute to wake. Do not replay POST automatically.
+        timeoutMs: 90_000,
       });
       if (!data?.token || !data?.user) throw new Error("Invalid login response from server.");
       const now = Date.now();

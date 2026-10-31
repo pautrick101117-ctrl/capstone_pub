@@ -1,5 +1,5 @@
 import { LOGO_URL } from "../../lib/assets";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Alert, Button, Card, Modal, PasswordInput, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -15,6 +15,12 @@ const AdminLogin = () => {
   const { login, loading, isAuthenticated, user } = useAuth();
   const [form, setForm] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [slowLogin, setSlowLogin] = useState(false);
+  useEffect(() => {
+    if (!loading) { setSlowLogin(false); return undefined; }
+    const timer = window.setTimeout(() => setSlowLogin(true), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recovery, setRecovery] = useState({ usernameOrEmail: "", code: "", newPassword: "" });
   const [recoveryStep, setRecoveryStep] = useState("request");
@@ -84,6 +90,9 @@ const AdminLogin = () => {
             <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="admin username" />
             <PasswordInput label="Password" required autoComplete="current-password" maxLength={128} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Enter your password" />
             <div className="flex justify-end"><button type="button" onClick={() => { setRecovery({ usernameOrEmail: form.username, code: "", newPassword: "" }); setRecoveryStep("request"); setRecoveryOpen(true); }} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">Forgot password?</button></div>
+            {slowLogin ? <p role="status" aria-live="polite" className="text-sm text-stone-600">
+              Connecting to the server. The first request after inactivity may take longer. Do not submit again while this sign-in is running.
+            </p> : null}
             <Button type="submit" className="w-full justify-center py-3" loading={loading}>
               Access Admin Portal
             </Button>
