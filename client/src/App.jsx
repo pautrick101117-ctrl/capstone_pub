@@ -30,6 +30,7 @@ import Admin_Officials from "./pages/admin/Admin_Officials";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminSetup from "./pages/admin/AdminSetup";
 import AdminRequests from "./pages/admin/AdminRequests";
+import DocumentRequestPage from "./pages/admin/DocumentRequestPage";
 import AdminContentPage from "./pages/admin/AdminContentPage";
 import AdminFunds from "./pages/admin/AdminFunds";
 import AdminEvents from "./pages/admin/AdminEvents";
@@ -96,6 +97,8 @@ const router = createBrowserRouter(
           <Route index element={<AdminDashboard />} />
           <Route path="residents" element={<Admin_Residents />} />
           <Route path="requests" element={<AdminRequests />} />
+          {/* Keep this deep-link route deployed alongside the Process request link in DocumentQueue. */}
+          <Route path="requests/document/:id" element={<DocumentRequestPage />} />
           <Route path="officials" element={<Admin_Officials />} />
           <Route path="news" element={<AdminContentPage type="news" />} />
           <Route path="announcements" element={<AdminContentPage type="announcement" />} />
@@ -124,5 +127,6 @@ const router = createBrowserRouter(
 const App = () => <ActionReviewProvider><RouterProvider router={router} /></ActionReviewProvider>;
 
 export default App;
+
 
 
