@@ -19,14 +19,23 @@ export const documentStatuses = [
 ];
 export const documentClosed = ["completed", "claimed", "cancelled", "rejected"];
 export const documentBlob = async (path, token) => {
-  const response = await fetch(`${API_URL}/documents${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.message || "Unable to retrieve private file.");
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 45000);
+  try {
+    const response = await fetch(`${API_URL}/documents${path}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "Unable to retrieve private file.");
+    }
+    return await response.blob();
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("The Word document took too long to load. Try again.");
+    throw error;
+  } finally {
+    clearTimeout(deadline);
   }
-  return response.blob();
 };
 export const downloadWord = async (file, token) => {
   const blob = await documentBlob(`/files/${file.id}`, token);

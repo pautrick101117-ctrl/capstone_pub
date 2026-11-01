@@ -1,21 +1,20 @@
 import { useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { documentClosed, documentStatuses } from "../lib/documents";
 import { getStatusMeta } from "../lib/status";
 import { formatDateTime } from "../lib/format";
 import {
   Badge,
-  Button,
   Card,
   EmptyState,
-  Modal,
   Pagination,
   SelectInput,
   TableShell,
   TextInput,
 } from "./ui";
-import DocumentRequestDetail from "./DocumentRequestDetail";
 import TemplateManager from "./TemplateManager";
-export default function DocumentQueue({ requests, onChanged }) {
+export default function DocumentQueue({ requests }) {
+  const location = useLocation();
   const [filters, setFilters] = useState({
     status: "active",
     type: "all",
@@ -24,7 +23,6 @@ export default function DocumentQueue({ requests, onChanged }) {
     to: "",
   });
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState(null);
   const update = (key, value) => {
     setFilters((f) => ({ ...f, [key]: value }));
     setPage(1);
@@ -66,7 +64,7 @@ export default function DocumentQueue({ requests, onChanged }) {
           </Card>
         ))}
       </div>
-      <TemplateManager />
+      <TemplateManager openOnLoad={new URLSearchParams(location.search).get("templates") === "1"} />
       <Card>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <TextInput
@@ -147,9 +145,9 @@ export default function DocumentQueue({ requests, onChanged }) {
                   </td>
                   <td className="p-4">{formatDateTime(r.created_at)}</td>
                   <td className="p-4">
-                    <Button onClick={() => setSelected(r.id)}>
-                      Open request
-                    </Button>
+                    <Link to={`/admin/requests/document/${r.id}`} className="inline-flex min-h-11 items-center rounded-xl bg-green-700 px-5 py-3 font-semibold text-white hover:bg-green-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-700">
+                      Process request
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -162,21 +160,6 @@ export default function DocumentQueue({ requests, onChanged }) {
         totalPages={Math.max(1, Math.ceil(rows.length / 8))}
         onPageChange={setPage}
       />
-      <Modal
-        open={Boolean(selected)}
-        onClose={() => setSelected(null)}
-        title="Document request details"
-        widthClass="max-w-5xl"
-      >
-        {selected ? (
-          <DocumentRequestDetail
-            key={selected}
-            id={selected}
-            onChanged={onChanged}
-          />
-        ) : null}
-      </Modal>
     </div>
   );
 }
-

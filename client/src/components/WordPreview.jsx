@@ -9,6 +9,8 @@ export default function WordPreview({ file, blob, title }) {
   const frame = useRef(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [zoom, setZoom] = useState(100);
+  const [retryCount, setRetryCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const render = async () => {
@@ -23,6 +25,7 @@ export default function WordPreview({ file, blob, title }) {
         const doc = frame.current?.contentDocument;
         if (!doc) throw new Error("Word preview frame is not available.");
         doc.body.replaceChildren();
+        doc.body.style.zoom = `${zoom}%`;
         await renderAsync(await source.arrayBuffer(), doc.body, undefined, {
           inWrapper: true,
           breakPages: true,
@@ -38,14 +41,27 @@ export default function WordPreview({ file, blob, title }) {
     };
     render();
     return () => { cancelled = true; };
-  }, [file?.id, blob, token]);
+  }, [file?.id, blob, token, retryCount]);
+  useEffect(() => {
+    const doc = frame.current?.contentDocument;
+    if (doc) doc.body.style.zoom = `${zoom}%`;
+  }, [zoom]);
   return (
     <div>
       <p className="mb-2 text-xs text-stone-500">
         Preview of the generated Word document. Check pagination in Microsoft Word before printing.
       </p>
       {loading ? <p role="status" className="mb-2 text-xs text-stone-600">Rendering Word document…</p> : null}
-      {error ? <p role="alert" className="mb-2 text-sm text-rose-700">{error}</p> : null}
+      {error ? <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+        <span>Document preview failed: {error}</span>
+        <button type="button" className="min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold" onClick={() => setRetryCount(n => n + 1)}>Try again</button>
+      </div> : null}
+      <div className="mb-3 flex items-center gap-3">
+        <label className="text-sm font-semibold" htmlFor="document-zoom">Preview size</label>
+        <select id="document-zoom" aria-label="Preview zoom" className="min-h-11 rounded-xl border border-stone-300 bg-white px-3" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+          {[75,100,125,150,200].map((n) => <option key={n} value={n}>{n}%</option>)}
+        </select>
+      </div>
       <iframe
         ref={frame}
         title={title || `Word preview version ${file?.version_number || "draft"}`}

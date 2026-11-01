@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Eye, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { Download, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { previewTemplateWord } from "../lib/documents";
 import { useAuth } from "../context/auth";
@@ -37,7 +37,7 @@ const savePreviewFile = (blob, documentType) => {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-export default function TemplateManager() {
+export default function TemplateManager({ openOnLoad = false }) {
   const { token, user } = useAuth();
   const review = useReviewAction();
   const canEdit = user?.role === "super_admin";
@@ -51,17 +51,22 @@ export default function TemplateManager() {
   const [previewedConfig, setPreviewedConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [previewRetry, setPreviewRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const abortRef = useRef(null);
   const serialRef = useRef(0);
-  const autoPreviewRef = useRef("");
   const selected = useMemo(() => templates.find((t) => t.id === selectedId), [templates, selectedId]);
   const isCurrentPreview = Boolean(preview && config && previewedConfig === stringify(config));
+  const unsavedForm = Boolean(selected && config && stringify(config) !== stringify(normalizeDraft(selected.config)));
+  const unsavedAdvanced = Boolean(advanced && config && jsonText !== JSON.stringify(config, null, 2));
+  const hasUnsavedChanges = unsavedForm || unsavedAdvanced;
 
   const select = useCallback((template) => {
     abortRef.current?.abort();
+    serialRef.current += 1;
     setSelectedId(template?.id || "");
     const value = template ? normalizeDraft(template.config) : null;
     setConfig(value);
@@ -69,16 +74,23 @@ export default function TemplateManager() {
     setAdvanced(false);
     setPreview(null);
     setPreviewedConfig(null);
+    setPreviewing(false);
+    setPreviewError("");
     setError("");
     setMessage("");
   }, []);
 
+  const confirmDiscard = () => !hasUnsavedChanges || window.confirm(
+    "You have unsaved template changes. Discard them?",
+  );
   const close = () => {
+    if (busy || !confirmDiscard()) return;
     abortRef.current?.abort();
-    if (!busy) setOpen(false);
+    serialRef.current += 1;
+    setOpen(false);
   };
 
-  const show = async () => {
+  const show = useCallback(async () => {
     setOpen(true);
     setLoading(true);
     setError("");
@@ -92,7 +104,12 @@ export default function TemplateManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, select]);
+
+  // Used by the approval screen when a document type has no approved template.
+  useEffect(() => {
+    if (openOnLoad) void show();
+  }, [openOnLoad, show]);
 
   const fetchPreview = useCallback(async (template, draft, { savedOnly = false } = {}) => {
     if (!template || !draft) return;
@@ -102,9 +119,8 @@ export default function TemplateManager() {
     abortRef.current = controller;
     const serial = ++serialRef.current;
     setPreviewing(true);
-    setError("");
-    setPreview(null);
-    setPreviewedConfig(null);
+    setPreviewError("");
+    // Keep the last good Word preview visible while unsaved edits render.
     try {
       const blob = await previewTemplateWord({
         templateId: template.id,
@@ -118,9 +134,9 @@ export default function TemplateManager() {
     } catch (e) {
       if (serial === serialRef.current) {
         if (controller.signal.reason === "timeout") {
-          setError("Word preview timed out. Check your server and retry.");
+          setPreviewError("Word preview timed out. Check your server and try again.");
         } else if (!controller.signal.aborted) {
-          setError(e.message);
+          setPreviewError(e.message || "The preview could not be generated.");
         }
       }
     } finally {
@@ -129,17 +145,30 @@ export default function TemplateManager() {
     }
   }, [token]);
 
-  // Show a saved Word document when a version is selected, without regenerating
-  // on every keystroke. Refresh is explicit when editing the form.
+  // Preview the unsaved editor state. A timer avoids generating a Word file
+  // for every keystroke; fetchPreview aborts the previous HTTP request.
+  const draftFingerprint = config ? stringify(config) : "";
   useEffect(() => {
-    if (!open) {
-      autoPreviewRef.current = "";
-      return;
-    }
-    if (!selected || !config || autoPreviewRef.current === selected.id) return;
-    autoPreviewRef.current = selected.id;
-    fetchPreview(selected, config, { savedOnly: !canEdit });
-  }, [selected, config, selectedId, open, canEdit, fetchPreview]);
+    if (!open || !selected || !config) return undefined;
+    if (draftFingerprint === previewedConfig && preview) return undefined;
+    const timer = window.setTimeout(() => {
+      fetchPreview(selected, config, { savedOnly: !canEdit });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [open, selected?.id, draftFingerprint, canEdit, fetchPreview, previewedConfig, preview, previewRetry]);
+
+  useEffect(() => () => {
+    serialRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
+
+  // Browser navigation should not silently discard unsaved template edits.
+  useEffect(() => {
+    if (!open || !hasUnsavedChanges) return undefined;
+    const onBeforeUnload = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [open, hasUnsavedChanges]);
 
   const update = (key, value) => {
     setConfig((current) => {
@@ -164,7 +193,7 @@ export default function TemplateManager() {
       setConfig(draft);
       setJsonText(JSON.stringify(draft, null, 2));
       setError("");
-      setMessage("Advanced changes applied. Refresh the document preview before approval.");
+      setMessage("Changes applied. The Word preview will update automatically.");
     } catch (e) {
       setError(`Invalid JSON: ${e.message}`);
     }
@@ -173,7 +202,7 @@ export default function TemplateManager() {
   const save = async (approve) => {
     if (!selected || !config || busy || !canEdit) return;
     if (approve && !isCurrentPreview) {
-      setError("Preview your latest changes before approving the template.");
+      setError("The updated Word preview is still being prepared. Please check it before approving.");
       return;
     }
     if (advanced) {
@@ -227,13 +256,17 @@ export default function TemplateManager() {
         {loading ? <p role="status" className="py-8 text-center">Loading document templates…</p> : (
           <div className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <SelectInput label="Document template version" value={selectedId} onChange={(e) => select(templates.find((t) => t.id === e.target.value))} className="min-w-[250px] flex-1">
+              <SelectInput label="Document template version" value={selectedId} onChange={(e) => {
+                const nextId = e.target.value;
+                if (nextId === selectedId || !confirmDiscard()) return;
+                select(templates.find((t) => t.id === nextId));
+              }} className="min-w-[250px] flex-1">
                 <option value="">Select a version</option>
                 {templates.map((t) => (
                   <option value={t.id} key={t.id}>{t.document_type} · Version {t.version} ({t.approval_state})</option>
                 ))}
               </SelectInput>
-              {selected ? <span className="rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600">{selected.approval_state.toUpperCase()} · v{selected.version} · New edits become a new version</span> : null}
+              {selected ? <span role="status" className="rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-700">{hasUnsavedChanges ? "Unsaved changes · " : ""}{selected.approval_state.toUpperCase()} · v{selected.version} · New edits become a new version</span> : null}
             </div>
             {selected && config ? (
               <div className="grid items-start gap-5 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
@@ -278,13 +311,17 @@ export default function TemplateManager() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div><h4 className="font-bold text-[var(--brand-900)]">Actual Word preview</h4><p className="text-xs text-stone-500">Uses the document generator, logos and sample resident details. No official document is issued.</p></div>
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="secondary" disabled={previewing || busy} onClick={() => fetchPreview(selected, config, { savedOnly: !canEdit })}><Eye className="h-4 w-4" /> Preview changes</Button>
                       <Button type="button" variant="secondary" disabled={!preview || !isCurrentPreview || previewing} onClick={() => savePreviewFile(preview, selected.document_type)}><Download className="h-4 w-4" /> Download sample</Button>
                     </div>
                   </div>
-                  {previewing ? <p role="status" className="rounded-xl bg-white p-4 text-sm"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" /> Generating Word preview…</p> : null}
-                  {preview && !isCurrentPreview ? <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">The preview is outdated. Select “Preview changes” to review your latest edits.</p> : null}
-                  {preview ? <WordPreview blob={preview} title={`Sample ${selected.document_type}`} /> : !previewing ? <p className="rounded-xl border border-dashed p-8 text-center text-sm text-stone-500">No preview yet. Select Preview changes.</p> : null}
+                  {previewError ? <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <span>{previewError}</span>
+                    <Button type="button" variant="secondary" disabled={previewing} onClick={() => { setPreviewError(""); setPreviewRetry(v => v + 1); }}>Try preview again</Button>
+                  </div> : null}
+                  <p role="status" aria-live="polite" className="text-sm text-stone-600">
+                    {previewing || (preview && !isCurrentPreview && !previewError) ? <><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" /> Updating preview from unsaved edits…</> : isCurrentPreview ? (hasUnsavedChanges ? "Preview updated · Changes not saved" : "Preview of saved template") : previewError ? "Preview needs attention. Your edits are still here and have not been saved." : "Preparing sample preview…"}
+                  </p>
+                  {preview ? <WordPreview blob={preview} title={`Sample ${selected.document_type}`} /> : <p className="rounded-xl border border-dashed p-8 text-center text-sm text-stone-500">Preparing the document preview automatically…</p>}
                 </section>
               </div>
             ) : !error ? <p className="py-12 text-center text-stone-500">No template selected.</p> : null}
