@@ -9,6 +9,7 @@ import { useToast } from "../../context/toast";
 import { Badge, Button, Card, ErrorState, Modal, PageHeader, Pagination, SelectInput, TableShell, TextInput } from "../../components/ui";
 import { formatDate } from "../../lib/format";
 import { MasterDataSelect } from "../../components/MasterDataSelect";
+import OccupationSelect from "../../components/OccupationSelect";
 
 const pageSize = 8;
 
@@ -426,7 +427,7 @@ const Admin_Residents = () => {
           <SelectInput label="Civil Status" required value={form.civilStatus} onChange={(event)=>setForm(current=>({...current,civilStatus:event.target.value}))}><option value="">Not specified</option>{['Single','Married','Widowed','Separated','Other'].map(value=><option key={value} value={value}>{value}</option>)}</SelectInput>
           <TextInput label="Citizenship" required maxLength={80} value={form.citizenship} onChange={(event)=>setForm(current=>({...current,citizenship:event.target.value}))}/>
           <TextInput label="Place of Birth" required maxLength={160} value={form.placeOfBirth} onChange={(event)=>setForm(current=>({...current,placeOfBirth:event.target.value}))}/>
-          <TextInput label="Occupation" required maxLength={160} placeholder="Occupation, student, unemployed, retired..." value={form.occupation} onChange={e=>setForm(c=>({...c,occupation:e.target.value}))}/>
+          <OccupationSelect required value={form.occupation} onChange={(value) => setForm(c => ({ ...c, occupation: value }))} />
           <TextInput label="Resident Since (optional)" type="date" value={form.residencySince} onChange={(event)=>setForm(current=>({...current,residencySince:event.target.value}))}/>
           <TextInput label="Birthdate" required type="date" max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().slice(0, 10); })()} hint="Resident must be at least 18 years old." value={form.birthdate} onChange={(event) => setForm((current) => ({ ...current, birthdate: event.target.value }))} />
           <TextInput label="Address" required autoComplete="street-address" maxLength={180} className="sm:col-span-2" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
@@ -484,7 +485,7 @@ const Admin_Residents = () => {
           <TextInput label="Civil Status" value={editResident.civilStatus} onChange={e=>setEditResident(v=>({...v,civilStatus:e.target.value}))}/>
           <TextInput label="Citizenship" value={editResident.citizenship} onChange={e=>setEditResident(v=>({...v,citizenship:e.target.value}))}/>
           <TextInput label="Place of Birth" value={editResident.placeOfBirth} onChange={e=>setEditResident(v=>({...v,placeOfBirth:e.target.value}))}/>
-          <TextInput label="Occupation" maxLength={160} value={editResident.occupation} onChange={e=>setEditResident(c=>({...c,occupation:e.target.value}))}/>
+          <OccupationSelect value={editResident.occupation} onChange={(value) => setEditResident(c => ({ ...c, occupation: value }))} />
           <TextInput label="Resident Since" type="date" value={editResident.residencySince} onChange={e=>setEditResident(v=>({...v,residencySince:e.target.value}))}/>
           <TextInput label="Birthdate" required type="date" value={editResident.birthdate} onChange={(e) => setEditResident((v) => ({ ...v, birthdate: e.target.value }))} />
           <TextInput label="Address" required className="sm:col-span-2" value={editResident.address} onChange={(e) => setEditResident((v) => ({ ...v, address: e.target.value }))} />
@@ -556,5 +557,6 @@ const Admin_Residents = () => {
 };
 
 export default Admin_Residents;
+
 
 

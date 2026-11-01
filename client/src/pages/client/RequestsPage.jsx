@@ -1,4 +1,5 @@
 import DocumentApplication from "../../components/DocumentApplication";
+import DocumentProgress from "../../components/DocumentProgress";
 import { documentClosed } from "../../lib/documents";
 import CaseHistory from "../../components/CaseHistory";
 import { useReviewAction } from "../../hooks/useActionReview";
@@ -19,26 +20,16 @@ const RequestStatus = ({ status, feature = "request" }) => {
   return <Badge tone={meta.tone}>{meta.label}</Badge>;
 };
 
-const RequestTimeline = ({ request }) => {
-  const steps = ["submitted", "under_review", "approved", "document_prepared", "ready_for_pickup", "claimed"];
-  const timeline = request.request_timeline || [];
-
+const LatestStaffUpdate = ({ events = [] }) => {
+  const latest = [...events]
+    .filter((event) => event.message && event.visibility !== "internal" && event.actor_role !== "resident")
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  if (!latest) return null;
   return (
-    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {steps.map((step, index) => {
-        const row = timeline.find((item) => item.status === step);
-        const done = Boolean(row) || (request.status === step);
-        return (
-          <div key={step} className={`rounded-2xl border p-4 ${done ? "border-[var(--brand-100)] bg-[var(--brand-50)]" : "border-stone-200 bg-stone-50"}`}>
-            <div className="flex items-center gap-2">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-[var(--brand-500)] text-white" : "bg-stone-200 text-stone-500"}`}>{done ? "✓" : index + 1}</span>
-              <p className={`text-xs font-bold uppercase tracking-[0.18em] ${done ? "text-[var(--brand-700)]" : "text-stone-400"}`}>{getStatusMeta(step).label}</p>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-stone-600">{done ? "Status reached." : "Waiting for the previous step."}</p>
-            {row?.created_at ? <p className="mt-2 text-xs text-stone-400">{formatDateTime(row.created_at)}</p> : null}
-          </div>
-        );
-      })}
+    <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+      <p className="font-semibold">Latest barangay message</p>
+      <p className="mt-1 whitespace-pre-wrap break-words">{latest.message}</p>
+      <p className="mt-2 text-xs text-sky-700">{formatDateTime(latest.created_at)}</p>
     </div>
   );
 };
@@ -143,7 +134,7 @@ const RequestsPage = () => {
           <Card className="p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h2 className="font-bold text-[var(--brand-900)]">My document requests</h2><p className="text-sm text-stone-500">Open a request to see its progress and barangay notes.</p></div>
-              <SegmentedTabs value={filter} onChange={setFilter} className="border-0 bg-stone-50" items={[{ value: "all", label: "All" }, { value: "active", label: "In Progress" }, { value: "completed", label: "Completed" }]} />
+              <SegmentedTabs value={filter} onChange={setFilter} className="border-0 bg-stone-50" items={[{ value: "all", label: "All" }, { value: "active", label: "In Progress" }, { value: "completed", label: "Closed" }]} />
             </div>
           </Card>
 
@@ -162,7 +153,12 @@ const RequestsPage = () => {
                     {request.status === "needs_revision" ? <Button onClick={()=>setRevision(request)}>Correct application</Button> : null}
                     {["submitted","needs_revision"].includes(request.status) ? <Button variant="ghost" onClick={async()=>{if(!await reviewAction({title:"Cancel this application?",after:{reference:request.id},confirmLabel:"Cancel application",tone:"danger"}))return;try{await api(`/requests/${request.id}`,{method:"PATCH",token,body:{status:"cancelled",expectedVersion:request.lock_version,operationId:crypto.randomUUID()}});await load();}catch(e){toast.error(e.message);}}}>Cancel application</Button>:null}
                   </div>
-                  {request.revision_instructions && request.status === "needs_revision" ? <Alert title="Corrections required">{request.revision_instructions}</Alert> : null}{request.rejection_reason && request.status === "rejected" ? <Alert tone="danger" title="Reason">{request.rejection_reason}</Alert> : null}<RequestTimeline request={request} /><CaseHistory events={request.case_history} />
+                  {request.revision_instructions && request.status === "needs_revision" ? <Alert title="Corrections required">{request.revision_instructions}</Alert> : null}{request.rejection_reason && request.status === "rejected" ? <Alert tone="danger" title="Reason">{request.rejection_reason}</Alert> : null}<DocumentProgress status={request.status} />
+                  <LatestStaffUpdate events={request.case_history} />
+                  <details className="mt-3 rounded-xl border border-stone-200 px-4 py-3">
+                    <summary className="cursor-pointer text-sm font-medium text-[var(--brand-700)]">View activity and staff messages</summary>
+                    <div className="mt-3"><CaseHistory events={request.case_history} /></div>
+                  </details>
                 </Card>
               ))}
             </div>
@@ -216,4 +212,5 @@ const RequestsPage = () => {
 };
 
 export default RequestsPage;
+
 

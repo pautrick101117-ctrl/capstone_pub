@@ -20,6 +20,14 @@ import {
 } from "./ui";
 import { getStatusMeta } from "../lib/status";
 import { formatDateTime } from "../lib/format";
+const decisionLabels = {
+  under_review: "Start review",
+  needs_revision: "Ask resident to correct information",
+  rejected: "Reject request",
+  approved: "Approve request",
+  ready_for_pickup: "Mark ready for pickup",
+  claimed: "Mark as collected",
+};
 const nextStages = {
   submitted: ["under_review"],
   acknowledged: ["under_review"],
@@ -34,6 +42,7 @@ export default function DocumentRequestDetail({ id, onChanged }) {
   const toast = useToast();
   const review = useReviewAction();
   const [data, setData] = useState(null);
+  const [activePanel, setActivePanel] = useState("review");
   const [templates, setTemplates] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -123,6 +132,8 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           photoAttachmentId: photoId,
         },
       });
+      if (status === "approved") setActivePanel("word");
+      if (status === "ready_for_pickup" || status === "claimed") setActivePanel("updates");
       setStatus("");
       setNote("");
       setEmailPreview(null);
@@ -212,6 +223,21 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           </Alert>
         ) : null}
       </div>
+      <nav aria-label="Document request actions" className="grid grid-cols-3 gap-2 rounded-2xl bg-stone-100 p-2">
+        {[
+          ["review", "Review request"],
+          ["word", "Word document"],
+          ["updates", "Updates & history"],
+        ].map(([key, label]) => (
+          <button key={key} type="button" aria-current={activePanel === key ? "page" : undefined}
+            onClick={() => setActivePanel(key)}
+            className={`rounded-xl px-2 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-700 ${activePanel === key ? "bg-white text-[var(--brand-800)] shadow-sm" : "text-stone-600 hover:bg-white/70"}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {activePanel === "review" ? <>
+      <p className="text-sm text-stone-600">Check the resident details and supporting images, then choose the next action.</p>
       <Card>
         <h3 className="font-bold">Resident profile</h3>
         <p>{data.resident.full_name}</p>
@@ -394,14 +420,14 @@ export default function DocumentRequestDetail({ id, onChanged }) {
       <Card>
         <h3 className="mb-3 font-bold">Review and status</h3>
         <SelectInput
-          label="Decision"
+          label="What should happen next?"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >
-          <option value="">Add response (keep current status)</option>
+          <option value="">Send a note without changing status</option>
           {(nextStages[r.status] || []).map((s) => (
             <option key={s} value={s}>
-              {getStatusMeta(s).label}
+              {decisionLabels[s] || getStatusMeta(s).label}
             </option>
           ))}
         </SelectInput>
@@ -503,9 +529,15 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           disabled={busy || (!status && !note.trim())}
           onClick={transition}
         >
-          Review decision
+          Save decision or note
         </Button>
       </Card>
+      </> : null}
+      {activePanel === "word" ? <>
+      <p className="text-sm text-stone-600">Generate, edit and prepare the Word document after approval. All versions remain available.</p>
+      {r.status !== "approved" && !versions.length ? (
+        <Alert title="Document not yet available">Word generation becomes available after approval. Review the resident information first.</Alert>
+      ) : null}
       <Card>
         <h3 className="font-bold">Editable Word documents</h3>
         <p className="my-2 text-sm">
@@ -588,6 +620,9 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           </div>
         ) : null}
       </Card>
+      </> : null}
+      {activePanel === "updates" ? <>
+      <p className="text-sm text-stone-600">Send a status email when appropriate, or check the request's previous activity.</p>
       <Card>
         <h3 className="font-bold">Notify resident</h3>
         <p className="mb-3 text-sm">
@@ -709,10 +744,12 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           ))}
         </div>
       </Card>
-      <Card>
-        <h3 className="font-bold">Full request history</h3>
-        <CaseHistory events={r.case_history} />
-      </Card>
+      <details className="rounded-2xl border border-stone-200 bg-white p-5">
+        <summary className="cursor-pointer font-bold">Full request history</summary>
+        <div className="mt-4"><CaseHistory events={r.case_history} /></div>
+      </details>
+      </> : null}
     </div>
   );
 }
+

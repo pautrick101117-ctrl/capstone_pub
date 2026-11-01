@@ -1,5 +1,6 @@
 import { SelectInput, TextInput } from './ui';
 import { useState } from 'react';
+import OccupationSelect from './OccupationSelect';
 
 export const HouseholdMemberFields = ({value,onChange,residents=[],allowHeadChange=true}) => {
   const [today] = useState(()=>new Date(Date.now()+8*3600_000).toISOString().slice(0,10));
@@ -13,7 +14,7 @@ export const HouseholdMemberFields = ({value,onChange,residents=[],allowHeadChan
     <TextInput label="Birthdate" type="date" required max={today} value={value.birthdate} onChange={e=>change('birthdate',e.target.value)}/>
     <SelectInput label="Sex" required value={value.sex} onChange={e=>change('sex',e.target.value)}><option value="">Select sex</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option><option value="prefer_not_to_say">Prefer not to say</option></SelectInput>
     <SelectInput label="Civil Status (optional)" value={value.civilStatus} onChange={e=>change('civilStatus',e.target.value)}><option value="">Not specified</option>{['Single','Married','Widowed','Separated','Other'].map(status=><option key={status} value={status}>{status}</option>)}</SelectInput>
-    <TextInput label="Occupation (optional)" maxLength={160} value={value.occupation} onChange={e=>change('occupation',e.target.value)}/>
+    <OccupationSelect label="Occupation (optional)" value={value.occupation} onChange={(occupation) => change('occupation', occupation)} />
     <SelectInput label="Link to resident account (optional)" value={value.userId} onChange={e=>change('userId',e.target.value)}><option value="">No account / minor</option>{residents.filter(person=>person.role==='resident').map(person=><option key={person.id} value={person.id}>{person.fullName} ({person.username})</option>)}</SelectInput>
     <div className="sm:col-span-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">{[
       ['isSenior','Senior citizen'],['isPwd','PWD'],['isSoloParent','Solo parent'],['is4ps','4Ps beneficiary'],['isRegisteredVoter','Registered voter'],
@@ -21,3 +22,4 @@ export const HouseholdMemberFields = ({value,onChange,residents=[],allowHeadChan
     {allowHeadChange?<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.isHead} onChange={e=>onChange({...value,isHead:e.target.checked,relationship:e.target.checked?'Head':value.relationship==='Head'?'':value.relationship})}/>Head of household (one only)</label>:null}
   </>;
 };
+
