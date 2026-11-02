@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import DocumentQueue from "../../components/DocumentQueue";
 import CaseHistory from "../../components/CaseHistory";
 import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
@@ -105,14 +106,18 @@ const AdminRequests = () => {
 
       <SegmentedTabs value={activeTab} onChange={setActiveTab} items={[
         { value: "documents", label: "Document Requests", count: requests.filter((item) => !["completed","claimed","rejected","cancelled"].includes(item.status)).length },
-        { value: "id", label: "Barangay ID Appointments", count: idRequests.filter((item) => !["completed", "cancelled"].includes(item.status)).length },
+        { value: "id", label: "Barangay ID Pickup", count: idRequests.filter((item) => !["completed", "cancelled"].includes(item.status)).length },
       ]} />
 
       {loading ? <LoadingState rows={5} /> : error ? <ErrorState description={error} onRetry={load} /> : activeTab === "documents" ? (
         <DocumentQueue requests={requests} onChanged={load}/>
       ) : (
         <div className="space-y-5">
-          <Card className="p-4"><div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><SelectInput className="w-full md:max-w-sm" label="Appointment Status" value={idFilter} onChange={(event) => setIdFilter(event.target.value)}><option value="active">Upcoming / Needs action</option><option value="submitted">Awaiting confirmation</option><option value="confirmed">Confirmed</option><option value="rescheduled">Rescheduled</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="all">All statuses</option></SelectInput><p className="pb-3 text-sm text-stone-500">{filteredIds.length} appointment{filteredIds.length === 1 ? "" : "s"}</p></div></Card>
+          <Card className="p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-xl font-bold">Barangay ID Pickup</h2><p className="text-sm text-stone-500">Review requests, confirm available pickup times, and record collection.</p></div>
+              <Link to="/admin/events?tab=slots" className="rounded-full border border-green-600 px-4 py-3 text-sm font-semibold text-green-800 hover:bg-green-50">Manage pickup dates & capacity</Link>
+            </div><div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><SelectInput className="w-full md:max-w-sm" label="Appointment Status" value={idFilter} onChange={(event) => setIdFilter(event.target.value)}><option value="active">Upcoming / Needs action</option><option value="submitted">Awaiting confirmation</option><option value="confirmed">Confirmed</option><option value="rescheduled">Rescheduled</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="all">All statuses</option></SelectInput><p className="pb-3 text-sm text-stone-500">{filteredIds.length} appointment{filteredIds.length === 1 ? "" : "s"}</p></div></Card>
           {!filteredIds.length ? <EmptyState title="No Barangay ID appointments in this queue" description="Try another appointment status filter." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-stone-50 text-left text-stone-500"><tr><th className="px-4 py-3 font-semibold">Resident</th><th className="px-4 py-3 font-semibold">Purpose</th><th className="px-4 py-3 font-semibold">Schedule</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Actions</th></tr></thead><tbody>{paginatedIds.map((request) => (
             <tr key={request.id} className="border-t border-stone-100 align-top hover:bg-stone-50/70"><td className="px-4 py-4 font-semibold text-[var(--brand-900)]">{request.users?.full_name || request.users?.first_name || "Resident"}</td><td className="px-4 py-4 text-stone-600">{request.purpose}</td><td className="px-4 py-4 text-stone-600">{request.preferred_date ? formatDate(request.preferred_date) : "Pending"}{request.time_slot ? ` · ${request.time_slot}` : ""}</td><td className="px-4 py-4"><Status status={request.status} feature="id_request" /></td><td className="px-4 py-4"><div className="flex flex-wrap gap-2">{request.status === "submitted" ? <Button onClick={() => openAction(request, "id", "confirmed")}><CalendarCheck className="h-4 w-4" /> Confirm</Button> : null}{!["completed", "cancelled"].includes(request.status) ? <Button variant="secondary" onClick={() => openAction(request, "id", "rescheduled")}><Clock3 className="h-4 w-4" /> Reschedule</Button> : null}{["confirmed", "rescheduled"].includes(request.status) ? <Button variant="secondary" onClick={() => openAction(request, "id", "completed")}><CheckCircle2 className="h-4 w-4" /> Complete</Button> : null}{!["completed", "cancelled"].includes(request.status) ? <Button variant="ghost" onClick={() => openAction(request, "id", "cancelled")}><XCircle className="h-4 w-4" /> Cancel</Button> : null}<Button variant="ghost" onClick={() => openAction(request, "id", request.status)}>History / Reply</Button></div></td></tr>
           ))}</tbody></table></TableShell>}
@@ -132,4 +137,5 @@ const AdminRequests = () => {
 };
 
 export default AdminRequests;
+
 

@@ -16,3 +16,4 @@ SELECT tablename,rowsecurity FROM pg_tables WHERE schemaname='public' AND tablen
 SELECT status,count(*) AS records FROM public.requests WHERE status NOT IN
  ('submitted','acknowledged','processing','completed','under_review','needs_revision','rejected','approved','document_prepared','ready_for_pickup','claimed','cancelled') GROUP BY status;
 SELECT count(*) AS invalid_legacy_copy_counts FROM public.requests WHERE copies_requested NOT BETWEEN 1 AND 10;
+

@@ -63,3 +63,4 @@ test("Phase 2 admin invitation flow is unchanged and Phase 5 gate is present", a
   assert.match(index, /bgy_phase2_ready/);
   assert.doesNotMatch(admin, /router\.post\("\/admin-invitation/);
 });
+

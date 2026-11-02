@@ -2,7 +2,7 @@ import { residentWriteLimiter, persistentLimit } from "../middleware/persistentL
 import express from "express";
 import multer from "multer";
 import { requireSupabase } from "../lib/supabase.js";
-import { uploadAsset } from "../lib/storage.js";
+import { uploadAsset, cleanupNewPublicAsset } from "../lib/storage.js";
 import { requireAuth, requireCurrentUser } from "../middleware/auth.js";
 import { logAudit } from "../utils/audit.js";
 import { normalizeRole } from "../utils/helpers.js";
@@ -146,7 +146,10 @@ router.post("/", persistentLimit("resident-suggestion",{max:3,windowSeconds:7*86
       })
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      await cleanupNewPublicAsset(imageUrl);
+      throw error;
+    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -226,7 +229,10 @@ router.patch("/:suggestionId", upload.single("image"), async (req, res, next) =>
       .eq("id", existing.id)
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      if (req.file && imageUrl !== existing.image_url) await cleanupNewPublicAsset(imageUrl);
+      throw error;
+    }
 
     await logAudit({
       actorId: req.currentUser.id,
@@ -244,5 +250,6 @@ router.patch("/:suggestionId", upload.single("image"), async (req, res, next) =>
 });
 
 export default router;
+
 
 

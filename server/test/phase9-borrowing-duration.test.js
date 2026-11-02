@@ -74,3 +74,4 @@ test("Philippine date-input interpretation remains identical outside Asia/Manila
   assert.match(formatBorrowDateTime(converted),/Oct 20, 2026/);
   assert.equal(fromManilaInput("2026-02-30T08:00"),null);
 });
+

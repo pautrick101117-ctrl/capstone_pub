@@ -20,3 +20,4 @@ export const documentProgress = (status) => {
   if (status === "cancelled") { step = 0; message = "You cancelled this request. You can submit a new one if needed."; tone = "neutral"; }
   return { stages, step, message, tone, completed, stopped: ["rejected", "cancelled"].includes(status) };
 };
+

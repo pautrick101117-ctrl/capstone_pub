@@ -28,3 +28,4 @@ export const requireSupabase = () => {
   }
   return supabase;
 };
+

@@ -24,3 +24,4 @@ test("API remains blocked until readiness while health responds during startup",
   assert.match(index, /const server = app\.listen/);
   assert.match(index, /void verifyStartup\(\)\.catch/);
 });
+

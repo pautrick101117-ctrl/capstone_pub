@@ -51,3 +51,4 @@ export default function OccupationSelect({ value = "", onChange, required = fals
     </div>
   );
 }
+

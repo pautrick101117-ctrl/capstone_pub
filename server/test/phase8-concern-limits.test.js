@@ -127,3 +127,4 @@ test("Phase 8 resident UI keeps Phase 3 review, Phase 6 history and Phase 7 hotl
   assert.match(ui, /eligibility\?\.blockedReasons/);
   assert.match(ui, /disabled=\{!eligibility \|\| quotaBlocked\}/);
 });
+

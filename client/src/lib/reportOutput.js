@@ -46,3 +46,4 @@ export const printReport = (report) => {
   popup.requestAnimationFrame(()=>{popup.focus();popup.print();});
   return popup;
 };
+

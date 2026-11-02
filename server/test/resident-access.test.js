@@ -22,3 +22,4 @@ test('guests and a resident record without an authenticated session go to reside
     assert.equal(residentDestination(auth),'/login');
   }
 });
+

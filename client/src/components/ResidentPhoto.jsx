@@ -110,3 +110,4 @@ export default function ResidentPhoto({ residentId, onChanged }) {
     </div>
   );
 }
+

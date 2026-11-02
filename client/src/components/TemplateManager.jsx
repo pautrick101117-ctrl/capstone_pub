@@ -8,6 +8,10 @@ import { Button, Modal, SelectInput, TextArea, TextInput } from "./ui";
 import WordPreview from "./WordPreview";
 
 const businessFields = [
+  ["businessOwner", "Business owner / authorized representative"],
+  ["businessContact", "Business contact number"],
+  ["businessPurok", "Business location / purok"],
+  ["businessRegistration", "Business registration reference (if applicable)"],
   ["businessName", "Business name"],
   ["businessAddress", "Business address"],
   ["businessKind", "Kind of business"],
@@ -60,6 +64,14 @@ export default function TemplateManager({ openOnLoad = false }) {
   const serialRef = useRef(0);
   const selected = useMemo(() => templates.find((t) => t.id === selectedId), [templates, selectedId]);
   const isCurrentPreview = Boolean(preview && config && previewedConfig === stringify(config));
+  const approvalMissing = config ? [
+    ["Official document title", config.title],
+    ["Authorized official's name", config.chairmanName],
+    ["Official designation", config.designation],
+    ["Uppercase control prefix (letters only)", /^[A-Z]{1,12}$/.test(String(config.controlPrefix||"")) ? config.controlPrefix : ""],
+    ["Pickup instructions", config.pickupInstructions],
+    ["Office contact", config.officeContact],
+  ].filter(([,value]) => !String(value||"").trim()).map(([label]) => label) : [];
   const unsavedForm = Boolean(selected && config && stringify(config) !== stringify(normalizeDraft(selected.config)));
   const unsavedAdvanced = Boolean(advanced && config && jsonText !== JSON.stringify(config, null, 2));
   const hasUnsavedChanges = unsavedForm || unsavedAdvanced;
@@ -201,6 +213,10 @@ export default function TemplateManager({ openOnLoad = false }) {
 
   const save = async (approve) => {
     if (!selected || !config || busy || !canEdit) return;
+    if (approve && approvalMissing.length) {
+      setError(`Complete these fields before approval: ${approvalMissing.join(", ")}.`);
+      return;
+    }
     if (approve && !isCurrentPreview) {
       setError("The updated Word preview is still being prepared. Please check it before approving.");
       return;
@@ -271,7 +287,11 @@ export default function TemplateManager({ openOnLoad = false }) {
             {selected && config ? (
               <div className="grid items-start gap-5 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
                 <section aria-label="Template settings" className="max-h-[70vh] space-y-4 overflow-y-auto rounded-2xl border border-stone-200 p-4">
-                  <h4 className="text-base font-bold text-[var(--brand-900)]">Template settings</h4>
+                  <h4 className="text-base font-bold text-[var(--brand-900)]">Official Word template setup</h4>
+                  <p className="rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Complete the official title, authorized signatory name, designation, and uppercase control number prefix. You also need pickup instructions and office contact before approval. Use only information verified by barangay staff; preview is not an official issued certificate.</p>
+                  {approvalMissing.length ? <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-bold">Before approval, complete:</p>
+                    <ul className="list-disc pl-5">{approvalMissing.map(field=><li key={field}>{field}</li>)}</ul>
+                  </div> : <p className="text-sm font-semibold text-green-800">All required approval fields are entered. Review the Word preview before approving.</p>}
                   {!canEdit ? <p className="rounded-xl bg-stone-100 p-3 text-sm">Only super administrators can create or approve template versions. You may preview existing ones.</p> : null}
                   <TextInput label="Document title" required disabled={!canEdit || busy} maxLength={700} value={config.title || ""} onChange={(e) => update("title", e.target.value)} />
                   <div className="space-y-3 rounded-xl border border-stone-200 p-3">
@@ -285,11 +305,13 @@ export default function TemplateManager({ openOnLoad = false }) {
                     ))}
                     {canEdit && config.paragraphs.length < 8 ? <Button type="button" variant="secondary" disabled={busy} onClick={() => update("paragraphs", [...config.paragraphs, ""])}><Plus className="h-4 w-4" /> Add paragraph</Button> : null}
                   </div>
+                  <h5 className="border-t pt-3 font-bold">Authorized Signatory</h5>
                   <TextInput label="Authorized official's name" required maxLength={700} disabled={!canEdit || busy} placeholder="Enter the approved official's name" value={config.chairmanName || ""} onChange={(e) => update("chairmanName", e.target.value)} />
                   <TextInput label="Official designation" required maxLength={700} disabled={!canEdit || busy} value={config.designation || ""} onChange={(e) => update("designation", e.target.value)} />
                   <TextInput label="Control-number prefix" required maxLength={12} hint="Uppercase letters only, e.g. I or BC" disabled={!canEdit || busy} value={config.controlPrefix || ""} onChange={(e) => update("controlPrefix", e.target.value.toUpperCase())} />
                   <TextInput label="Validity (months)" type="number" min="1" max="60" hint="Leave blank if this document has no standard validity period" disabled={!canEdit || busy} value={config.validityMonths ?? ""} onChange={(e) => update("validityMonths", e.target.value === "" ? null : Number(e.target.value))} />
                   <TextArea label="Footer note" rows={2} maxLength={700} disabled={!canEdit || busy} value={config.footer || ""} onChange={(e) => update("footer", e.target.value)} />
+                  <h5 className="border-t pt-3 font-bold">Collection and Office Details</h5>
                   <TextArea label="Pickup instructions" rows={2} maxLength={700} disabled={!canEdit || busy} value={config.pickupInstructions || ""} onChange={(e) => update("pickupInstructions", e.target.value)} />
                   <TextInput label="Office contact" maxLength={700} disabled={!canEdit || busy} value={config.officeContact || ""} onChange={(e) => update("officeContact", e.target.value)} />
                   {selected.document_type === "Barangay Business Clearance" ? (
@@ -329,7 +351,7 @@ export default function TemplateManager({ openOnLoad = false }) {
             {message ? <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{message}</p> : null}
             {selected && canEdit ? <div className="flex flex-wrap justify-end gap-3 border-t border-stone-200 pt-4">
               <Button type="button" variant="secondary" loading={busy} disabled={previewing} onClick={() => save(false)}>Save new draft</Button>
-              <Button type="button" loading={busy} disabled={!isCurrentPreview || previewing} onClick={() => save(true)}>Approve new version</Button>
+              <Button type="button" loading={busy} disabled={!isCurrentPreview || previewing || approvalMissing.length>0} onClick={() => save(true)}>Approve new version</Button>
             </div> : null}
           </div>
         )}
@@ -337,3 +359,4 @@ export default function TemplateManager({ openOnLoad = false }) {
     </>
   );
 }
+

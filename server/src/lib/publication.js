@@ -14,3 +14,4 @@ export const publicationDate = (value, now = new Date()) => {
   if (date > now) throw Object.assign(new Error('Use a past or present publication date and time.'), { status: 400 });
   return date.toISOString();
 };
+

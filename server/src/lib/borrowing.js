@@ -126,3 +126,4 @@ export const mapBorrowingDatabaseError = (error) => {
   const [status, code, message] = errors[key];
   return Object.assign(new Error(message), { status, code });
 };
+

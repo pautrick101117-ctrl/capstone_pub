@@ -41,3 +41,4 @@ test("business clearance preview contains mock business data, not any real resid
 test("preview rejects an unsupported document type", () => {
   assert.throws(() => createPreviewRequest("Unknown Certificate"), /Unsupported document type/);
 });
+

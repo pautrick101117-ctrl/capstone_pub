@@ -154,6 +154,10 @@ const RequestsPage = () => {
                     {["submitted","needs_revision"].includes(request.status) ? <Button variant="ghost" onClick={async()=>{if(!await reviewAction({title:"Cancel this application?",after:{reference:request.id},confirmLabel:"Cancel application",tone:"danger"}))return;try{await api(`/requests/${request.id}`,{method:"PATCH",token,body:{status:"cancelled",expectedVersion:request.lock_version,operationId:crypto.randomUUID()}});await load();}catch(e){toast.error(e.message);}}}>Cancel application</Button>:null}
                   </div>
                   {request.revision_instructions && request.status === "needs_revision" ? <Alert title="Corrections required">{request.revision_instructions}</Alert> : null}{request.rejection_reason && request.status === "rejected" ? <Alert tone="danger" title="Reason">{request.rejection_reason}</Alert> : null}<DocumentProgress status={request.status} />
+                  {request.pickup_scheduled_for && <div className="my-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm">
+                    <strong>Document pickup:</strong> {formatDateTime(request.pickup_scheduled_for)} (Philippine time)
+                    {request.pickup_instructions ? <p className="mt-1">{request.pickup_instructions}</p> : null}
+                  </div>}
                   <LatestStaffUpdate events={request.case_history} />
                   <details className="mt-3 rounded-xl border border-stone-200 px-4 py-3">
                     <summary className="cursor-pointer text-sm font-medium text-[var(--brand-700)]">View activity and staff messages</summary>
@@ -188,7 +192,7 @@ const RequestsPage = () => {
       {activeTab === "id" ? (
         <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
           <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]">
-            <div className="flex items-start gap-3"><div className="rounded-2xl bg-[var(--brand-500)]/10 p-3 text-[var(--brand-600)]"><IdCard className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Barangay ID scheduling</h2><p className="mt-1 text-sm leading-6 text-stone-500">Choose from configured pickup schedules. Your submitted schedule still requires barangay confirmation.</p></div></div>
+            <div className="flex items-start gap-3"><div className="rounded-2xl bg-[var(--brand-500)]/10 p-3 text-[var(--brand-600)]"><IdCard className="h-5 w-5" /></div><div><h2 className="text-xl font-bold text-[var(--brand-900)]">Barangay ID Pickup</h2><p className="mt-1 text-sm leading-6 text-stone-500">Choose from configured pickup schedules. Your submitted schedule still requires barangay confirmation.</p></div></div>
             <div className="mt-6 space-y-3">
               <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--brand-500)]">1 · Request</p><p className="mt-1 text-sm text-stone-600">Choose your preferred date and time.</p></div>
               <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--brand-500)]">2 · Confirmation</p><p className="mt-1 text-sm text-stone-600">Barangay staff confirms or reschedules the appointment.</p></div>
@@ -200,7 +204,7 @@ const RequestsPage = () => {
             <form className="mt-6 space-y-4" onSubmit={submitIdRequest}>
               <TextInput label="Purpose" required maxLength={200} value={idForm.purpose} onChange={(event) => setIdForm((current) => ({ ...current, purpose: event.target.value }))} placeholder="Example: employment requirement" />
               <SelectInput label="Preferred Date" required value={idForm.preferredDate} onChange={(event) => setIdForm((current) => ({ ...current, preferredDate: event.target.value, timeSlot: "" }))}><option value="">Select a date</option>{Array.from(slotOptions.keys()).map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}</SelectInput>
-              <SelectInput label="Time Slot" required value={idForm.timeSlot} onChange={(event) => setIdForm((current) => ({ ...current, timeSlot: event.target.value }))} disabled={!idForm.preferredDate}><option value="">Select a time slot</option>{(slotOptions.get(idForm.preferredDate) || []).map((slot) => <option key={slot.id || slot.time_slot} value={slot.time_slot}>{slot.time_slot}{slot.capacity ? ` · Capacity ${slot.capacity}` : ""}</option>)}</SelectInput>
+              <SelectInput label="Time Slot" required value={idForm.timeSlot} onChange={(event) => setIdForm((current) => ({ ...current, timeSlot: event.target.value }))} disabled={!idForm.preferredDate}><option value="">Select a time slot</option>{(slotOptions.get(idForm.preferredDate) || []).map((slot) => <option key={slot.id || slot.time_slot} value={slot.time_slot}>{slot.time_slot}{Number.isFinite(slot.remaining) ? ` · ${slot.remaining} place(s) left` : ""}</option>)}</SelectInput>
               {!slots.length && !loading ? <Alert tone="warning" title="No pickup slots are available">Barangay staff has not configured an upcoming ID pickup schedule yet. Please check again later.</Alert> : null}
               <Button type="submit" loading={savingId} disabled={!slots.length}><IdCard className="h-4 w-4" /> Submit Schedule Request</Button>
             </form>
@@ -212,5 +216,6 @@ const RequestsPage = () => {
 };
 
 export default RequestsPage;
+
 
 

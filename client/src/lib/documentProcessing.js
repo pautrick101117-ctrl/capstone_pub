@@ -75,3 +75,4 @@ export const preferredWordFile = (files = [], id = "") => {
   const chosen = files.find(f => f.id === id);
   return chosen || [...files].sort((a, b) => (b.version_number || 0) - (a.version_number || 0))[0] || null;
 };
+

@@ -9,7 +9,7 @@ export default function WordPreview({ file, blob, title }) {
   const frame = useRef(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(() => /identification card/i.test(title || "") ? 200 : 100);
   const [retryCount, setRetryCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +25,10 @@ export default function WordPreview({ file, blob, title }) {
         const doc = frame.current?.contentDocument;
         if (!doc) throw new Error("Word preview frame is not available.");
         doc.body.replaceChildren();
+        doc.body.style.background = "#ededed";
+        doc.body.style.margin = "0";
+        doc.body.style.padding = "20px";
+        doc.body.style.textAlign = "center";
         doc.body.style.zoom = `${zoom}%`;
         await renderAsync(await source.arrayBuffer(), doc.body, undefined, {
           inWrapper: true,
@@ -59,7 +63,7 @@ export default function WordPreview({ file, blob, title }) {
       <div className="mb-3 flex items-center gap-3">
         <label className="text-sm font-semibold" htmlFor="document-zoom">Preview size</label>
         <select id="document-zoom" aria-label="Preview zoom" className="min-h-11 rounded-xl border border-stone-300 bg-white px-3" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
-          {[75,100,125,150,200].map((n) => <option key={n} value={n}>{n}%</option>)}
+          {[75,100,125,150,200,300,400].map((n) => <option key={n} value={n}>{n}%</option>)}
         </select>
       </div>
       <iframe
@@ -71,3 +75,4 @@ export default function WordPreview({ file, blob, title }) {
     </div>
   );
 }
+

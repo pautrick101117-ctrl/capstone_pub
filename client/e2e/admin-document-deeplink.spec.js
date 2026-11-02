@@ -7,3 +7,4 @@ test("admin document request deep link is registered", async ({ page }) => {
   await expect(page).toHaveURL(/\/admin\/login(?:[/?#]|$)/);
   await expect(page.getByText("This page isn't available.")).toHaveCount(0);
 });
+

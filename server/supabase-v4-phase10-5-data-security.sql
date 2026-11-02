@@ -391,3 +391,4 @@ $$;
 REVOKE ALL ON FUNCTION public.bgy_p105_ready() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.bgy_p105_ready() TO service_role;
 COMMIT;
+

@@ -611,3 +611,4 @@ create table if not exists master_data_values (
 create index if not exists master_data_values_lookup_idx on master_data_values (category, is_active, sort_order, label);
 
 
+

@@ -8,3 +8,4 @@ const BUTTON_VARIANTS = {
 export const buttonClasses = (variant = "primary", className = "") =>
   `inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--brand-100)] disabled:cursor-not-allowed disabled:opacity-60 ${BUTTON_VARIANTS[variant] || BUTTON_VARIANTS.primary} ${className}`;
 
+

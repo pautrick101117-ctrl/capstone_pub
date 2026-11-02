@@ -43,7 +43,10 @@ const getBlockingReservations = async (db, { startAt, dueAt, assetId, excludeId 
     .select("id, asset_id, quantity, start_at, due_at, status")
     .in("status", BLOCKING_BORROWING_STATUSES);
   if (assetId) query = query.eq("asset_id", assetId);
-  if (startAt && dueAt) query = query.lt("start_at", dueAt).gt("due_at", startAt);
+  if (startAt && dueAt) {
+    // A late, physically unreturned item stays occupied past its planned due date.
+    query = query.lt("start_at", dueAt).or(`due_at.gt.${startAt},status.eq.borrowed`);
+  }
   if (excludeId) query = query.neq("id", excludeId);
   const { data, error } = await query;
   if (error) throw error;
@@ -104,6 +107,11 @@ router.get("/assets", ensureResident, async (req, res, next) => {
 
     let window = null;
     let reservations = [];
+    // A live "In Use" status is distinct from availability for a future period.
+    const now = new Date();
+    const currentBookings = await getBlockingReservations(db, {
+      startAt: now.toISOString(), dueAt: new Date(now.getTime()+60_000).toISOString()
+    });
     if (req.query.startAt && req.query.dueAt) {
       window = validateBorrowingWindow({ startAt: req.query.startAt, dueAt: req.query.dueAt });
       reservations = await getBlockingReservations(db, window);
@@ -111,6 +119,11 @@ router.get("/assets", ensureResident, async (req, res, next) => {
 
     const result = (assets || []).map((asset) => {
       const matching = reservations.filter((reservation) => reservation.asset_id === asset.id);
+      const atPresent = currentBookings.filter((reservation) => reservation.asset_id === asset.id);
+      const isInUseNow = atPresent.some((reservation) => reservation.status === "borrowed");
+      const inUseQuantity = atPresent.filter(r => r.status === "borrowed")
+        .reduce((sum,r)=>sum+Number(r.quantity||0),0);
+      const currentAvailableQuantity = calculateAvailableQuantity(asset.total_quantity, atPresent);
       const availableQuantity = window ? calculateAvailableQuantity(asset.total_quantity, matching) : Number(asset.total_quantity || 0);
       const durationConfigured = Number.isInteger(asset.max_borrow_minutes) && asset.max_borrow_minutes >= 60;
       const withinDurationLimit = durationConfigured && (!window ||
@@ -118,6 +131,7 @@ router.get("/assets", ensureResident, async (req, res, next) => {
       const unavailableReason = !durationConfigured ? "BORROW_DURATION_NOT_CONFIGURED"
         : !withinDurationLimit ? "BORROW_DURATION_EXCEEDED" : availableQuantity <= 0 ? "BORROW_RESOURCE_UNAVAILABLE" : null;
       return { ...asset, availableQuantity, durationConfigured, withinDurationLimit, unavailableReason,
+        isInUseNow, inUseQuantity, currentAvailableQuantity,
         isAvailable: Boolean(asset.is_active && availableQuantity > 0 && withinDurationLimit) };
     });
     res.json({ assets: result, window });
@@ -421,5 +435,6 @@ router.patch("/admin/requests/:id", ensureAdmin, async (req, res, next) => {
 });
 
 export default router;
+
 
 

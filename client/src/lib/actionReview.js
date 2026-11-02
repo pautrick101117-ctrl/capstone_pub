@@ -22,3 +22,4 @@ export const reviewChanges = (before = {}, after = {}) => Object.entries(after |
     field: key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " "),
     before: present(matchingKey(before, key)), after: present(value),
   }));
+

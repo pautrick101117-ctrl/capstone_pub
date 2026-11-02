@@ -107,3 +107,4 @@ test('published election details and finalized elections are protected', () => {
   assert.match(sql, /Finalized elections cannot be edited/);
   assert.match(sql, /current_setting\('bgy.phase10_finalizing',true\)/);
 });
+

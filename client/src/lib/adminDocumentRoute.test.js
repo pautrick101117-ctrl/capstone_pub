@@ -21,3 +21,4 @@ test("Vercel SPA rewrite supports deep links", async () => {
   const vercel = JSON.parse(await read("../../vercel.json"));
   assert.ok(vercel.rewrites.some(item => item.destination === "/index.html" && item.source === "/(.*)"));
 });
+

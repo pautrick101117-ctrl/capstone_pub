@@ -92,3 +92,4 @@ test('submission protection fails closed if persistent counters are unavailable'
   const response=await login('ana','Wrong123','resident','203.0.113.1');
   assert.equal(response.status,503);assert.equal((await response.json()).code,'RATE_LIMIT_SERVICE_UNAVAILABLE');
 });
+

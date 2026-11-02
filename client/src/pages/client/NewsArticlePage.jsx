@@ -41,3 +41,4 @@ const NewsArticlePage = () => {
 
 export default NewsArticlePage;
 
+

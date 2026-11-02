@@ -79,7 +79,7 @@ export const validateApplication = (
   const fields =
     requestType === "Barangay Business Clearance"
       ? [
-          "businessName",
+          "businessName", "businessOwner", "businessContact", "businessPurok", "businessRegistration",
           "businessAddress",
           "businessKind",
           "ctcNumber",
@@ -327,11 +327,8 @@ export const validateTemplateConfig = (raw) => {
     result.requiredBusinessFields.some(
       (k) =>
         ![
-          "businessName",
-          "businessAddress",
-          "businessKind",
-          "permitYear",
-          "ctcNumber",
+          "businessName", "businessOwner", "businessContact", "businessPurok", "businessRegistration",
+          "businessAddress", "businessKind", "permitYear", "ctcNumber",
           "sssNumber",
           "tinNumber",
         ].includes(k),
@@ -340,3 +337,4 @@ export const validateTemplateConfig = (raw) => {
     throw documentError("Invalid business requirement list.");
   return result;
 };
+

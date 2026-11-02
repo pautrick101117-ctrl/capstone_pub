@@ -87,6 +87,10 @@ export const buildDocumentContent = (request, template) => {
       request.request_type === "Barangay Business Clearance"
         ? [
             ["Name of Business", data.businessName],
+            ["Business Owner / Representative", data.businessOwner],
+            ["Contact Number", data.businessContact],
+            ["Business Purok", data.businessPurok],
+            ["Registration Reference", data.businessRegistration],
             ["Address of Business", data.businessAddress],
             ["Kind of Business", data.businessKind],
             ["Community Tax Certificate No.", data.ctcNumber],
@@ -359,4 +363,5 @@ export const generateWordDocument = async ({
   });
   return Packer.toBuffer(doc);
 };
+
 

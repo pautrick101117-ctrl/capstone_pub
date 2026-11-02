@@ -131,6 +131,23 @@ const publicResident = (record) => {
   return { ...safe, hasPhoto: Boolean(profile_photo_path) };
 };
 
+// Schedule pickup before marking a prepared Word document ready; permissions and
+// optimistic version are verified again inside the PostgreSQL transaction.
+router.patch("/requests/:id/pickup", requireRole("admin"), async (req, res, next) => {
+  try {
+    const when = new Date(req.body.pickupAt);
+    if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now())
+      throw documentError("Choose a future document pickup date and time.", 400);
+    const result = rpcResult(await requireSupabase().rpc("bgy_nov2_schedule_document_pickup", {
+      p_request: req.params.id, p_actor: req.currentUser.id,
+      p_version: req.body.expectedVersion, p_when: when.toISOString(),
+      p_instructions: String(req.body.pickupInstructions || "").trim(),
+      p_operation: getOperationId(req.body.operationId),
+    }));
+    res.json({ request: result, message: "Document pickup schedule saved." });
+  } catch (error) { next(error); }
+});
+
 router.get("/catalog", async (_req, res, next) => {
   try {
     const { data, error } = await requireSupabase()
@@ -906,4 +923,5 @@ router.post(
   },
 );
 export default router;
+
 

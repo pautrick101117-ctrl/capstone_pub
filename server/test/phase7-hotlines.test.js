@@ -75,3 +75,4 @@ test("Phase 7 client uses separate general contact and two-slot system setup wit
   for (const name of ["Complaints.jsx", "HelpCenter.jsx"]) assert.match(source(`../client/src/pages/client/${name}`), /HotlineContacts/);
   assert.match(source("../client/src/components/layouts/LandingPageLayout.jsx"), /HotlineContacts/);
 });
+

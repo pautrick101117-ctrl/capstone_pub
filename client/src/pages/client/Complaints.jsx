@@ -28,6 +28,7 @@ const Complaints = () => {
   const [eligibility, setEligibility] = useState(null);
   const [eligibilityError, setEligibilityError] = useState("");
   const operationIdRef = useRef(null);
+  const reportRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -68,6 +69,16 @@ const Complaints = () => {
   }, [loadEligibility, token]);
 
   useEffect(() => { if (token) load(); }, [load, token]);
+
+  useEffect(() => {
+    if (activeTab !== "report") return;
+    const frame = requestAnimationFrame(() => {
+      reportRef.current?.scrollIntoView({behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block:"start"});
+      if (window.matchMedia("(max-width: 767px)").matches)
+        reportRef.current?.querySelector("select, textarea, input")?.focus({preventScroll:true});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab]);
 
   const quotaBlocked = Boolean(eligibility?.enabled && !eligibility.allowed);
   const windowBlocked = eligibility?.blockedReasons?.includes("CONCERN_WINDOW_LIMIT_REACHED");
@@ -128,7 +139,7 @@ const Complaints = () => {
       <SegmentedTabs value={activeTab} onChange={(value) => { setSuccess(null); setActiveTab(value); if (value === "report") loadEligibility(); }} items={[{ value: "mine", label: "My Concerns", count: complaints.length }, { value: "report", label: "Report Concern" }]} />
 
       {activeTab === "report" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
+        <div ref={reportRef} className="scroll-mt-24 grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
           <Card className="bg-gradient-to-br from-white to-[var(--brand-50)]">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-[var(--brand-500)]">Before submitting</p>
             <h2 className="mt-2 text-2xl font-black text-[var(--brand-900)]">Help staff understand the issue quickly</h2>
@@ -179,4 +190,5 @@ const Complaints = () => {
 };
 
 export default Complaints;
+
 

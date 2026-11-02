@@ -38,6 +38,7 @@ const REQUIRED_MIGRATIONS = [
   ["phase10_projects", "bgy_phase10_ready"],
   ["phase10_5_security", "bgy_p105_ready"],
   ["phase11_documents", "bgy_phase11_ready"],
+  ["nov2_workflow_repairs", "bgy_nov2_ready"],
 ];
 
 const verifyStartup = async () => {
@@ -229,3 +230,4 @@ if (isMainModule) {
   maintenance.unref?.();
   server.on("error", (error) => console.error("[HTTP LISTENER ERROR]", error.message));
 }
+

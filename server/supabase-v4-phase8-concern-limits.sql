@@ -177,3 +177,4 @@ $$;
 REVOKE ALL ON FUNCTION public.bgy_phase8_ready() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.bgy_phase8_ready() TO service_role;
 COMMIT;
+

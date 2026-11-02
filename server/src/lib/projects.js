@@ -81,3 +81,4 @@ export const ensureProjectsForClosedElections = async (db, { createdBy = null } 
   return projects;
 };
 
+

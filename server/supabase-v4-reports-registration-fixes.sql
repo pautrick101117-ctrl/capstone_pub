@@ -123,3 +123,4 @@ select 'household_identity',jsonb_build_array(public.bgy_census_key(purok),publi
   count(*),array_agg(id order by created_at,id)
 from public.census_households group by public.bgy_census_key(purok),public.bgy_census_key(coalesce(nullif(address,''),house_number)),public.bgy_census_key(household_name)
 having count(*)>1;
+

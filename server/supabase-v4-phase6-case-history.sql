@@ -272,3 +272,4 @@ REVOKE ALL ON FUNCTION public.bgy_phase6_ready() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.bgy_phase6_ready() TO service_role;
 NOTIFY pgrst, 'reload schema';
 COMMIT;
+

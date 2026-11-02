@@ -45,3 +45,4 @@ test('caller abort signal is honored on Supabase fetch', async () => {
     await assert.rejects(pending, e=>e.name==='AbortError');
   } finally {restore();}
 });
+

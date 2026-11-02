@@ -109,3 +109,4 @@ REVOKE ALL ON FUNCTION public.bgy_phase9_asset_guard() FROM PUBLIC,anon,authenti
 REVOKE ALL ON FUNCTION public.bgy_phase9_request_guard() FROM PUBLIC,anon,authenticated;
 
 COMMIT;
+

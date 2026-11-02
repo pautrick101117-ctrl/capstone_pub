@@ -7,3 +7,4 @@ test('invalid historical dates cannot crash frontend pages and Manila input conv
  assert.equal(fromManilaDateTimeInput('2026-10-31T10:00'),'2026-10-31T02:00:00.000Z');
  assert.equal(countdownText('invalid'),'No deadline');
 });
+

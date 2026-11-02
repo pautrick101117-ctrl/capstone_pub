@@ -17,3 +17,4 @@ export function usePathState(initial) {
   );
   return [value, setValue];
 }
+

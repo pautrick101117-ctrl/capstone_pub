@@ -28,3 +28,4 @@ export const validateIdFiles = (files, rawMetadata, types=[]) => {
       document_label: type?.label || custom };
   });
 };
+

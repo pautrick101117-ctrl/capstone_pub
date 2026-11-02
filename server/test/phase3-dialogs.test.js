@@ -47,3 +47,4 @@ test("create/edit and request handlers gate mutations behind user confirmation",
   const requests = await readClient("pages/admin/AdminRequests.jsx");
   assert.doesNotMatch(requests, /setSaving\(false\);\s*setSelected\(null\);/);
 });
+

@@ -22,3 +22,4 @@ export const sendAdminInvitationEmail = async ({ email, fullName, username, toke
     html: `<div style="font:16px/1.65 Arial,sans-serif;max-width:580px;margin:auto;color:#142016"><h2>Barangay Iba Admin Invitation</h2><p>Hello ${escapeHtml(fullName)},</p><p>You have been invited to access the Barangay Iba administrative portal.</p><p><b>Username:</b> ${escapeHtml(username)}</p><p><a href="${escapeHtml(url)}" style="display:inline-block;background:#2d7a3a;color:white;padding:12px 20px;border-radius:8px;text-decoration:none">Set up my account</a></p><p>This one-time link expires in ${ADMIN_INVITATION_HOURS} hours. If you did not expect it, you may ignore this email.</p></div>`,
   });
 };
+

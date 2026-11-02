@@ -1975,24 +1975,39 @@ router.patch("/census_households/:id", async (req, res, next) => {
   }
 });
 
+router.post("/census_households/:id/restore", async (req,res,next) => {
+  try {
+    const db = requireSupabase();
+    const {data,error} = await db.from("census_households")
+      .update({is_archived:false,updated_at:new Date().toISOString()})
+      .eq("id",req.params.id).eq("is_archived",true).select("*").maybeSingle();
+    if(error)throw error;
+    if(!data)throw Object.assign(new Error("Archived household not found."),{status:404});
+    await logAudit({actorId:req.currentUser.id,actorRole:req.currentUser.role,action:"restore_census_household",
+      entityType:"census_household",entityId:data.id,details:{restored:true},req});
+    res.json({item:data,message:"Household restored."});
+  } catch(e){next(e);}
+});
+
 router.delete("/census_households/:id", async (req, res, next) => {
   try {
     const db = requireSupabase();
     const { data: existing, error: existingError } = await db.from("census_households").select("*").eq("id", req.params.id).single();
     if (existingError) throw existingError;
-    const { error } = await db.from("census_households").delete().eq("id", req.params.id);
+    // Archive preserves household members, references and history. Never hard-delete census records.
+    const { error } = await db.from("census_households").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", req.params.id);
     if (error) throw error;
     await logAudit({
       actorId: req.currentUser.id,
       actorRole: normalizeRole(req.currentUser.role),
-      action: "delete_census_household",
+      action: "archive_census_household",
       entityType: "census_household",
       entityId: req.params.id,
       module: "census",
       beforeData: existing,
       req,
     });
-    res.json({ message: "Household deleted." });
+    res.json({ message: "Household archived. The record and its members were preserved." });
   } catch (error) {
     next(error);
   }
@@ -2157,7 +2172,7 @@ tableCrud({
     const payload = {
       title: body.title,
       body: body.body,
-      image_url: assetUrl || body.imageUrl || null,
+      image_url: body.removeImage === "true" || body.removeImage === true ? null : (assetUrl || body.imageUrl || null),
       type: body.type,
     };
 
@@ -2181,7 +2196,8 @@ tableCrud({
   mapPayload: async ({ body, db }) => {
     ensure(`${body.title || ""}`.trim(), "Event title is required.");
     ensure(body.date, "Event date is required.");
-    await assertActiveMasterLabel(db, "event_category", body.type);
+    try { await assertActiveMasterLabel(db, "event_category", body.type); }
+    catch (error) { if (error.status === 400) throw Object.assign(new Error('Select an active Event Category in Settings → Master Data before saving this event.'), {status:400,code:'EVENT_CATEGORY_REQUIRED'}); throw error; }
     return { title: `${body.title}`.trim(), date: body.date, time: body.time || null, location: `${body.location || ""}`.trim(), description: `${body.description || ""}`.trim(), type: body.type };
   },
 });
@@ -2227,4 +2243,5 @@ tableCrud({
 });
 
 export default router;
+
 

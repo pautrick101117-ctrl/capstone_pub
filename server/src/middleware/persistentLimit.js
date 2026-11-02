@@ -55,10 +55,14 @@ export const submissionScope = (req) => `${req.method}:${req.baseUrl || ''}${req
 export const submissionLimiter = (req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.submissionLimitChecked
       || req.path === '/audit/page-view') return next();
-  return persistentLimit(`submission:${submissionScope(req)}`, { max: 10, windowSeconds: 600 })(req, res, (error) => {
+  const staff = ['admin', 'super_admin'].includes(req.currentUser?.role);
+  // A staff member processing many confirmations is not a resident spamming requests.
+  // High-risk auth and ID operations retain their own stricter endpoint limiters.
+  return persistentLimit(`submission:${submissionScope(req)}`, { max: staff ? 60 : 10, windowSeconds: 600 })(req, res, (error) => {
     if (!error) req.submissionLimitChecked = true;
     next(error);
   });
 };
 
 export const residentWriteLimiter = submissionLimiter;
+

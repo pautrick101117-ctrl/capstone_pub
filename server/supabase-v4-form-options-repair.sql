@@ -121,3 +121,4 @@ from (values ('purok'), ('administration_term'), ('official_position'), ('event_
 left join public.master_data_values options on options.category = categories.category
 group by categories.category
 order by categories.category;
+

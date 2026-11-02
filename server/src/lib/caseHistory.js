@@ -75,3 +75,4 @@ export const attachCaseHistories = async (db, entityType, rows, { residentVisibl
   }
   return rows.map((row) => ({ ...row, case_history: grouped.get(row.id) || [] }));
 };
+

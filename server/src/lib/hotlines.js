@@ -65,3 +65,4 @@ export const publicHotlineSupport = (content = {}) => {
     hotline: first ? { title: first.label, phone: first.phone, hours: first.hours, note: first.note } : null,
   };
 };
+

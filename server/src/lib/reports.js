@@ -89,3 +89,4 @@ export const loadReport = async (db, type, filters = {}) => {
   return {type,title:spec.label,columns:spec.columns.map(column=>column.label),rows:records.map(row=>spec.columns.map(column=>reportCell(row,column.key))),
     from:range.from,to:range.to,total:records.length,generatedAt:new Date().toISOString()};
 };
+

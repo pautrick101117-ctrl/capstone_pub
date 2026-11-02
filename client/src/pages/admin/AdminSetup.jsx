@@ -46,3 +46,4 @@ const AdminSetup = () => {
   </section>;
 };
 export default AdminSetup;
+

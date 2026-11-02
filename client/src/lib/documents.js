@@ -65,3 +65,4 @@ export const previewTemplateWord = async ({ templateId, config, token, signal })
   }
   return response.blob();
 };
+

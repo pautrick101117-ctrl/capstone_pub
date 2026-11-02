@@ -135,6 +135,10 @@ const SuggestionsPage = () => {
         {editItem ? <form className="space-y-5" onSubmit={saveEdit}>
           <TextInput label="Project Title" required minLength={5} maxLength={120} value={editForm.title} onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))} />
           <TextArea label="Description" required minLength={20} maxLength={1500} value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
+          <TextInput label="Affected Purok / Location" value={editForm.affectedPurok} onChange={e=>setEditForm(v=>({...v,affectedPurok:e.target.value}))}/>
+          <SelectInput label="Category" value={editForm.category} onChange={e=>setEditForm(v=>({...v,category:e.target.value}))}><option value="">Choose a category</option>{['Infrastructure','Environment','Health','Education','Safety','Sports','Other'].map(x=><option key={x}>{x}</option>)}</SelectInput>
+          <TextInput label="Estimated Beneficiaries" type="number" min="1" value={editForm.estimatedBeneficiaries} onChange={e=>setEditForm(v=>({...v,estimatedBeneficiaries:e.target.value}))}/>
+          <TextInput label="Rough Estimated Cost (PHP)" type="number" min="0" value={editForm.estimatedCost} onChange={e=>setEditForm(v=>({...v,estimatedCost:e.target.value}))}/>
           <label className="flex flex-col gap-2 text-sm font-medium text-stone-700"><span>Project Image <span className="font-normal text-stone-400">(optional)</span></span><div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-4"><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0] || null; setEditForm((current) => ({ ...current, image: file, preview: file ? URL.createObjectURL(file) : current.preview, removeImage: false })); }} />{editForm.preview && !editForm.removeImage ? <div className="relative mt-3"><img src={editForm.preview} alt="Project suggestion" className="h-56 w-full rounded-2xl object-cover" /><button type="button" onClick={() => setEditForm((current) => ({ ...current, image: null, preview: "", removeImage: true }))} className="absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow" aria-label="Remove image"><X className="h-4 w-4" /></button></div> : null}</div></label>
           <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>Save Changes</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setEditItem(null)}>Cancel</Button></div>
         </form> : null}
@@ -144,4 +148,5 @@ const SuggestionsPage = () => {
 };
 
 export default SuggestionsPage;
+
 

@@ -12,3 +12,4 @@ export const auditCategoryForAction = (action = '') =>
   /login|logout|password|access_denied|auth_failed|credential|permission/i.test(action)
     ? 'security' : 'activity';
 
+

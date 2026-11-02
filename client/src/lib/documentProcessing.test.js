@@ -63,3 +63,4 @@ test("Certificate of Residency shows a missing start date", () => {
     checks: {}, approvedTemplates: [{id:"t"}], templateId: "t", issueDate: "2026-11-01"});
   assert.deepEqual(blockers.map(x=>x.key), ["residencyDateVerified"]);
 });
+

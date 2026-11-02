@@ -131,3 +131,4 @@ const AdminAuditLogs = () => {
   </div>;
 };
 export default AdminAuditLogs;
+

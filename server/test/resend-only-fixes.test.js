@@ -128,3 +128,4 @@ test("public landing refuses to silently display zeros when a Supabase query fai
   assert.match(publicRoute, /if \(result\.error\) throw result\.error/);
 });
 
+

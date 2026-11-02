@@ -27,3 +27,4 @@ test("the admin view hides manual email preview and still offers failed email re
   assert.match(ui,/email-queue\/\$\{item\.id\}\/retry/);
   assert.match(ui,/notificationLogs/);
 });
+

@@ -34,3 +34,4 @@ test("old and new email log rows are consolidated and shown without manual send"
   assert.match(page, /Latest resident email:/);
   assert.doesNotMatch(page, /Preview email|Send reviewed email/);
 });
+

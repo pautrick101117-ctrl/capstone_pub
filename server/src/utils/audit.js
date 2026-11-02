@@ -69,3 +69,4 @@ export const adminActivityMiddleware = (moduleName = 'admin') => (req, res, next
   });
   next();
 };
+

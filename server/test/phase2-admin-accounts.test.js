@@ -136,3 +136,4 @@ test('Invitation email contains 48-hour one-time setup link and escapes HTML nam
   assert.ok(result.payload.text.includes(`https://www.barangayiba.com/admin/setup?token=${token}`));
   assert.match(result.payload.text, /48 hours/);
 });
+

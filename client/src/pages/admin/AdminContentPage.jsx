@@ -7,7 +7,7 @@ import { useToast } from "../../context/toast";
 import { Button, Card, ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, Pagination, Skeleton, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime, toManilaDateTimeInput, fromManilaDateTimeInput } from "../../lib/format";
 
-const emptyForm = { id: "", title: "", body: "", date: "", image: null, preview: "" };
+const emptyForm = { id: "", title: "", body: "", date: "", image: null, preview: "", removeImage:false };
 const pageSize = 6;
 
 const AdminContentPage = ({ type = "news" }) => {
@@ -60,7 +60,7 @@ const AdminContentPage = ({ type = "news" }) => {
   };
 
   const openEdit = (item) => {
-    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: toManilaDateTimeInput(item.published_at || item.created_at), image: null, preview: item.image_url || "" });
+    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: toManilaDateTimeInput(item.published_at || item.created_at), image: null, preview: item.image_url || "", removeImage:false });
     setForm({
       id: item.id,
       title: item.title || "",
@@ -84,6 +84,7 @@ const AdminContentPage = ({ type = "news" }) => {
     if (form.date) formData.append("publishedAt", fromManilaDateTimeInput(form.date));
     if (form.image) formData.append("image", form.image);
     if (form.preview && !form.image) formData.append("imageUrl", form.preview);
+    if (form.removeImage) formData.append("removeImage", "true");
 
     try {
       if (form.id) {
@@ -191,10 +192,11 @@ const AdminContentPage = ({ type = "news" }) => {
             <span>Image Upload</span>
             <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">
               <ImageUp className="h-4 w-4" /><span>{form.image ? form.image.name : "Choose image"}</span>
-              <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; setForm((current) => ({ ...current, image: file || null, preview: file ? URL.createObjectURL(file) : current.preview })); }} />
+              <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; setForm((current) => ({ ...current, image: file || null, preview: file ? URL.createObjectURL(file) : current.preview, removeImage:false })); }} />
             </label>
           </label>
-          {form.preview ? <img src={form.preview} alt="Preview" className="h-56 w-full rounded-3xl object-cover" /> : null}
+          {form.preview ? <div className="space-y-2"><img src={form.preview} alt="Preview" className="h-56 w-full rounded-3xl object-cover" />
+            <Button type="button" variant="secondary" onClick={()=>setForm(v=>({...v,image:null,preview:"",removeImage:true}))}>Remove selected picture</Button></div> : null}
           <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Publish"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>Cancel</Button></div>
         </form>
       </Modal>
@@ -214,4 +216,5 @@ const AdminContentPage = ({ type = "news" }) => {
 };
 
 export default AdminContentPage;
+
 

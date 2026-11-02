@@ -79,3 +79,4 @@ test("Phase 6 links admin actions and resident histories across five case types"
   for (const file of ["RequestsPage.jsx", "Complaints.jsx", "BorrowingPage.jsx", "SuggestionsPage.jsx"])
     assert.match(source(`../client/src/pages/client/${file}`), /CaseHistory/);
 });
+

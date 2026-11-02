@@ -31,3 +31,4 @@ export const removePrivateIds = async (paths) => {
   const { error } = await requireSupabase().storage.from(ID_BUCKET).remove(paths);
   if (error) console.error('[PRIVATE ID CLEANUP]', error.message);
 };
+

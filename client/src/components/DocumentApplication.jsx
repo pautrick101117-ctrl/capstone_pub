@@ -15,6 +15,10 @@ import {
   TextArea,
 } from "./ui";
 const labels = {
+  businessOwner: "Business owner / authorized representative",
+  businessContact: "Business contact number",
+  businessPurok: "Business location / purok",
+  businessRegistration: "Business registration reference (if applicable)",
   businessName: "Registered business name",
   businessAddress: "Business address",
   businessKind: "Kind of business",
@@ -369,3 +373,4 @@ export default function DocumentApplication({ request, onSaved, onCancel }) {
     </div>
   );
 }
+

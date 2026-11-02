@@ -160,3 +160,4 @@ grant execute on function public.replace_census_households(jsonb) to service_rol
 
 commit;
 
+

@@ -24,3 +24,4 @@ export const mapVotingRpcError = (error) => {
   const status = code === '42501' ? 403 : code === 'P0002' ? 404 : ['23514', '23505'].includes(code) ? 409 : 400;
   return Object.assign(new Error(message), { status, code });
 };
+

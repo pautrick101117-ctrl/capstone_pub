@@ -65,6 +65,7 @@ const BorrowingPage = () => {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [availabilityChecked, setAvailabilityChecked] = useState(false);
+  const [durationHours, setDurationHours] = useState("8");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [cancelRequest, setCancelRequest] = useState(null);
   const [mineLoading, setMineLoading] = useState(true);
@@ -157,6 +158,19 @@ const BorrowingPage = () => {
   const facilities = useMemo(() => assets.filter((asset) => asset.category === "facility"), [assets]);
   const items = useMemo(() => assets.filter((asset) => asset.category === "item"), [assets]);
 
+  const applyDuration = (hours) => {
+    setDurationHours(hours);
+    const start = fromManilaInput(windowForm.startAt);
+    const num = Number(hours);
+    if (!start || !Number.isFinite(num) || num <= 0 || !selected?.max_borrow_minutes) return;
+    if (num * 60 > selected.max_borrow_minutes) {
+      toast.error(`Maximum borrowing time is ${formatBorrowDuration(selected.max_borrow_minutes)}.`);
+      return;
+    }
+    setWindowForm(current => ({...current, dueAt:toManilaInput(new Date(start.getTime()+num*3600000))}));
+    setAvailabilityChecked(false);
+  };
+
   const changeWindow = (key, value) => {
     setWindowForm((current) => ({ ...current, [key]: value }));
     setAvailabilityChecked(false);
@@ -164,7 +178,7 @@ const BorrowingPage = () => {
   };
 
   const selectAsset = (asset) => {
-    if (!asset.durationConfigured) return;
+    if (!asset.durationConfigured || (availabilityChecked && !asset.isAvailable)) return;
     setAvailabilityChecked(false);
     setForm((current) => ({
       ...current,
@@ -267,9 +281,10 @@ const BorrowingPage = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><PackageCheck className="h-5 w-5" /></div>
                   <Badge tone={!asset.durationConfigured ? "warning" : availabilityChecked && !asset.isAvailable ? "danger" : "info"}>
-                    {!asset.durationConfigured ? "Setup required" : !availabilityChecked ? "Select schedule" : asset.isAvailable ? "Available" : "Unavailable"}
+                    {!asset.durationConfigured ? "Setup required" : !availabilityChecked ? "Check dates" : asset.isAvailable ? (asset.category === "item" && asset.availableQuantity < asset.total_quantity ? "Partly available" : "Available") : asset.unavailableReason === "BORROW_DURATION_EXCEEDED" ? "Time limit exceeded" : "In use / reserved"}
                   </Badge>
                 </div>
+                {asset.isInUseNow && <p className="mt-2 text-sm font-semibold text-amber-700">In use now · {asset.currentAvailableQuantity} unit(s) free now. You can still check a later date.</p>}
                 <h3 className="mt-4 font-bold text-[var(--brand-900)]">{asset.name}</h3>
                 <p className="mt-3 min-h-10 text-sm text-stone-600">{asset.description || "No description provided."}</p>
                 <p className="mt-3 text-sm font-semibold text-[var(--brand-700)]">Maximum duration: {formatBorrowDuration(asset.max_borrow_minutes)}</p>
@@ -282,10 +297,10 @@ const BorrowingPage = () => {
                   type="button"
                   variant={selectedAsset ? "primary" : "secondary"}
                   className="mt-4 w-full"
-                  disabled={!asset.durationConfigured}
+                  disabled={!asset.durationConfigured || (availabilityChecked && !asset.isAvailable)}
                   onClick={() => selectAsset(asset)}
                 >
-                  {selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select resource"}
+                  {availabilityChecked && !asset.isAvailable ? "Unavailable — change dates" : selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select resource"}
                 </Button>
               </Card>
             );
@@ -339,6 +354,15 @@ const BorrowingPage = () => {
           Selected: <strong>{selected.name}</strong> · Maximum: <strong>{formatBorrowDuration(selected.max_borrow_minutes)}</strong>
           <p className="mt-1 text-stone-600">Times are Philippine time (UTC+08:00). The barangay checks the maximum again when you submit.</p>
         </div> : <p className="mb-4 text-sm text-amber-700">Select a resource above to set the applicable return deadline.</p>}
+        {selected && <div className="mb-4 space-y-2 rounded-xl border border-stone-200 p-4">
+          <label htmlFor="borrow-duration-hours" className="block text-sm font-semibold">How many hours do you need?</label>
+          <select id="borrow-duration-hours" className="w-full rounded-xl border border-stone-300 p-3" value={durationHours !== "custom" && Number(durationHours)*60 > selected.max_borrow_minutes ? "custom" : durationHours}
+            onChange={e=>{const value=e.target.value; if(value === "custom") {setDurationHours(value);return;}applyDuration(value);}}>
+            {[1,2,4,8,12,24,48,72].filter(h=>h*60<=selected.max_borrow_minutes).map(h=><option key={h} value={String(h)}>{h} hour{h!==1?"s":""}</option>)}
+            <option value="custom">Custom — select a precise Return By time</option>
+          </select>
+          <p className="text-xs text-stone-500">Maximum: {formatBorrowDuration(selected.max_borrow_minutes)}. Changing the hours updates Return By. You can also enter a precise time below.</p>
+        </div>}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
           <TextInput
             label="Borrow From *"
@@ -571,5 +595,6 @@ const BorrowingPage = () => {
 };
 
 export default BorrowingPage;
+
 
 

@@ -95,3 +95,4 @@ REVOKE ALL ON FUNCTION public.bgy_phase7_ready() FROM PUBLIC, anon, authenticate
 GRANT EXECUTE ON FUNCTION public.bgy_phase7_ready() TO service_role;
 
 COMMIT;
+

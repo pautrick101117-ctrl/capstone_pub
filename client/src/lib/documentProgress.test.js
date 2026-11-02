@@ -22,3 +22,4 @@ test("attention and closed requests do not incorrectly display pickup", () => {
   assert.equal(documentProgress("ready_for_pickup").step, 2);
   assert.equal(documentProgress("claimed").completed, true);
 });
+

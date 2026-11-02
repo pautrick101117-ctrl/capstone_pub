@@ -84,3 +84,4 @@ test('Front-end audit UI supports category tabs, date filters, export and only v
   assert.ok(ui.includes('/audit-logs/export'));
   assert.ok(ui.includes('Asia/Manila'));
 });
+

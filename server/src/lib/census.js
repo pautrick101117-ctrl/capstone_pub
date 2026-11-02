@@ -44,3 +44,4 @@ export const buildHouseholdMembers = (rows) => {
 
 export const censusConflict = (error) => error?.code === '23505'
   ? Object.assign(new Error('This household reference or household at this address is already registered. Edit the existing record.'), { status: 409, code: 'DUPLICATE_HOUSEHOLD' }) : error;
+

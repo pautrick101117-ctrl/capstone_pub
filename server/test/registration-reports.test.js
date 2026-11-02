@@ -90,3 +90,4 @@ test('Excel reports contain every row, real numeric cells, and inert text rather
   assert.doesNotMatch(sheet,/<f>/);
   assert.equal((sheet.match(/<row /g)||[]).length,3);
 });
+

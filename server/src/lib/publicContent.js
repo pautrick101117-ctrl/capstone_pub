@@ -3,3 +3,4 @@ export const PUBLIC_CONTENT_KEYS = Object.freeze(["hero", "contact", "hotline", 
 export const publicContentOnly = (content = {}) => Object.fromEntries(
   PUBLIC_CONTENT_KEYS.filter((key) => Object.hasOwn(content, key)).map((key) => [key, content[key]])
 );
+

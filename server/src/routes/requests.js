@@ -111,7 +111,24 @@ router.get("/id-slots", async (_req, res, next) => {
       .order("slot_date")
       .order("time_slot");
     if (error) throw error;
-    res.json({ slots: data || [] });
+    const slots = data || [];
+    if (!slots.length) return res.json({ slots: [] });
+    const { data: booked, error: bookingsError } = await db.from("id_requests")
+      .select("preferred_date,time_slot,status")
+      .in("status", ["submitted", "confirmed", "rescheduled"])
+      .gte("preferred_date", new Date().toISOString().slice(0, 10));
+    if (bookingsError) throw bookingsError;
+    const counts = new Map();
+    for (const item of booked || []) {
+      const key = `${item.preferred_date}|${item.time_slot}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).map(part => [part.type,part.value]));
+    const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+    const nowLocal = new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());
+    res.json({ slots: slots.map(slot => ({ ...slot,
+      remaining: Math.max(0, Number(slot.capacity) - (counts.get(`${slot.slot_date}|${slot.time_slot}`) || 0))
+    })).filter(slot => slot.remaining > 0 && (slot.slot_date > today || (slot.slot_date === today && String(slot.time_slot).slice(0,5) > nowLocal))) });
   } catch (error) {
     next(error);
   }
@@ -138,8 +155,8 @@ router.post("/id", persistentLimit("resident-id-request", {max:3,windowSeconds:3
     const purpose = `${req.body.purpose || ""}`.trim();
     const preferredDate = req.body.preferredDate || null;
     const timeSlot = `${req.body.timeSlot || ""}`.trim() || null;
-    if (!purpose) {
-      throw Object.assign(new Error("Purpose is required."), { status: 400 });
+    if (!purpose || purpose.length > 200 || !preferredDate || !timeSlot) {
+      throw Object.assign(new Error("Choose a purpose and an available Barangay ID pickup date and time."), { status: 400 });
     }
 
     const db = requireSupabase();
@@ -156,7 +173,7 @@ router.post("/id", persistentLimit("resident-id-request", {max:3,windowSeconds:3
       .select("*")
       .single();
     if (error) {
-      if(error.code==='P0001')throw Object.assign(new Error(error.message),{status:409,code:'DUPLICATE_ACTIVE_ID_REQUEST'});
+      if(error.code==='P0001'||error.code==='23514'||error.code==='23505')throw Object.assign(new Error(error.message),{status:409,code:'ID_PICKUP_SLOT_UNAVAILABLE'});
       throw error;
     }
 
@@ -199,5 +216,6 @@ router.get('/document/:requestId/clearance', async(req,res,next)=>{try {
 }catch(e){next(e);}});
 
 export default router;
+
 
 

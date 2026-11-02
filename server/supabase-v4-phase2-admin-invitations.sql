@@ -136,3 +136,4 @@ GRANT EXECUTE ON FUNCTION public.bgy_phase2_ready() TO service_role;
 
 COMMIT;
 NOTIFY pgrst, 'reload schema';
+

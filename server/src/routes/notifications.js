@@ -68,3 +68,4 @@ router.post("/read-all", residentWriteLimiter, async (req, res, next) => {
 export default router;
 
 
+

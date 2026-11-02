@@ -21,3 +21,4 @@ export const MasterDataSelect = ({ category, placeholder = "Select an option", c
     </div>
   );
 };
+

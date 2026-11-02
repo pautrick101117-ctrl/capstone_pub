@@ -3,3 +3,4 @@ export const emptyHouseholdMember = (isHead = false) => ({
   birthdate:'',sex:'',civilStatus:'',occupation:'',userId:'',
   isSenior:false,isPwd:false,isSoloParent:false,is4ps:false,isRegisteredVoter:false,
 });
+

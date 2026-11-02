@@ -134,3 +134,4 @@ export const RESIDENT_PASSWORD_WORDS = Object.freeze(
     workers works world worth worthy wretched wrinkled wrist writers yard yards year years yellow young youth
   `).trim().split(/\s+/)
 );
+

@@ -25,3 +25,4 @@ export default function HotlineContacts({ hotlines = [], compact = false }) {
     </div>
   );
 }
+

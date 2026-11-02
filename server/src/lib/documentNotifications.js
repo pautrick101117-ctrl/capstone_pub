@@ -52,6 +52,10 @@ export const buildDocumentNotification = ({
     `Document: ${request.request_type}`,
     `Request reference: ${request.id}`,
     `Current status: ${request.status.replace(/_/g, " ")}`,
+    ...(["ready","reminder"].includes(type) && request.pickup_scheduled_for ? [
+      `Scheduled pickup: ${new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'long',timeStyle:'short'}).format(new Date(request.pickup_scheduled_for))} (Philippine time)`,
+      request.pickup_instructions || ''
+    ] : []),
     ...(["ready", "reminder"].includes(type)
       ? [config.pickupInstructions, config.officeContact]
       : []),
@@ -181,3 +185,4 @@ export const performSend = async (db, log, send = sendSystemEmail) => {
     );
   return data;
 };
+

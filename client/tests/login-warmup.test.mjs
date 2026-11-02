@@ -11,3 +11,4 @@ test("admin sign in warns when the server is taking longer", () => {
   assert.match(page, /slowLogin/);
   assert.match(page, /Connecting to the server/);
 });
+

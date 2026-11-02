@@ -41,6 +41,8 @@ const Admin_Census = () => {
   const [open, setOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -152,7 +154,7 @@ const Admin_Census = () => {
     setSaving(true);
     try {
       const data = await api(`/admin/census_households/${deleteTarget.id}`, { method: "DELETE", token });
-      toast.success(data.message || "Household deleted.");
+      toast.success(data.message || "Household archived.");
       setDeleteTarget(null);
       await load();
     } catch (deleteError) {
@@ -241,9 +243,13 @@ const Admin_Census = () => {
 
   const totalMembers = households.reduce((sum, item) => sum + Number(item.members || 0), 0);
   const needsUpdate = households.filter((item) => item.status !== "active").length;
-  const totalPages = Math.max(1, Math.ceil(households.length / pageSize));
+  const term = search.trim().toLocaleLowerCase();
+  const filteredHouseholds = households.filter(h => (showArchived || !h.is_archived) &&
+    (!term || [h.household_ref,h.household_name,h.purok,h.address,h.house_number,h.contact_number]
+      .some(value => String(value || "").toLocaleLowerCase().includes(term))));
+  const totalPages = Math.max(1, Math.ceil(filteredHouseholds.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const paginatedHouseholds = households.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedHouseholds = filteredHouseholds.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const previewRows = useMemo(() => validation?.preview || [], [validation]);
 
@@ -274,7 +280,12 @@ const Admin_Census = () => {
           <h2 className="text-xl font-bold text-[var(--brand-900)]">Household List</h2>
           <p className="mt-1 text-sm text-stone-500">Excel columns: household_ref, household_name, purok, members, address, status. Household Ref may be left blank for new imports.</p>
         </div>
-        {loading ? <LoadingState rows={5} /> : households.length === 0 ? <EmptyState title="No census households yet" description="Add a household manually or import a reviewed Excel file." /> : <>
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <input aria-label="Search households" placeholder="Search household, reference, purok or address" className="min-w-[220px] flex-1 rounded-xl border border-stone-300 px-4 py-3" value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/>
+          <Button type="button" variant="secondary" onClick={()=>{setSearch("");setPage(1);}}>Clear Search</Button>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={e=>{setShowArchived(e.target.checked);setPage(1);}}/>Show archived</label>
+        </div>
+        {loading ? <LoadingState rows={5} /> : filteredHouseholds.length === 0 ? <EmptyState title="No matching households" description="Clear the search, show archived records or add a new household." /> : <>
           <TableShell>
             <table className="min-w-full text-sm">
               <thead className="bg-stone-50 text-left text-stone-500"><tr><th className="px-4 py-3 font-semibold">Household</th><th className="px-4 py-3 font-semibold">Purok</th><th className="px-4 py-3 font-semibold">Members</th><th className="px-4 py-3 font-semibold">Address</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Updated</th><th className="px-4 py-3 font-semibold">Actions</th></tr></thead>
@@ -283,9 +294,12 @@ const Admin_Census = () => {
                 <td className="px-4 py-4 text-stone-600">{item.purok}</td>
                 <td className="px-4 py-4 text-stone-600">{item.members}</td>
                 <td className="max-w-sm px-4 py-4 text-stone-600">{item.address || item.house_number}</td>
-                <td className="px-4 py-4"><Badge tone={item.status === "active" ? "success" : "warning"}>{item.status === "active" ? "Active" : "Needs Update"}</Badge></td>
+                <td className="px-4 py-4"><Badge tone={item.is_archived ? "neutral" : item.status === "active" ? "success" : "warning"}>{item.is_archived ? "Archived" : item.status === "active" ? "Active" : "Needs Update"}</Badge></td>
                 <td className="whitespace-nowrap px-4 py-4 text-stone-500">{formatDateTime(item.updated_at)}</td>
-                <td className="px-4 py-4"><div className="flex flex-wrap gap-2"><Button type="button" variant="secondary" className="px-3" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" />Edit</Button><Button type="button" variant="secondary" onClick={()=>openMembers(item)}>Members</Button><Button type="button" variant="danger" className="px-3" onClick={() => setDeleteTarget(item)}><Trash2 className="h-4 w-4" />Delete</Button></div></td>
+                <td className="px-4 py-4"><div className="flex flex-wrap gap-2"><Button type="button" variant="secondary" className="px-3" onClick={() => openEdit(item)}><Pencil className="h-4 w-4" />Edit</Button><Button type="button" variant="secondary" onClick={()=>openMembers(item)}>Members</Button>{item.is_archived ? <Button type="button" variant="secondary" onClick={async()=>{
+                    try { await api(`/admin/census_households/${item.id}/restore`,{method:"POST",token});toast.success("Household restored.");await load(); }
+                    catch(e){toast.error(e.message);}
+                  }}>Restore</Button> : <Button type="button" variant="danger" className="px-3" onClick={() => setDeleteTarget(item)}><Trash2 className="h-4 w-4" />Archive</Button>}</div></td>
               </tr>)}</tbody>
             </table>
           </TableShell>
@@ -326,8 +340,8 @@ const Admin_Census = () => {
           </form>
         </div>
       </Modal>
-      <Modal open={Boolean(deleteTarget)} onClose={() => !saving && setDeleteTarget(null)} closeDisabled={saving} title="Delete household record?" description="This removes the household from the current Census. The action will be recorded in Audit Logs.">
-        {deleteTarget ? <div className="space-y-5"><Alert tone="danger" title={deleteTarget.household_name}><p>{deleteTarget.address || deleteTarget.house_number}</p></Alert><div className="flex justify-end gap-3"><Button variant="secondary" disabled={saving} onClick={() => setDeleteTarget(null)}>Keep Record</Button><Button variant="danger" loading={saving} onClick={deleteHousehold}><Trash2 className="h-4 w-4" />Delete Household</Button></div></div> : null}
+      <Modal open={Boolean(deleteTarget)} onClose={() => !saving && setDeleteTarget(null)} closeDisabled={saving} title="Archive household?" description="The household and members will be preserved for audit and history. You can include archived records using Show archived.">
+        {deleteTarget ? <div className="space-y-5"><Alert tone="danger" title={deleteTarget.household_name}><p>{deleteTarget.address || deleteTarget.house_number}</p></Alert><div className="flex justify-end gap-3"><Button variant="secondary" disabled={saving} onClick={() => setDeleteTarget(null)}>Keep Record</Button><Button variant="danger" loading={saving} onClick={deleteHousehold}><Trash2 className="h-4 w-4" />Archive Household</Button></div></div> : null}
       </Modal>
 
       <Modal open={Boolean(pendingFile && validation)} onClose={() => !batchLoading && (setPendingFile(null), setValidation(null))} closeDisabled={batchLoading} title="Review Census Import" description="Nothing has been changed yet. Review validation results and choose how this file should be applied to the Census.">
@@ -354,4 +368,5 @@ const Admin_Census = () => {
 };
 
 export default Admin_Census;
+
 

@@ -70,3 +70,4 @@ test('caller initiated abort is not mislabeled as server outage', async () => {
     await assert.rejects(p,e=>e.name==='AbortError' && !(e instanceof ApiError));
   } finally {restore();}
 });
+

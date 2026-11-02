@@ -66,3 +66,4 @@ test('persistent SQL rate window permits ten attempts and rejects the eleventh',
     assert.equal((await check()).used,1);
   }finally{await db.close();}
 });
+

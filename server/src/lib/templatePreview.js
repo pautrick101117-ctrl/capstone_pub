@@ -21,3 +21,4 @@ export const generateTemplatePreview = async ({ documentType, config }) => {
   });
   return buffer;
 };
+

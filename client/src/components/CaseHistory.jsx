@@ -38,3 +38,4 @@ export default function CaseHistory({ events = [], compact = false, title = "Act
     </section>
   );
 }
+

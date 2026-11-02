@@ -11,7 +11,7 @@ import WordPreview from "./WordPreview";
 import CaseHistory from "./CaseHistory";
 import { Alert, Badge, Button, Card, ErrorState, LoadingState, SelectInput, TextArea, TextInput } from "./ui";
 import { getStatusMeta } from "../lib/status";
-import { formatDateTime } from "../lib/format";
+import { formatDateTime, toManilaDateTimeInput, fromManilaDateTimeInput } from "../lib/format";
 import { requestStage, requestFieldRows, approvalBlockers, staffEmailItems, preferredWordFile } from "../lib/documentProcessing";
 
 
@@ -46,6 +46,8 @@ export default function DocumentRequestDetail({ id, onChanged }) {
   const [selectedFile, setSelectedFile] = useState("");
   const [reviewedWord, setReviewedWord] = useState(false);
   const [physicalCopyReady, setPhysicalCopyReady] = useState(false);
+  const [pickupAt, setPickupAt] = useState("");
+  const [pickupInstructions, setPickupInstructions] = useState("");
   const [profileEdit, setProfileEdit] = useState(null);
 
   const load = useCallback(async () => {
@@ -54,6 +56,8 @@ export default function DocumentRequestDetail({ id, onChanged }) {
       api("/documents/templates", { token }),
     ]);
     setData(detail);
+    setPickupAt(detail.request?.pickup_scheduled_for ? toManilaDateTimeInput(detail.request.pickup_scheduled_for) : "");
+    setPickupInstructions(detail.request?.pickup_instructions || "");
     setTemplates(versions.templates || []);
     setStage(requestStage(detail.request.status));
     return detail;
@@ -246,6 +250,7 @@ export default function DocumentRequestDetail({ id, onChanged }) {
         </label>)}
         {r.request_type === "Barangay Clearance" && <TextArea label="Verified clearance statement" required rows={3} value={checks.backgroundStatement || ""} placeholder="Enter the statement verified by authorized barangay personnel." onChange={(e) => setChecks((v) => ({ ...v, backgroundStatement: e.target.value }))} />}
         {r.request_type === "Certificate of Indigency" && <TextArea label="Verified income / indigency statement" required rows={3} value={checks.incomeStatement || ""} onChange={(e) => setChecks((v) => ({ ...v, incomeStatement: e.target.value }))} />}
+        <p className="text-sm text-stone-600">Approved template = the official Word layout and wording reviewed by the Super Admin. A preview alone is not approval.</p>
         <SelectInput label="Approved document template" required value={activeTemplateId} onChange={(e) => setTemplateId(e.target.value)}>
           <option value="">Select a template</option>
           {approvedTemplates.map((t) => <option key={t.id} value={t.id}>Version {t.version} — {t.config.chairmanName || "Official"}</option>)}
@@ -316,6 +321,20 @@ export default function DocumentRequestDetail({ id, onChanged }) {
         <Button loading={busy} disabled={busy || !activeFileId || !reviewedWord} onClick={() => saveWord("generate", true)}>Confirm document prepared</Button>
         {!activeFileId && <p className="text-sm" role="alert">First create a Word draft using the button above.</p>}
       </Card>}
+      {["document_prepared", "ready_for_pickup"].includes(r.status) && <Card className="space-y-3 border-blue-200 bg-blue-50">
+        <h2 className="text-lg font-bold">Schedule document pickup</h2>
+        <p className="text-sm">Assign a pickup date and time for the resident. Save it before marking the prepared document ready.</p>
+        <p className="text-sm">Currently scheduled: <strong>{r.pickup_scheduled_for ? formatDateTime(r.pickup_scheduled_for) : "Not yet scheduled"}</strong></p>
+        <TextInput type="datetime-local" label="Pickup date & time (Philippine time)" value={pickupAt} onChange={e=>setPickupAt(e.target.value)} required />
+        <TextArea label="Pickup instructions (optional)" maxLength={700} value={pickupInstructions} onChange={e=>setPickupInstructions(e.target.value)} placeholder="Example: Bring an ID to the Barangay Iba office." />
+        <Button disabled={busy || !pickupAt} onClick={()=>act("Save document pickup schedule?",async()=>{
+          const parsedIso = fromManilaDateTimeInput(pickupAt);
+          const parsed = parsedIso ? new Date(parsedIso) : new Date(NaN);
+          if(!Number.isFinite(parsed.getTime()) || parsed <= new Date()) throw new Error('Select a future Philippine pickup date and time.');
+          await api(`/documents/requests/${id}/pickup`,{method:'PATCH',token,body:{pickupAt:parsed.toISOString(),pickupInstructions,expectedVersion:r.lock_version,operationId:crypto.randomUUID()}});
+          toast.success('Pickup schedule saved.');
+        })}>Save pickup schedule</Button>
+      </Card>}
       {r.status === "document_prepared" && <Card className="space-y-3 border-green-200 bg-green-50">
         <h2 className="text-xl font-bold">Next: Ready for pickup</h2>
         <p>Only continue when the signed and sealed document is physically available at the barangay office.</p>
@@ -323,8 +342,8 @@ export default function DocumentRequestDetail({ id, onChanged }) {
           <input type="checkbox" className="mt-1 h-5 w-5" checked={physicalCopyReady} onChange={e => setPhysicalCopyReady(e.target.checked)} />
           <span>The physical document has been signed, sealed if required, and is available for collection.</span>
         </label>
-        <Button loading={busy} disabled={busy || !physicalCopyReady} onClick={() => nextAction("ready_for_pickup")}>Confirm ready for pickup</Button>
-        <p className="text-sm text-stone-600">The system will automatically queue the resident's pickup email.</p>
+        <Button loading={busy} disabled={busy || !physicalCopyReady || !r.pickup_scheduled_for} onClick={() => nextAction("ready_for_pickup")}>Confirm ready for pickup</Button>
+        <p className="text-sm text-stone-600">{r.pickup_scheduled_for ? `Pickup: ${formatDateTime(r.pickup_scheduled_for)}. The system will queue the resident's pickup email.` : "Save a pickup schedule above before proceeding."}</p>
       </Card>}
       {["ready_for_pickup", "claimed"].includes(r.status) && <Alert title="Document prepared">You can check collection information under Release Document.</Alert>}
     </section>}
@@ -354,3 +373,4 @@ export default function DocumentRequestDetail({ id, onChanged }) {
     </details>
   </div>;
 }
+
