@@ -90,7 +90,7 @@ export default function DocumentRequestDetail({ id, onChanged }) {
   const files = data.files || [];
   const meta = getStatusMeta(r.status);
   const approvedTemplates = templates.filter((t) => t.document_type === r.request_type && t.approval_state === "approved")
-    .sort((a, b) => b.version - a.version);
+    .sort((a, b) => b.version - a.version).slice(0, 1);
   // Pick the most recent approved template unless the reviewer explicitly chose another.
   const activeTemplateId = approvedTemplates.some((t) => t.id === templateId)
     ? templateId : (approvedTemplates[0]?.id || "");
@@ -250,12 +250,12 @@ export default function DocumentRequestDetail({ id, onChanged }) {
         </label>)}
         {r.request_type === "Barangay Clearance" && <TextArea label="Verified clearance statement" required rows={3} value={checks.backgroundStatement || ""} placeholder="Enter the statement verified by authorized barangay personnel." onChange={(e) => setChecks((v) => ({ ...v, backgroundStatement: e.target.value }))} />}
         {r.request_type === "Certificate of Indigency" && <TextArea label="Verified income / indigency statement" required rows={3} value={checks.incomeStatement || ""} onChange={(e) => setChecks((v) => ({ ...v, incomeStatement: e.target.value }))} />}
-        <p className="text-sm text-stone-600">Approved template = the official Word layout and wording reviewed by the Super Admin. A preview alone is not approval.</p>
-        <SelectInput label="Approved document template" required value={activeTemplateId} onChange={(e) => setTemplateId(e.target.value)}>
+        <p className="text-sm text-stone-600">The current saved template supplies the Word layout and wording. Super Admin manages templates under Document Templates.</p>
+        <SelectInput label="Document template" required value={activeTemplateId} onChange={(e) => setTemplateId(e.target.value)}>
           <option value="">Select a template</option>
-          {approvedTemplates.map((t) => <option key={t.id} value={t.id}>Version {t.version} — {t.config.chairmanName || "Official"}</option>)}
+          {approvedTemplates.map((t) => <option key={t.id} value={t.id}>{t.document_type}</option>)}
         </SelectInput>
-        {approvedTemplates.length === 0 && <Alert title="Document setup needed">No approved template exists for this document. Ask the superadmin to review and approve its template. {" "}
+        {approvedTemplates.length === 0 && <Alert title="Document setup needed">This document has not been configured yet. Ask the Super Admin to open Document Templates, enter the required details, and click Save Changes. {" "}
           {user?.role === "super_admin" ? <Link className="font-semibold underline underline-offset-4" to="/admin/requests?templates=1">Open document templates</Link> : null}
         </Alert>}
         <TextInput label="Document issue date" type="date" required value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />

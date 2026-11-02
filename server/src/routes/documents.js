@@ -866,62 +866,26 @@ router.get("/templates", requireRole("admin"), async (_req, res, next) => {
     next(e);
   }
 });
-router.post(
-  "/templates",
-  requireRole("super_admin"),
-  async (req, res, next) => {
-    try {
-      if (!DOCUMENT_TYPES.includes(req.body.documentType))
-        throw documentError("Unsupported document type.");
-      const config = validateTemplateConfig(req.body.config);
-      const db = requireSupabase();
-      const { data: last, error: findError } = await db
-        .from("document_templates")
-        .select("version")
-        .eq("document_type", req.body.documentType)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (findError) throw findError;
-      const approved = req.body.approve === true;
-      if (approved && (!config.pickupInstructions || !config.officeContact))
-        throw documentError(
-          "Approved templates require official pickup and contact information.",
-        );
-      const { data, error } = await db
-        .from("document_templates")
-        .insert({
-          document_type: req.body.documentType,
-          version: (last?.version || 0) + 1,
-          display_name: req.body.documentType,
-          config,
-          approval_state: approved ? "approved" : "draft",
-          created_by: req.currentUser.id,
-          updated_by: req.currentUser.id,
-          approved_by: approved ? req.currentUser.id : null,
-          approved_at: approved ? new Date().toISOString() : null,
-        })
-        .select("*")
-        .single();
-      if (error) {
-        if (error.code === "23505")
-          throw documentError(
-            "Another template version was saved. Refresh and retry.",
-            409,
-          );
-        throw error;
-      }
-      await audit(req, "create_document_template_version", data.id, {
-        type: data.document_type,
-        version: data.version,
-        approved,
-      });
-      res.status(201).json({ template: data });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
+// Super Admin's single Save Changes action. The database keeps immutable internal
+// revisions, locks concurrent saves, and refuses stale editors. No manual approval.
+router.put("/templates/current", requireRole("super_admin"), async (req, res, next) => {
+  try {
+    const { documentType, expectedTemplateId } = req.body || {};
+    if (!DOCUMENT_TYPES.includes(documentType)) throw documentError("Select a valid document type.");
+    if (typeof expectedTemplateId !== "string" || !/^[0-9a-f-]{36}$/i.test(expectedTemplateId))
+      throw documentError("Reload the template before saving.", 409);
+    const config = validateTemplateConfig(req.body.config);
+    const missing = ["title", "chairmanName", "designation", "controlPrefix", "pickupInstructions", "officeContact"]
+      .filter((key) => !String(config[key] || "").trim());
+    if (missing.length) throw documentError(`Complete required template fields: ${missing.join(", ")}.`);
+    const template = rpcResult(await requireSupabase().rpc("bgy_template_save_current", {
+      p_document_type: documentType,
+      p_config: config,
+      p_actor: req.currentUser.id,
+      p_expected_id: expectedTemplateId,
+    }));
+    await audit(req, "save_document_template", template.id, { documentType, templateRevision: template.version });
+    res.json({ template });
+  } catch (error) { next(error); }
+});
 export default router;
-
-

@@ -186,8 +186,8 @@ test("real HTTP document routes enforce live JWT roles, ownership, private downl
     assert.equal((await call(`/residents/${other}/photo`, owner)).status, 403);
     assert.equal(
       (
-        await call("/templates", owner, {
-          method: "POST",
+        await call("/templates/current", owner, {
+          method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: "{}",
         })

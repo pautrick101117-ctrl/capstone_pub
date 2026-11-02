@@ -3,7 +3,6 @@ import { Download, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { previewTemplateWord } from "../lib/documents";
 import { useAuth } from "../context/auth";
-import { useReviewAction } from "../hooks/useActionReview";
 import { Button, Modal, SelectInput, TextArea, TextInput } from "./ui";
 import WordPreview from "./WordPreview";
 
@@ -22,6 +21,15 @@ const businessFields = [
 ];
 
 const stringify = (value) => JSON.stringify(value);
+const currentByType = (records = []) => {
+  const sorted = [...records].sort((a, b) => b.version - a.version);
+  const seen = new Set();
+  return sorted.filter((row) => {
+    if (seen.has(row.document_type)) return false;
+    seen.add(row.document_type);
+    return true;
+  });
+};
 const normalizeDraft = (value) => ({
   ...value,
   paragraphs: Array.isArray(value?.paragraphs) ? [...value.paragraphs] : [],
@@ -43,7 +51,6 @@ const savePreviewFile = (blob, documentType) => {
 
 export default function TemplateManager({ openOnLoad = false }) {
   const { token, user } = useAuth();
-  const review = useReviewAction();
   const canEdit = user?.role === "super_admin";
   const [open, setOpen] = useState(false);
   const [templates, setTemplates] = useState([]);
@@ -62,9 +69,10 @@ export default function TemplateManager({ openOnLoad = false }) {
   const [message, setMessage] = useState("");
   const abortRef = useRef(null);
   const serialRef = useRef(0);
+  const currentTemplates = useMemo(() => currentByType(templates), [templates]);
   const selected = useMemo(() => templates.find((t) => t.id === selectedId), [templates, selectedId]);
   const isCurrentPreview = Boolean(preview && config && previewedConfig === stringify(config));
-  const approvalMissing = config ? [
+  const requiredMissing = config ? [
     ["Official document title", config.title],
     ["Authorized official's name", config.chairmanName],
     ["Official designation", config.designation],
@@ -110,7 +118,7 @@ export default function TemplateManager({ openOnLoad = false }) {
       const data = await api("/documents/templates", { token });
       const items = data.templates || [];
       setTemplates(items);
-      select(items[0] || null);
+      select(currentByType(items)[0] || null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -211,18 +219,17 @@ export default function TemplateManager({ openOnLoad = false }) {
     }
   };
 
-  const save = async (approve) => {
+  const save = async () => {
     if (!selected || !config || busy || !canEdit) return;
-    if (approve && approvalMissing.length) {
-      setError(`Complete these fields before approval: ${approvalMissing.join(", ")}.`);
+    if (requiredMissing.length) {
+      setError(`Complete these fields before saving: ${requiredMissing.join(", ")}.`);
       return;
     }
-    if (approve && !isCurrentPreview) {
-      setError("The updated Word preview is still being prepared. Please check it before approving.");
+    if (!isCurrentPreview) {
+      setError("Please review the latest Word preview before saving.");
       return;
     }
     if (advanced) {
-      // Prevent users from accidentally approving stale un-applied JSON edits.
       try {
         if (stringify(normalizeDraft(JSON.parse(jsonText))) !== stringify(config)) {
           setError("Apply your Advanced JSON changes before saving.");
@@ -233,24 +240,18 @@ export default function TemplateManager({ openOnLoad = false }) {
         return;
       }
     }
-    if (!(await review({
-      title: approve ? "Approve this new document template version?" : "Save a new draft version?",
-      description: "This creates a new version and preserves older versions. Confirm the wording, official name, numbering, validity and pickup information.",
-      after: config,
-      confirmLabel: approve ? "Approve new version" : "Save new draft",
-    }))) return;
     setBusy(true);
     setError("");
     try {
-      const saved = await api("/documents/templates", {
-        method: "POST", token,
-        body: { documentType: selected.document_type, config, approve },
+      const saved = await api("/documents/templates/current", {
+        method: "PUT", token,
+        body: { documentType: selected.document_type, config, expectedTemplateId: selected.id },
       });
       const refreshed = await api("/documents/templates", { token });
       setTemplates(refreshed.templates || []);
       const newest = refreshed.templates?.find((t) => t.id === saved.template.id) || saved.template;
       select(newest);
-      setMessage(`Version ${newest.version} saved as ${newest.approval_state}.`);
+      setMessage("Changes saved. This document template is now available for future requests.");
     } catch (e) {
       setError(e.message);
     } finally {
@@ -266,33 +267,33 @@ export default function TemplateManager({ openOnLoad = false }) {
         onClose={close}
         closeDisabled={busy}
         title="Document Template Manager"
-        description="Edit the official wording and review an actual Word document before creating a new version. Preview data is fictional."
+        description="Select a document, edit the official wording, preview it, and save changes. Preview data is fictional."
         widthClass="max-w-[96vw]"
       >
         {loading ? <p role="status" className="py-8 text-center">Loading document templates…</p> : (
           <div className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <SelectInput label="Document template version" value={selectedId} onChange={(e) => {
+              <SelectInput label="Select document" value={selectedId} onChange={(e) => {
                 const nextId = e.target.value;
                 if (nextId === selectedId || !confirmDiscard()) return;
-                select(templates.find((t) => t.id === nextId));
+                select(currentTemplates.find((t) => t.id === nextId));
               }} className="min-w-[250px] flex-1">
-                <option value="">Select a version</option>
-                {templates.map((t) => (
-                  <option value={t.id} key={t.id}>{t.document_type} · Version {t.version} ({t.approval_state})</option>
+                <option value="">Select a document</option>
+                {currentTemplates.map((t) => (
+                  <option value={t.id} key={t.id}>{t.document_type}</option>
                 ))}
               </SelectInput>
-              {selected ? <span role="status" className="rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-700">{hasUnsavedChanges ? "Unsaved changes · " : ""}{selected.approval_state.toUpperCase()} · v{selected.version} · New edits become a new version</span> : null}
+              {selected ? <span role="status" className="rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-700">{hasUnsavedChanges ? "Unsaved changes" : selected.approval_state === "approved" ? "Saved · Available" : "Not yet configured"}</span> : null}
             </div>
             {selected && config ? (
               <div className="grid items-start gap-5 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
                 <section aria-label="Template settings" className="max-h-[70vh] space-y-4 overflow-y-auto rounded-2xl border border-stone-200 p-4">
-                  <h4 className="text-base font-bold text-[var(--brand-900)]">Official Word template setup</h4>
-                  <p className="rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Complete the official title, authorized signatory name, designation, and uppercase control number prefix. You also need pickup instructions and office contact before approval. Use only information verified by barangay staff; preview is not an official issued certificate.</p>
-                  {approvalMissing.length ? <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-bold">Before approval, complete:</p>
-                    <ul className="list-disc pl-5">{approvalMissing.map(field=><li key={field}>{field}</li>)}</ul>
-                  </div> : <p className="text-sm font-semibold text-green-800">All required approval fields are entered. Review the Word preview before approving.</p>}
-                  {!canEdit ? <p className="rounded-xl bg-stone-100 p-3 text-sm">Only super administrators can create or approve template versions. You may preview existing ones.</p> : null}
+                  <h4 className="text-base font-bold text-[var(--brand-900)]">Edit document template</h4>
+                  <p className="rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Enter the official title, wording, signatory, control prefix, pickup instructions and office contact. Preview before saving. Only use details approved by the barangay.</p>
+                  {requiredMissing.length ? <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-bold">Before saving, complete:</p>
+                    <ul className="list-disc pl-5">{requiredMissing.map(field=><li key={field}>{field}</li>)}</ul>
+                  </div> : <p className="text-sm font-semibold text-green-800">All required fields are entered. Check the Word preview and save changes.</p>}
+                  {!canEdit ? <p className="rounded-xl bg-stone-100 p-3 text-sm">Only Super Admin can edit and save document templates. Other staff may preview them.</p> : null}
                   <TextInput label="Document title" required disabled={!canEdit || busy} maxLength={700} value={config.title || ""} onChange={(e) => update("title", e.target.value)} />
                   <div className="space-y-3 rounded-xl border border-stone-200 p-3">
                     <div className="flex items-center justify-between gap-2"><h5 className="font-semibold">Document paragraphs</h5><span className="text-xs text-stone-500">{config.paragraphs.length}/8</span></div>
@@ -350,8 +351,7 @@ export default function TemplateManager({ openOnLoad = false }) {
             {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
             {message ? <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{message}</p> : null}
             {selected && canEdit ? <div className="flex flex-wrap justify-end gap-3 border-t border-stone-200 pt-4">
-              <Button type="button" variant="secondary" loading={busy} disabled={previewing} onClick={() => save(false)}>Save new draft</Button>
-              <Button type="button" loading={busy} disabled={!isCurrentPreview || previewing || approvalMissing.length>0} onClick={() => save(true)}>Approve new version</Button>
+              <Button type="button" loading={busy} disabled={!isCurrentPreview || previewing || requiredMissing.length > 0 || (selected.approval_state === "approved" && !hasUnsavedChanges)} onClick={save}>Save Changes</Button>
             </div> : null}
           </div>
         )}

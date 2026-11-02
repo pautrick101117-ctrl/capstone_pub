@@ -39,9 +39,9 @@ export const approvalBlockers = ({ documentType, photoRequired, hasPhoto, requir
   if (documentType === "Certificate of Indigency" && String(checks.incomeStatement || "").trim().length < 5)
     missing.push({ key: "incomeStatement", label: "Enter the verified income or indigency statement." });
   if (!approvedTemplates.length)
-    missing.push({ key: "template", label: "Ask the superadmin to approve a document template." });
+    missing.push({ key: "template", label: "Ask Super Admin to save the document template." });
   else if (!approvedTemplates.some(t => t.id === templateId))
-    missing.push({ key: "template", label: "Choose an approved document template." });
+    missing.push({ key: "template", label: "Choose the saved document template." });
   if (documentType === "Certificate of Residency" && !checks.residencyDateVerified)
     missing.push({ key: "residencyDateVerified", label: "Add and verify the resident's residency start date under resident details." });
   if (!issueDate) missing.push({ key: "issueDate", label: "Choose the document issue date." });
