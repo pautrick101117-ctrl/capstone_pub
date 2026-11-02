@@ -51,14 +51,20 @@ export const approvalBlockers = ({ documentType, photoRequired, hasPhoto, requir
 // A status event owns one email-queue row. Show old notification logs only
 // for notification types that the queue does not already represent.
 export const staffEmailItems = (queue = [], logs = []) => {
-  const queued = queue.map(item => ({
-    id: item.id, kind: "queue", type: item.notification_type,
-    status: item.queue_state === "done" ? "Accepted by email provider" :
-      item.queue_state === "pending" ? "Queued" :
-      item.queue_state === "processing" ? "Sending" :
-      item.queue_state === "skipped" ? "Not sent" : "Failed — retry available",
-    failed: item.queue_state === "failed", createdAt: item.created_at,
-  }));
+  const queued = queue.map(item => {
+    const eligibleRetry = item.queue_state === "failed"
+      && Number(item.attempt_count || 0) < 6
+      && Date.now() - Date.parse(item.created_at) < 23 * 3600000;
+    return {
+      id: item.id, kind: "queue", type: item.notification_type,
+      status: item.queue_state === "done" ? "Accepted by email provider" :
+        item.queue_state === "pending" ? "Queued" :
+        item.queue_state === "processing" ? "Sending" :
+        item.queue_state === "skipped" ? "Not sent (status changed or no email)" :
+        eligibleRetry ? "Failed — retry available" : "Failed — staff review needed",
+      failed: eligibleRetry, createdAt: item.created_at,
+    };
+  });
   const queuedTypes = new Set(queue.map(item => item.notification_type));
   const legacy = logs.filter(item => !queuedTypes.has(item.notification_type)).map(item => ({
     id: item.id, kind: "legacy", type: item.notification_type,

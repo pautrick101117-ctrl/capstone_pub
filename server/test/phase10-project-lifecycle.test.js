@@ -85,7 +85,11 @@ test('notifications are queued in transaction and dispatched with row locks', ()
   assert.match(sql, /ON CONFLICT \(event_key\) DO NOTHING/);
 });
 test('Phase 10 schema readiness is checked on startup', () => {
-  assert.match(read('src/index.js'), /rpc\("bgy_phase10_ready"\)/);
+  const startup = read('src/index.js');
+  assert.match(startup, /\["phase10_projects", "bgy_phase10_ready"\]/);
+  assert.match(startup, /for \(const \[stage, functionName\] of REQUIRED_MIGRATIONS\)/);
+  assert.match(startup, /requireSupabase\(\)\.rpc\(functionName\)/);
+  assert.match(startup, /data !== true/);
   assert.match(sql, /CREATE OR REPLACE FUNCTION public\.bgy_phase10_ready/);
 });
 test('published suggestion snapshots cannot be rewritten through later moderation', () => {

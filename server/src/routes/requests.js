@@ -8,6 +8,7 @@ import { attachCaseHistories } from "../lib/caseHistory.js";
 import { getOperationId } from "../lib/caseHistory.js";
 import { validateApplication, documentError } from "../lib/documentRules.js";
 import { rpcResult, ownedDocumentRequest } from "./documents.js";
+import { processDocumentEmailOutbox } from "../lib/documentEmailOutbox.js";
 import { downloadPrivateDocument, DOCX_MIME } from '../lib/documentStorage.js';
 
 const router = express.Router();
@@ -95,6 +96,8 @@ router.post("/", persistentLimit("resident-document-request", {max:3,windowSecon
     });
 
     res.status(201).json({ request: data });
+    void processDocumentEmailOutbox(db).catch((error) =>
+      console.warn("[DOCUMENT EMAIL] submission queue unavailable", error.code || "OUTBOX_ERROR"));
   } catch (error) {
     next(error);
   }

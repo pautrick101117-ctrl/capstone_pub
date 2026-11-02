@@ -1,3 +1,4 @@
+import { processDocumentEmailOutbox } from "./documentEmailOutbox.js";
 import { requireSupabase } from "./supabase.js";
 import { broadcastSms, sendSms } from "./sms.js";
 
@@ -5,6 +6,13 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export const runMaintenance = async () => {
   const db = requireSupabase();
+  // Durable queue catches cold-starts, crashed sends, and transient provider failures.
+  try {
+    await processDocumentEmailOutbox(db, { limit: 10 });
+  } catch (error) {
+    // Notification availability must not interrupt election, ID, or rate-limit maintenance.
+    console.warn("[DOCUMENT EMAIL] maintenance queue unavailable", error.code || "OUTBOX_ERROR");
+  }
   if(new Date().getUTCMinutes()===0){
     const {error:rateCleanupError}=await db.rpc('bgy_p105_prune_rate_counters');
     if(rateCleanupError) console.warn('[RATE LIMIT MAINTENANCE]',rateCleanupError.message);

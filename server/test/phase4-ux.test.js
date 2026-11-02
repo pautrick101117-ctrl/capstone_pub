@@ -87,8 +87,10 @@ test("Phase 4: public unknown paths return residents to their portal and other v
   const app = await client("App.jsx");
   const fallback = await client("pages/client/NotFoundPage.jsx");
   assert.match(app, /<Route path="\*" element=\{<NotFoundPage \/>\}/);
-  assert.match(fallback, /isResidentSession\(useAuth\(\)\)/);
-  assert.doesNotMatch(fallback, /"\/admin"/);
+  assert.match(fallback, /const auth = useAuth\(\)/);
+  assert.match(fallback, /isResidentSession\(auth\)/);
+  assert.match(fallback, /\["admin", "super_admin"\]\.includes\(auth\.user\?\.role\)/);
+  assert.match(fallback, /adminRequestPath \? "\/admin\/requests" : "\/admin"/);
   assert.match(fallback, /ButtonLink to=\{destination\}/);
 });
 

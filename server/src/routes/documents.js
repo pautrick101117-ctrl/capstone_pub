@@ -30,6 +30,7 @@ import {
 } from "../lib/documentStorage.js";
 import { generateWordDocument } from "../lib/wordDocuments.js";
 import { generateTemplatePreview } from "../lib/templatePreview.js";
+import { processDocumentEmailOutbox } from "../lib/documentEmailOutbox.js";
 import {
   buildDocumentNotification,
   sendDocumentNotification,
@@ -402,12 +403,19 @@ router.get("/requests/:id", async (req, res, next) => {
       .eq("request_id", request.id)
       .order("created_at", { ascending: false });
     if (error) throw error;
+    const { data: emailQueue, error: queueError } = await db
+      .from("document_email_outbox")
+      .select("id,notification_type,queue_state,error_code,attempt_count,created_at,updated_at")
+      .eq("request_id", request.id)
+      .order("created_at", { ascending: false });
+    if (queueError) throw queueError;
     const resident = await getResident(db, request.user_id);
     res.json({
       request: history,
       resident: publicResident(resident),
       files: files.map(noPaths),
       attachments: attachments.map(noPaths),
+      emailQueue: emailQueue || [],
       notificationLogs: logs,
     });
   } catch (e) {
@@ -480,7 +488,10 @@ export const transitionDocument = async (req, res, next) => {
       from: request.status,
       to: result.status,
     });
-    res.json({ request: result });
+    res.json({ request: result }); // Durable SQL trigger has already queued the status email.
+    // Fire-and-forget: provider errors never roll back or delay the saved status.
+    void processDocumentEmailOutbox(db).catch((error) =>
+      console.warn("[DOCUMENT EMAIL] worker unavailable", error.code || "OUTBOX_ERROR"));
   } catch (e) {
     next(e);
   }
@@ -767,6 +778,27 @@ router.post(
     }
   },
 );
+// Staff-only manual retry uses the same queued ID/provider idempotency key.
+router.post("/email-queue/:id/retry", requireRole("admin"), async (req, res, next) => {
+  try {
+    const db = requireSupabase();
+    const { data: item, error } = await db.from("document_email_outbox")
+      .select("id,request_id,queue_state,created_at")
+      .eq("id", req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!item) throw documentError("Email event not found.", 404);
+    await ownedDocumentRequest(db, req, item.request_id);
+    if (item.queue_state !== "failed")
+      throw documentError("Only failed email attempts can be retried.", 409);
+    if (Date.now() - Date.parse(item.created_at) > 23 * 3600000)
+      throw documentError("The retry window has expired. Check the provider history before sending another notice.", 409);
+    const attempted = await processDocumentEmailOutbox(db, { onlyId: item.id, force: true, limit: 1 });
+    if (!attempted.length) throw documentError("Another worker is already handling this email.", 409);
+    await audit(req, "retry_document_email", item.request_id, { eventId: item.id });
+    res.json({ event: attempted[0] });
+  } catch (error) { next(error); }
+});
+
 router.post(
   "/notifications/:id/retry",
   requireRole("admin"),

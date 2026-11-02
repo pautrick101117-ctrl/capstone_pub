@@ -1,6 +1,18 @@
 import { documentError, textValue } from "./documentRules.js";
 import { sendSystemEmail } from "./mailer.js";
 
+// Automatic request-status emails are queued transactionally; these notices
+// contain only public-safe status summaries, never staff verification notes.
+export const AUTOMATIC_STATUS_MESSAGES = Object.freeze({
+  received: "Your document request has been received.",
+  reviewing: "Barangay staff are reviewing your document request.",
+  revision: "Your document request needs additional information. Sign in to view the instructions.",
+  rejected: "Your document request was declined. Sign in to read the explanation.",
+  approved: "Your document request has been approved. Please wait for the pickup notice.",
+  ready: "Your document is ready for pickup at the barangay office.",
+  collected: "Your document has been recorded as collected. Thank you.",
+});
+
 export const NOTIFICATION_TYPES = [
   "received",
   "revision",

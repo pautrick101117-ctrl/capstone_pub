@@ -52,7 +52,11 @@ test('No unapproved PDFs are generated for residents; template setup is explaine
  const api=await get('../src/routes/requests.js');
  assert.match(api,/Official Word files are restricted to authorized staff/);
  const editor=await get('../../client/src/components/TemplateManager.jsx');
- assert.match(editor,/You also need pickup instructions and office contact before approval/);
+ assert.match(editor,/\["Pickup instructions", config\.pickupInstructions\]/);
+ assert.match(editor,/\["Office contact", config\.officeContact\]/);
+ assert.match(editor,/Complete these fields before saving/);
+ assert.match(editor,/>Save Changes<\/Button>/);
+ assert.doesNotMatch(editor,/Approve new version|Save new draft/);
 });
 test('Source export stray text is removed from runtime JavaScript modules',async()=>{
  const jwt=await get('../src/lib/jwt.js');

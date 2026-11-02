@@ -110,7 +110,8 @@ test("readiness endpoint performs a real database query", async () => {
   const server = await read("src/index.js");
   assert.match(server, /\/api\/health\/readiness/);
   assert.match(server, /from\("users"\)\.select\("id"\)\.limit\(1\)/);
-  assert.match(server, /res\.status\(503\)\.json\(\{ ok: false, database: "unavailable" \}\)/);
+  assert.match(server, /res\.status\(503\)\.json\(\{ ok: false, database: "unavailable", state: "degraded" \}\)/);
+  assert.match(server, /startup\.state !== "ready"/);
 });
 
 
