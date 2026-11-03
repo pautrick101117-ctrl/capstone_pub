@@ -21,6 +21,7 @@ const mapAnnouncement = (item) => ({
   type: item.type,
   createdAt: item.created_at,
   publishedAt: item.published_at || item.created_at,
+  eventAt: item.type === "announcement" ? item.event_at || null : null,
 });
 
 router.get("/landing", async (_req, res, next) => {

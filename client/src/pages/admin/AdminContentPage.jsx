@@ -7,7 +7,7 @@ import { useToast } from "../../context/toast";
 import { Button, Card, ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, Pagination, Skeleton, TableShell, TextArea, TextInput } from "../../components/ui";
 import { formatDateTime, toManilaDateTimeInput, fromManilaDateTimeInput } from "../../lib/format";
 
-const emptyForm = { id: "", title: "", body: "", date: "", image: null, preview: "", removeImage:false };
+const emptyForm = { id: "", title: "", body: "", date: "", eventAt: "", image: null, preview: "", removeImage:false };
 const pageSize = 6;
 
 const AdminContentPage = ({ type = "news" }) => {
@@ -60,28 +60,35 @@ const AdminContentPage = ({ type = "news" }) => {
   };
 
   const openEdit = (item) => {
-    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: toManilaDateTimeInput(item.published_at || item.created_at), image: null, preview: item.image_url || "", removeImage:false });
+    setFormSnapshot({ id: item.id, title: item.title || "", body: item.body || "", date: toManilaDateTimeInput(item.published_at || item.created_at), eventAt: toManilaDateTimeInput(item.event_at), image: null, preview: item.image_url || "", removeImage:false });
     setForm({
       id: item.id,
       title: item.title || "",
       body: item.body || "",
       date: toManilaDateTimeInput(item.published_at || item.created_at),
+      eventAt: toManilaDateTimeInput(item.event_at),
       image: null,
       preview: item.image_url || "",
+      removeImage: false,
     });
     setOpen(true);
   };
 
   const save = async (event) => {
     event.preventDefault();
-    if (!await reviewAction({ title: form.id ? `Confirm ${singular} Changes` : `Publish ${singular}?`, subject: form.title, before: items.find((item) => item.id === form.id) || {}, after: { title: form.title, body: form.body, date: form.date, photo: form.image }, confirmLabel: form.id ? "Save Changes" : "Publish" })) return;
+    if (type === "announcement" && form.eventAt && !fromManilaDateTimeInput(form.eventAt)) {
+      toast.error("Enter a valid activity date and time.");
+      return;
+    }
+    if (!await reviewAction({ title: form.id ? `Confirm ${singular} Changes` : `Publish ${singular}?`, subject: form.title, before: items.find((item) => item.id === form.id) || {}, after: { title: form.title, body: form.body, ...(type === "announcement" ? { activityDate: form.eventAt || "None", publishing: "Publish now" } : { date: form.date }), photo: form.image }, confirmLabel: form.id ? "Save Changes" : "Publish" })) return;
     setSaving(true);
 
     const formData = new FormData();
     formData.append("title", form.title);
     formData.append("body", form.body);
     formData.append("type", type);
-    if (form.date) formData.append("publishedAt", fromManilaDateTimeInput(form.date));
+    if (type === "news" && form.date) formData.append("publishedAt", fromManilaDateTimeInput(form.date));
+    if (type === "announcement") formData.append("eventAt", form.eventAt ? fromManilaDateTimeInput(form.eventAt) : "");
     if (form.image) formData.append("image", form.image);
     if (form.preview && !form.image) formData.append("imageUrl", form.preview);
     if (form.removeImage) formData.append("removeImage", "true");
@@ -156,6 +163,7 @@ const AdminContentPage = ({ type = "news" }) => {
                     <tr>
                       <th className="px-4 py-3 font-semibold">Title</th>
                       <th className="px-4 py-3 font-semibold">Published</th>
+                      {type === "announcement" ? <th className="px-4 py-3 font-semibold">Activity Schedule</th> : null}
                       <th className="px-4 py-3 font-semibold">Image</th>
                       <th className="px-4 py-3 font-semibold">Actions</th>
                     </tr>
@@ -165,6 +173,7 @@ const AdminContentPage = ({ type = "news" }) => {
                       <tr key={item.id} className="border-t border-stone-100 align-top transition hover:bg-stone-50/70">
                         <td className="px-4 py-4"><p className="font-semibold text-[var(--brand-900)]">{item.title}</p><p className="mt-1 line-clamp-3 max-w-2xl text-xs text-stone-500">{item.body}</p></td>
                         <td className="px-4 py-4 text-stone-600">{formatDateTime(item.published_at || item.created_at)}</td>
+                        {type === "announcement" ? <td className="px-4 py-4 text-stone-600">{item.event_at ? formatDateTime(item.event_at) : "Not scheduled"}</td> : null}
                         <td className="px-4 py-4">{item.image_url ? <img src={item.image_url} alt="" className="h-14 w-14 rounded-2xl object-cover" /> : <span className="text-stone-400">None</span>}</td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-2">
@@ -186,7 +195,14 @@ const AdminContentPage = ({ type = "news" }) => {
       <Modal open={open} onClose={() => !saving && closeEditor()} title={`${form.id ? "Edit" : "Create"} ${singular}`} description={form.id ? "Update the content, then save the changes." : "Review the title, message and image before publishing."}>
         <form className="space-y-4" onSubmit={save}>
           <TextInput label="Title" required maxLength={140} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-          <TextInput label="Post Date & Time (Philippine time)" type="datetime-local" max={toManilaDateTimeInput(new Date())} hint="Leave blank to publish now. Past dates are allowed for reports on completed activities." value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+          {type === "announcement" ? (
+            <>
+              <p className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-900">This announcement will be published immediately. You can announce activities happening in the future.</p>
+              <TextInput label="Activity Date & Time (optional, Philippine time)" type="datetime-local" hint="When will the announced activity happen? Future dates are allowed. Leave blank for general notices, or clear it to remove a schedule." value={form.eventAt} onChange={(event) => setForm((current) => ({ ...current, eventAt: event.target.value }))} />
+            </>
+          ) : (
+            <TextInput label="News Publication Date & Time (Philippine time)" type="datetime-local" max={toManilaDateTimeInput(new Date())} hint="Leave blank to publish now. Future publication dates are not supported for news." value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
+          )}
           <TextArea label="Body" required maxLength={3000} value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
           <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
             <span>Image Upload</span>

@@ -22,7 +22,7 @@ import { configuredHotlines, validateHotlines } from "../lib/hotlines.js";
 import { validateConcernLimits } from "../lib/concernLimits.js";
 import { attachCaseHistories, parseNewCaseResponse, updateCaseWithHistory } from "../lib/caseHistory.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
-import { publicationDate } from "../lib/publication.js";
+import { publicationDate, announcementEventDate } from "../lib/publication.js";
 import { buildHouseholdMember, buildHouseholdMembers, censusConflict, censusDate } from "../lib/census.js";
 import {
   buildUsername,
@@ -2176,7 +2176,16 @@ tableCrud({
       type: body.type,
     };
 
-    if (body.publishedAt || body.date || !existingId) payload.published_at = publicationDate(body.publishedAt || body.date);
+    if (body.type === "announcement") {
+      // Store when the notice is published separately from when its activity happens.
+      // Existing notices retain their original publish date when staff edit the schedule.
+      if (!existingId) payload.published_at = new Date().toISOString();
+      if (Object.prototype.hasOwnProperty.call(body, "eventAt")) {
+        payload.event_at = announcementEventDate(body.eventAt);
+      }
+    } else if (body.publishedAt || body.date || !existingId) {
+      payload.published_at = publicationDate(body.publishedAt || body.date);
+    }
 
     if (!existingId) {
       const residents = await getResidentRecipients(db);

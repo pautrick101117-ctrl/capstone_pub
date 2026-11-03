@@ -15,3 +15,22 @@ export const publicationDate = (value, now = new Date()) => {
   return date.toISOString();
 };
 
+
+// Announcements are published now; their optional activity date can be in the future.
+// The date must include an explicit timezone, as the editor sends Philippine time in UTC.
+export const announcementEventDate = (value) => {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const raw = String(value).trim();
+  const day = raw.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      !Number.isFinite(Date.parse(`${day}T00:00:00Z`)) ||
+      new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day ||
+      !/(?:Z|[+-]\d{2}:\d{2})$/.test(raw)) {
+    throw Object.assign(new Error("Enter a valid activity date and time with a time zone."), { status: 400 });
+  }
+  const instant = new Date(raw);
+  if (!Number.isFinite(instant.getTime())) {
+    throw Object.assign(new Error("Enter a valid activity date and time."), { status: 400 });
+  }
+  return instant.toISOString();
+};
