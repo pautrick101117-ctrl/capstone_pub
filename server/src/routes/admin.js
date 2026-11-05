@@ -775,7 +775,7 @@ router.get("/users", async (_req, res, next) => {
   }
 });
 
-router.post("/users", idUpload.array("idImages", 5), persistentLimit("admin-create-resident", {max:10,windowSeconds:3600}), async (req, res, next) => {
+router.post("/users", idUpload.array("idImages", 5), async (req, res, next) => {
   try {
     const db = requireSupabase();
     const firstName = `${req.body.firstName || ""}`.trim();

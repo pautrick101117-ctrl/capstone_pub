@@ -52,9 +52,20 @@ export const submissionScope = (req) => `${req.method}:${req.baseUrl || ''}${req
   .toLowerCase().replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/g, '/:id')
   .replace(/\/[0-9]+(?=\/|$)/g, '/:id').replace(/\/+$/, '');
 
+// Only these POST registrations bypass submission counters. Match the entire
+// mounted path (including one optional trailing slash, as Express does), never
+// a prefix or a normalized operation scope. Authentication must already have
+// resolved the same live staff account used by the router's authorization.
+const isStaffRegistration = (req) => req.method === 'POST'
+  && req.currentUser?.id && req.auth?.sub === req.currentUser.id
+  && ['admin', 'super_admin'].includes(req.currentUser.role)
+  && /^\/api\/admin\/(?:users|census_households(?:\/batch|\/[^/]+\/members)?)\/?$/i
+    .test(`${req.baseUrl || ''}${req.path || ''}`);
+
 export const submissionLimiter = (req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.submissionLimitChecked
       || req.path === '/audit/page-view') return next();
+  if (isStaffRegistration(req)) return next();
   const staff = ['admin', 'super_admin'].includes(req.currentUser?.role);
   // A staff member processing many confirmations is not a resident spamming requests.
   // High-risk auth and ID operations retain their own stricter endpoint limiters.

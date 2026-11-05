@@ -10,7 +10,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY='test-service-role';
 process.env.JWT_SECRET='isolated-test-secret-at-least-32-characters';
 const {supabase}=await import('../src/lib/supabase.js');
 const {default:authRoutes}=await import('../src/routes/auth.js');
-const {submissionLimiter,rateKey}=await import('../src/middleware/persistentLimit.js');
+const {submissionLimiter,submissionScope,rateKey}=await import('../src/middleware/persistentLimit.js');
 const originalRpc=supabase.rpc;
 const originalFrom=supabase.from;
 const counters=new Map();
@@ -91,5 +91,73 @@ test('submission protection fails closed if persistent counters are unavailable'
   unavailable=true;
   const response=await login('ana','Wrong123','resident','203.0.113.1');
   assert.equal(response.status,503);assert.equal((await response.json()).code,'RATE_LIMIT_SERVICE_UNAVAILABLE');
+});
+
+const invokeSubmission = req => new Promise(resolve => submissionLimiter(req, {setHeader() {}}, resolve));
+const staffRequest = (path, role = 'admin') => ({
+  method: 'POST', baseUrl: '/api/admin', path, ip: '192.0.2.1',
+  auth: {sub: 'staff'}, currentUser: {id: 'staff', role},
+});
+
+for (const role of ['admin', 'super_admin']) test(`${role} registration bypasses only the four exact POST routes`, async () => {
+  for (const path of ['/users', '/census_households', '/census_households/batch',
+    '/census_households/11111111-1111-4111-8111-111111111111/members', '/census_households/123/members',
+    '/users/', '/CENSUS_HOUSEHOLDS/BATCH/']) {
+    for (let i = 0; i < 100; i++) assert.equal(await invokeSubmission(staffRequest(path, role)), undefined);
+  }
+  assert.equal(counters.size, 0, 'exempt registrations must not read or increment counters');
+});
+
+test('registration exemptions do not cover neighboring paths, other methods, mounts, or unverified identities', async () => {
+  const requests = [
+    ...['/users/123', '/users/batch', '/users/reset-password', '/users-extra', '/users//',
+      '/census_households/123', '/census_households/123/restore', '/census_households/batch/extra',
+      '/census_households/123/members/456', '/census_households/123/members/456/head',
+      '/census_households/123/members/extra', '/census_households//members', '/resident-id-types']
+      .map(path => staffRequest(path)),
+    ...['PUT', 'PATCH', 'DELETE'].map(method => ({...staffRequest('/users'), method})),
+    {...staffRequest('/users'), baseUrl: '/api/super-admin'},
+    {...staffRequest('/users'), baseUrl: '/api/auth'},
+    {...staffRequest('/users'), baseUrl: '/api/admin/other'},
+    {...staffRequest('/users'), auth: undefined},
+    {...staffRequest('/users'), auth: {sub: 'different-user'}},
+    {...staffRequest('/users'), currentUser: undefined},
+    {...staffRequest('/users'), currentUser: {role: 'admin'}},
+    staffRequest('/users', 'resident'),
+    staffRequest('/users', 'staff'),
+  ];
+  for (const req of requests) {
+    counters.clear();
+    counters.set(rateKey(`submission:${submissionScope(req)}`, req.currentUser?.id || req.ip), 60);
+    const error = await invokeSubmission(req);
+    assert.equal(error?.status, 429, JSON.stringify(req));
+    assert.equal(error.code, 'RATE_LIMITED');
+  }
+});
+
+test('an exempt registration does not mark unrelated nested limiter checks as completed', async () => {
+  const req = staffRequest('/users');
+  assert.equal(await invokeSubmission(req), undefined);
+  assert.equal(req.submissionLimitChecked, undefined);
+  req.baseUrl = '/api/admin/other';
+  unavailable = true;
+  assert.equal((await invokeSubmission(req)).code, 'RATE_LIMIT_SERVICE_UNAVAILABLE');
+});
+
+for (const endpoint of ['request-code', 'reset']) test(`password ${endpoint} retains its five-attempt account limit`, async () => {
+  // Rejected submissions count too, with no email or database mutation needed.
+  for (let i = 0; i < 5; i++) {
+    const response = await fetch(`${baseUrl}/auth/forgot-password/${endpoint}`, {
+      method: 'POST', headers: {'content-type': 'application/json', 'x-forwarded-for': '203.0.113.22'}, body: '{}',
+    });
+    assert.equal(response.status, 400);
+    await response.json();
+  }
+  const response = await fetch(`${baseUrl}/auth/forgot-password/${endpoint}`, {
+    method: 'POST', headers: {'content-type': 'application/json', 'x-forwarded-for': '203.0.113.22'}, body: '{}',
+  });
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).code, 'RATE_LIMITED');
+  assert.equal(response.headers.get('retry-after'), '600');
 });
 

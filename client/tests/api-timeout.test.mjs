@@ -28,8 +28,29 @@ test('HTTP error provides status, reference, and a readable message', async () =
     {status:429,headers:{'Content-Type':'application/json','Retry-After':'60'}}));
   try {
     await assert.rejects(api('/auth/login'), e => e.status === 429 && e.code === 'RATE_LIMITED' &&
-      e.reference === 'UI-123' && e.retryAfter === '60' && /Too many attempts/i.test(e.message));
+      e.reference === 'UI-123' && e.retryAfter === '60' && /Too many attempts/i.test(e.message) && /Retry in 60 seconds/.test(e.message));
   } finally {restore();}
+});
+
+test('rate-limit retry dates are displayed, while missing or invalid retry times remain readable', async () => {
+  for (const retryAfter of [new Date(Date.now() + 90_000).toUTCString(), 'invalid', null]) {
+    const restore = installFetch(async () => new Response(JSON.stringify({message:'Please slow down.',code:'RATE_LIMITED'}), {
+      status:429, headers:{'Content-Type':'application/json', ...(retryAfter ? {'Retry-After':retryAfter} : {})},
+    }));
+    try {
+      await assert.rejects(api('/requests'), e => e.status === 429 && e.retryAfter === retryAfter &&
+        (retryAfter && retryAfter !== 'invalid' ? /Retry in \d+ seconds/.test(e.message) : e.message === 'Please slow down.'));
+    } finally { restore(); }
+  }
+});
+
+test('an upstream email error retains its code and message without being labeled as an application rate limit', async () => {
+  const restore = installFetch(async () => new Response(JSON.stringify({message:'Resend could not accept the login email.',code:'ACCOUNT_EMAIL_DELIVERY_FAILED'}),
+    {status:502,headers:{'Content-Type':'application/json','Retry-After':'30'}}));
+  try {
+    await assert.rejects(api('/admin/users'), e => e.status === 502 && e.code === 'ACCOUNT_EMAIL_DELIVERY_FAILED' &&
+      e.message === 'Resend could not accept the login email.');
+  } finally { restore(); }
 });
 
 test('opaque server HTML errors are not shown as HTML to the user', async () => {

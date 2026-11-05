@@ -25,18 +25,26 @@ const parseResponse = async (response) => {
 
   if (!response.ok) {
     const details = payload && typeof payload === "object" ? payload : {};
-    const message = typeof details.message === "string" && details.message.trim()
+    let message = typeof details.message === "string" && details.message.trim()
       ? details.message : response.status === 429
         ? "Too many attempts. Wait a few minutes before retrying."
         : response.status >= 500
           ? "The Barangay Iba service is currently unavailable. Please try again."
           : "The request could not be completed. Please check your information.";
+    const retryAfter = response.headers.get("Retry-After");
+    if (response.status === 429 && retryAfter) {
+      const seconds = /^\d+$/.test(retryAfter)
+        ? Number(retryAfter) : Math.ceil((Date.parse(retryAfter) - Date.now()) / 1000);
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        message += ` Retry in ${Math.max(1, seconds)} seconds.`;
+      }
+    }
     const reference = typeof details.reference === "string" ? details.reference : null;
     throw new ApiError(reference ? `${message} Reference: ${reference}` : message, {
       status: response.status,
       code: details.code || `HTTP_${response.status}`,
       reference,
-      retryAfter: response.headers.get("Retry-After"),
+      retryAfter,
     });
   }
   return payload;

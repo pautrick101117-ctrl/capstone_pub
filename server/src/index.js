@@ -96,6 +96,7 @@ export const createApp = () => {
         );
       },
       credentials: false,
+      exposedHeaders: ["Retry-After"],
     })
   );
 
