@@ -7,6 +7,7 @@ import { useAuth } from "../../context/auth";
 import { Badge, ButtonLink, Card, EmptyState, ErrorState, Modal, Skeleton } from "../../components/ui";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
 import { isResidentSession, residentDestination } from "../../lib/residentAccess";
+import PostImage from "../../components/PostImage";
 
 const emptyLandingData = {
   statistics: {},
@@ -126,12 +127,13 @@ const Home = () => {
       </section>
 
       <Modal open={Boolean(selectedItem)} onClose={() => setSelectedItem(null)} title={selectedItem?.title || "Details"} description={selectedItem ? selectedItem.modalType === "event" ? `${formatDate(selectedItem.date)}${selectedItem.time ? ` · ${selectedItem.time}` : ""}` : formatDateTime(selectedItem.publishedAt || selectedItem.createdAt) : ""} widthClass="max-w-4xl">
-        {selectedItem ? <div className="space-y-5">{selectedItem.imageUrl ? <img src={selectedItem.imageUrl} alt={selectedItem.title} className="h-72 w-full rounded-3xl object-cover" /> : null}{selectedItem.location ? <div className="inline-flex rounded-full bg-[var(--brand-50)] px-4 py-2 text-sm font-semibold text-[var(--brand-700)]">{selectedItem.location}</div> : null}{selectedItem.eventAt ? <div className="rounded-xl bg-[var(--brand-50)] px-4 py-3 text-sm font-semibold text-[var(--brand-700)]">Activity Date & Time: {formatDateTime(selectedItem.eventAt)}</div> : null}<p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">{selectedItem.description || selectedItem.body}</p></div> : null}
+        {selectedItem ? <div className="space-y-5">{selectedItem.imageUrl ? <PostImage src={selectedItem.imageUrl} alt={selectedItem.title} frameClassName="h-[min(55vh,32rem)] w-full" imageClassName="p-2" /> : null}{selectedItem.location ? <div className="inline-flex rounded-full bg-[var(--brand-50)] px-4 py-2 text-sm font-semibold text-[var(--brand-700)]">{selectedItem.location}</div> : null}{selectedItem.eventAt ? <div className="rounded-xl bg-[var(--brand-50)] px-4 py-3 text-sm font-semibold text-[var(--brand-700)]">Activity Date & Time: {formatDateTime(selectedItem.eventAt)}</div> : null}<p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">{selectedItem.description || selectedItem.body}</p></div> : null}
       </Modal>
     </div>
   );
 };
 
 export default Home;
+
 
 

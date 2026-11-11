@@ -1,5 +1,6 @@
 import { useReviewAction, useUnsavedForm, useUnsavedNavigation } from "../../hooks/useActionReview";
 import { Edit3, ImageUp, Plus, Trash2 } from "lucide-react";
+import PostImage from "../../components/PostImage";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../context/auth";
@@ -52,6 +53,12 @@ const AdminContentPage = ({ type = "news" }) => {
   useEffect(() => {
     setPage(1);
   }, [type]);
+
+  // Clean up temporary browser previews after replacement or editor dismissal.
+  useEffect(() => {
+    const preview = form.preview;
+    return () => { if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview); };
+  }, [form.preview]);
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -174,7 +181,7 @@ const AdminContentPage = ({ type = "news" }) => {
                         <td className="px-4 py-4"><p className="font-semibold text-[var(--brand-900)]">{item.title}</p><p className="mt-1 line-clamp-3 max-w-2xl text-xs text-stone-500">{item.body}</p></td>
                         <td className="px-4 py-4 text-stone-600">{formatDateTime(item.published_at || item.created_at)}</td>
                         {type === "announcement" ? <td className="px-4 py-4 text-stone-600">{item.event_at ? formatDateTime(item.event_at) : "Not scheduled"}</td> : null}
-                        <td className="px-4 py-4">{item.image_url ? <img src={item.image_url} alt="" className="h-14 w-14 rounded-2xl object-cover" /> : <span className="text-stone-400">None</span>}</td>
+                        <td className="px-4 py-4">{item.image_url ? <PostImage src={item.image_url} alt={item.title} frameClassName="h-20 w-24" imageClassName="p-1" compact /> : <span className="text-stone-400">None</span>}</td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-2">
                             <Button variant="secondary" onClick={() => openEdit(item)}><Edit3 className="h-4 w-4" />Edit</Button>
@@ -204,15 +211,26 @@ const AdminContentPage = ({ type = "news" }) => {
             <TextInput label="News Publication Date & Time (Philippine time)" type="datetime-local" max={toManilaDateTimeInput(new Date())} hint="Leave blank to publish now. Future publication dates are not supported for news." value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} />
           )}
           <TextArea label="Body" required maxLength={3000} value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} />
-          <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-            <span>Image Upload</span>
-            <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">
-              <ImageUp className="h-4 w-4" /><span>{form.image ? form.image.name : "Choose image"}</span>
-              <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; setForm((current) => ({ ...current, image: file || null, preview: file ? URL.createObjectURL(file) : current.preview, removeImage:false })); }} />
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-stone-700">Image Upload (optional)</p>
+            <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-600 hover:border-[var(--brand-400)]">
+              <ImageUp className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 break-all">{form.image ? form.image.name : "Choose an image"}</span>
+              <input type="file" accept="image/*" className="sr-only" onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  const localPreview = URL.createObjectURL(file);
+                  setForm((current) => ({ ...current, image: file, preview: localPreview, removeImage: false }));
+                }
+                event.target.value = "";
+              }} />
             </label>
-          </label>
-          {form.preview ? <div className="space-y-2"><img src={form.preview} alt="Preview" className="h-56 w-full rounded-3xl object-cover" />
-            <Button type="button" variant="secondary" onClick={()=>setForm(v=>({...v,image:null,preview:"",removeImage:true}))}>Remove selected picture</Button></div> : null}
+          </div>
+          {form.preview ? <div className="space-y-2">
+            <p className="text-xs text-stone-600">Entire image preview. Click to see it larger.</p>
+            <PostImage src={form.preview} alt={form.title || "Selected news image"} frameClassName="h-72 sm:h-96 w-full" imageClassName="p-2" />
+            <Button type="button" variant="secondary" onClick={() => setForm((current) => ({ ...current, image: null, preview: "", removeImage: true }))}>Remove selected picture</Button>
+          </div> : null}
           <div className="flex flex-wrap gap-3"><Button type="submit" loading={saving}>{form.id ? "Save Changes" : "Publish"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>Cancel</Button></div>
         </form>
       </Modal>
@@ -232,5 +250,6 @@ const AdminContentPage = ({ type = "news" }) => {
 };
 
 export default AdminContentPage;
+
 
 

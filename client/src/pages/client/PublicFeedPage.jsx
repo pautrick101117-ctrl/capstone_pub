@@ -4,6 +4,7 @@ import { NavLink } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Card, EmptyState, ErrorState, Modal, PageHeader, Pagination, Skeleton } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
+import PostImage from "../../components/PostImage";
 
 const PublicFeedPage = ({ type = "news" }) => {
   const [items, setItems] = useState([]);
@@ -42,7 +43,7 @@ const PublicFeedPage = ({ type = "news" }) => {
 
       {isNews ? (
         <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {loading ? Array.from({ length: 6 }, (_, index) => <Card key={index} className="space-y-4"><Skeleton className="h-48 w-full" /><Skeleton className="h-5 w-2/3" /><Skeleton className="h-4 w-24" /><Skeleton className="h-16 w-full" /></Card>) : items.map((item) => <NavLink key={item.id} to={`/news/${item.id}`} className="text-left"><Card className="h-full overflow-hidden p-0 hover:-translate-y-1 hover:border-[var(--brand-200)] hover:shadow-md"><div className="h-48 bg-[var(--brand-50)]">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-[var(--brand-100)] to-white text-[var(--brand-600)]"><Newspaper className="h-9 w-9" /></div>}</div><div className="space-y-3 p-5"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-500)]">{formatDateTime(item.publishedAt || item.createdAt || item.created_at)}</p><h2 className="text-xl font-bold text-[var(--brand-900)]">{item.title}</h2><p className="line-clamp-4 text-sm leading-6 text-stone-600">{item.body}</p><span className="inline-block text-sm font-bold text-[var(--brand-600)]">Read Article →</span></div></Card></NavLink>)}
+          {loading ? Array.from({ length: 6 }, (_, index) => <Card key={index} className="space-y-4"><Skeleton className="h-48 w-full" /><Skeleton className="h-5 w-2/3" /><Skeleton className="h-4 w-24" /><Skeleton className="h-16 w-full" /></Card>) : items.map((item) => <NavLink key={item.id} to={`/news/${item.id}`} className="text-left"><Card className="h-full overflow-hidden p-0 hover:-translate-y-1 hover:border-[var(--brand-200)] hover:shadow-md"><div className="h-48 bg-[var(--brand-50)]">{item.imageUrl ? <PostImage src={item.imageUrl} alt={item.title} interactive={false} frameClassName="h-full w-full rounded-none border-0" imageClassName="p-1" /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-[var(--brand-100)] to-white text-[var(--brand-600)]"><Newspaper className="h-9 w-9" /></div>}</div><div className="space-y-3 p-5"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-500)]">{formatDateTime(item.publishedAt || item.createdAt || item.created_at)}</p><h2 className="text-xl font-bold text-[var(--brand-900)]">{item.title}</h2><p className="line-clamp-4 text-sm leading-6 text-stone-600">{item.body}</p><span className="inline-block text-sm font-bold text-[var(--brand-600)]">Read Article →</span></div></Card></NavLink>)}
         </div>
       ) : (
         <div className="mt-8 space-y-4">
@@ -54,11 +55,12 @@ const PublicFeedPage = ({ type = "news" }) => {
       {!loading && !error ? <Pagination page={page} totalPages={pages} onPageChange={setPage} className="mt-8" /> : null}
       <div className="mt-8 text-sm text-stone-500"><NavLink to="/" className="font-semibold text-[var(--brand-600)] hover:underline">Back to home</NavLink></div>
 
-      <Modal open={!isNews && Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title || "Update Details"} description={selected ? formatDateTime(selected.publishedAt || selected.createdAt || selected.created_at) : ""} widthClass="max-w-4xl">{selected ? <div className="space-y-5">{selected.imageUrl ? <img src={selected.imageUrl} alt={selected.title} className="h-72 w-full rounded-3xl object-cover" /> : null}{selected.eventAt ? <p className="rounded-xl bg-[var(--brand-50)] p-3 text-sm font-semibold text-[var(--brand-700)]">Activity Date & Time: {formatDateTime(selected.eventAt)}</p> : null}<p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">{selected.body}</p></div> : null}</Modal>
+      <Modal open={!isNews && Boolean(selected)} onClose={() => setSelected(null)} title={selected?.title || "Update Details"} description={selected ? formatDateTime(selected.publishedAt || selected.createdAt || selected.created_at) : ""} widthClass="max-w-4xl">{selected ? <div className="space-y-5">{selected.imageUrl ? <PostImage src={selected.imageUrl} alt={selected.title} frameClassName="h-[min(55vh,32rem)] w-full" imageClassName="p-2" /> : null}{selected.eventAt ? <p className="rounded-xl bg-[var(--brand-50)] p-3 text-sm font-semibold text-[var(--brand-700)]">Activity Date & Time: {formatDateTime(selected.eventAt)}</p> : null}<p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">{selected.body}</p></div> : null}</Modal>
     </section>
   );
 };
 
 export default PublicFeedPage;
+
 
 
