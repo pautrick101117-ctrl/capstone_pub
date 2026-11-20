@@ -84,3 +84,28 @@ export const formatBorrowDateTime = (value) => {
   return new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 };
 
+// datetime-local values are interpreted in Philippine time, independently of
+// the browser's timezone. The resource limit is an elapsed duration in minutes.
+export const getBorrowingSchedule = ({ startAt, dueAt, asset, now = Date.now() }) => {
+  const start = fromManilaInput(startAt);
+  const due = fromManilaInput(dueAt);
+  const maximum = Number(asset?.max_borrow_minutes);
+  const configured = asset?.max_borrow_minutes != null && Number.isInteger(maximum) && maximum >= 60 && maximum <= 129600;
+  const durationMinutes = start && due && due > start ? (due - start) / 60_000 : null;
+  const latestReturnAt = start && configured ? toManilaInput(new Date(start.getTime() + maximum * 60_000)) : "";
+  const errors = { startAt: "", dueAt: "", resource: "" };
+
+  if (!start) errors.startAt = startAt ? "Enter a valid borrowing date and time." : "Select a borrowing date and time.";
+  else if (start.getTime() < Math.ceil(now / 60_000) * 60_000) errors.startAt = "Borrow From must be a future date and time.";
+  if (!due) errors.dueAt = dueAt ? "Enter a valid return date and time." : "Select a return date and time.";
+  else if (start && due <= start) errors.dueAt = "Return By must be later than Borrow From.";
+
+  if (!asset) errors.resource = "Select a facility or item to check your schedule.";
+  else if (!configured) errors.resource = "The barangay must set a maximum borrowing duration for this resource before it can be requested.";
+  else if (durationMinutes > maximum) {
+    errors.dueAt = `The selected duration is ${formatBorrowDuration(durationMinutes)}. ${asset.name || "This resource"} may be borrowed for a maximum of ${formatBorrowDuration(maximum)}. Choose a return time on or before ${formatBorrowDateTime(fromManilaInput(latestReturnAt))}.`;
+  }
+
+  return { start, due, durationMinutes, latestReturnAt, errors, isValid: !Object.values(errors).some(Boolean) };
+};
+

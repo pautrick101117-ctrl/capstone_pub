@@ -40,13 +40,14 @@ test('Staff submission limit is higher without removing resident protection',asy
  assert.match(limiter,/staff \? 60 : 10/);
  assert.match(limiter,/RATE_LIMITED/);
 });
-test('Borrowing shows current in-use resources and prevents unavailable selection',async()=>{
+test('Borrowing shows current in-use resources and prevents unavailable requests',async()=>{
  const api=await get('../src/routes/borrowing.js');
  assert.match(api,/isInUseNow/);
  assert.match(api,/currentAvailableQuantity/);
  const ui=await get('../../client/src/pages/client/BorrowingPage.jsx');
  assert.match(ui,/availabilityChecked && !asset\.isAvailable/);
- assert.match(ui,/How many hours do you need/);
+ assert.doesNotMatch(ui,/How many hours do you need/);
+ assert.match(ui,/!selected\?\.isAvailable/);
 });
 test('No unapproved PDFs are generated for residents; template setup is explained',async()=>{
  const api=await get('../src/routes/requests.js');

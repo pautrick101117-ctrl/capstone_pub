@@ -9,7 +9,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import CaseHistory from "../../components/CaseHistory";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/auth";
 import { useToast } from "../../context/toast";
 import { api } from "../../lib/api";
@@ -26,7 +26,7 @@ import {
   TextArea,
   TextInput,
 } from "../../components/ui";
-import { getBorrowingStatusMeta, isFacility, RETURN_CONDITION_LABELS, fromManilaInput, toManilaInput, formatBorrowDuration, formatBorrowDateTime } from "../../lib/borrowing";
+import { getBorrowingStatusMeta, getBorrowingSchedule, isFacility, RETURN_CONDITION_LABELS, fromManilaInput, toManilaInput, formatBorrowDuration, formatBorrowDateTime } from "../../lib/borrowing";
 
 const initialWindow = () => {
   const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -64,8 +64,10 @@ const BorrowingPage = () => {
   const [form, setForm] = useState(blankRequest);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [availabilityChecked, setAvailabilityChecked] = useState(false);
-  const [durationHours, setDurationHours] = useState("8");
+  const [checkedSchedule, setCheckedSchedule] = useState(null);
+  const [scheduleTouched, setScheduleTouched] = useState({ startAt: false, dueAt: false });
+  const [now, setNow] = useState(Date.now);
+  const availabilityRequest = useRef({ id: 0, controller: null });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [cancelRequest, setCancelRequest] = useState(null);
   const [mineLoading, setMineLoading] = useState(true);
@@ -73,8 +75,32 @@ const BorrowingPage = () => {
   const [availabilityError, setAvailabilityError] = useState("");
   const [minePage, setMinePage] = useState(1);
 
-  const minimumDateTime = toManilaInput(new Date());
+  const minimumDateTime = toManilaInput(new Date(Math.ceil(now / 60_000) * 60_000));
   const visibleRequests = useMemo(() => requests.slice((minePage - 1) * pageSize, minePage * pageSize), [requests, minePage]);
+  const selected = useMemo(() => assets.find((asset) => asset.id === form.assetId) || null, [assets, form.assetId]);
+  const facilities = useMemo(() => assets.filter((asset) => asset.category === "facility"), [assets]);
+  const items = useMemo(() => assets.filter((asset) => asset.category === "item"), [assets]);
+  const schedule = getBorrowingSchedule({ ...windowForm, asset: selected, now });
+  const scheduleKey = JSON.stringify([form.assetId, windowForm.startAt, windowForm.dueAt]);
+  const availabilityChecked = checkedSchedule === scheduleKey && schedule.isValid;
+  const startError = windowForm.startAt || scheduleTouched.startAt ? schedule.errors.startAt : "";
+  const dueError = windowForm.dueAt || scheduleTouched.dueAt ? schedule.errors.dueAt : "";
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    const request = availabilityRequest.current;
+    return () => { window.clearInterval(timer); request.id += 1; request.controller?.abort(); };
+  }, []);
+
+  const invalidateAvailability = () => {
+    availabilityRequest.current.id += 1;
+    availabilityRequest.current.controller?.abort();
+    availabilityRequest.current.controller = null;
+    setChecking(false);
+    setCheckedSchedule(null);
+    setAvailabilityError("");
+    setReviewOpen(false);
+  };
 
   const loadAssets = useCallback(async () => {
     setAvailabilityError("");
@@ -100,51 +126,41 @@ const BorrowingPage = () => {
   }, [token]);
 
   const validateWindow = () => {
-    const start = fromManilaInput(windowForm.startAt)?.getTime();
-    const due = fromManilaInput(windowForm.dueAt)?.getTime();
-    if (!windowForm.startAt || !windowForm.dueAt || !Number.isFinite(start) || !Number.isFinite(due)) {
-      toast.error("Choose a valid borrowing start and return date.");
-      return false;
-    }
-    if (start < Date.now() - 60_000) {
-      toast.error("Borrowing start cannot be in the past.");
-      return false;
-    }
-    if (due <= start) {
-      toast.error("Return date must be after the borrowing start.");
-      return false;
-    }
-    if (selected?.max_borrow_minutes == null) {
-      toast.error("This resource requires maximum duration setup by the barangay.");
-      return false;
-    }
-    if (due - start > selected.max_borrow_minutes * 60_000) {
-      toast.error(`${selected.name} can be borrowed for at most ${formatBorrowDuration(selected.max_borrow_minutes)}.`);
-      return false;
-    }
-    return true;
+    const currentTime = Date.now();
+    const current = getBorrowingSchedule({ ...windowForm, asset: selected, now: currentTime });
+    setNow(currentTime);
+    setScheduleTouched({ startAt: true, dueAt: true });
+    if (!current.isValid) toast.error(current.errors.startAt || current.errors.dueAt || current.errors.resource);
+    return current.isValid;
   };
 
   const checkAvailability = async () => {
+    if (availabilityRequest.current.controller) return;
     if (!selected) return toast.error("Select a facility or item first.");
     if (!validateWindow()) return;
+    const controller = new AbortController();
+    const request = ++availabilityRequest.current.id;
+    availabilityRequest.current.controller = controller;
     setChecking(true);
+    setCheckedSchedule(null);
     setAvailabilityError("");
     try {
       const params = new URLSearchParams({
         startAt: fromManilaInput(windowForm.startAt).toISOString(),
         dueAt: fromManilaInput(windowForm.dueAt).toISOString(),
       });
-      const data = await api(`/borrowing/assets?${params}`, { token });
+      const data = await api(`/borrowing/assets?${params}`, { token, signal: controller.signal });
+      if (request !== availabilityRequest.current.id || controller.signal.aborted) return;
       setAssets(data.assets || []);
-      setAvailabilityChecked(true);
+      setCheckedSchedule(scheduleKey);
       // Keep the selected resource so an unavailable-time or duration error is explainable.
 
     } catch (error) {
-      setAvailabilityChecked(false);
+      if (request !== availabilityRequest.current.id || controller.signal.aborted) return;
+      setCheckedSchedule(null);
       setAvailabilityError(error.message || "Unable to check resource availability.");
     } finally {
-      setChecking(false);
+      if (request === availabilityRequest.current.id) { setChecking(false); availabilityRequest.current.controller = null; }
     }
   };
 
@@ -154,41 +170,25 @@ const BorrowingPage = () => {
     loadAssets();
   }, [loadAssets, loadMine, token]);
 
-  const selected = useMemo(() => assets.find((asset) => asset.id === form.assetId) || null, [assets, form.assetId]);
-  const facilities = useMemo(() => assets.filter((asset) => asset.category === "facility"), [assets]);
-  const items = useMemo(() => assets.filter((asset) => asset.category === "item"), [assets]);
-
-  const applyDuration = (hours) => {
-    setDurationHours(hours);
-    const start = fromManilaInput(windowForm.startAt);
-    const num = Number(hours);
-    if (!start || !Number.isFinite(num) || num <= 0 || !selected?.max_borrow_minutes) return;
-    if (num * 60 > selected.max_borrow_minutes) {
-      toast.error(`Maximum borrowing time is ${formatBorrowDuration(selected.max_borrow_minutes)}.`);
-      return;
-    }
-    setWindowForm(current => ({...current, dueAt:toManilaInput(new Date(start.getTime()+num*3600000))}));
-    setAvailabilityChecked(false);
-  };
-
   const changeWindow = (key, value) => {
+    invalidateAvailability();
     setWindowForm((current) => ({ ...current, [key]: value }));
-    setAvailabilityChecked(false);
     // The resource remains selected; only date-dependent availability becomes stale.
   };
 
   const selectAsset = (asset) => {
-    if (!asset.durationConfigured || (availabilityChecked && !asset.isAvailable)) return;
-    setAvailabilityChecked(false);
+    if (!asset.durationConfigured || saving) return;
+    invalidateAvailability();
     setForm((current) => ({
       ...current,
       assetId: asset.id,
-      quantity: isFacility(asset) ? 1 : Math.min(Math.max(Number(current.quantity) || 1, 1), asset.availableQuantity),
+      quantity: isFacility(asset) ? 1 : Math.min(Math.max(Number(current.quantity) || 1, 1), asset.total_quantity),
       eventLocation: isFacility(asset) ? asset.name : current.eventLocation,
     }));
   };
 
   const validateRequest = () => {
+    if (!validateWindow()) return false;
     if (!availabilityChecked) {
       toast.error("Check availability for your selected schedule first.");
       return false;
@@ -214,7 +214,7 @@ const BorrowingPage = () => {
       toast.error("Please agree to the borrowing and return responsibility before continuing.");
       return false;
     }
-    return validateWindow();
+    return true;
   };
 
   const openReview = (event) => {
@@ -240,7 +240,7 @@ const BorrowingPage = () => {
       toast.success(data.message || "Borrowing request submitted for barangay review.");
       setForm(blankRequest);
       setReviewOpen(false);
-      setAvailabilityChecked(false);
+      invalidateAvailability();
       await Promise.all([loadMine(), api("/borrowing/assets", { token }).then((result) => setAssets(result.assets || [])), refreshNotifications()]);
     } catch (error) {
       toast.error(error.message);
@@ -251,12 +251,13 @@ const BorrowingPage = () => {
 
   const confirmCancel = async () => {
     if (!cancelRequest) return;
+    invalidateAvailability();
     setSaving(true);
     try {
       const data = await api(`/borrowing/requests/${cancelRequest.id}/cancel`, { method: "POST", token });
       toast.success(data.message);
       setCancelRequest(null);
-      await Promise.all([loadMine(), checkAvailability(), refreshNotifications()]);
+      await Promise.all([loadMine(), selected && schedule.isValid ? checkAvailability() : loadAssets(), refreshNotifications()]);
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -277,7 +278,7 @@ const BorrowingPage = () => {
           {list.map((asset) => {
             const selectedAsset = form.assetId === asset.id;
             return (
-              <Card key={asset.id} className={`${!asset.isAvailable ? "opacity-70" : ""} ${selectedAsset ? "ring-2 ring-[var(--brand-400)]" : ""}`}>
+              <Card key={asset.id} className={`${!asset.durationConfigured || (availabilityChecked && !asset.isAvailable) ? "opacity-70" : ""} ${selectedAsset ? "ring-2 ring-[var(--brand-400)]" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="rounded-2xl bg-[var(--brand-50)] p-3 text-[var(--brand-600)]"><PackageCheck className="h-5 w-5" /></div>
                   <Badge tone={!asset.durationConfigured ? "warning" : availabilityChecked && !asset.isAvailable ? "danger" : "info"}>
@@ -297,10 +298,10 @@ const BorrowingPage = () => {
                   type="button"
                   variant={selectedAsset ? "primary" : "secondary"}
                   className="mt-4 w-full"
-                  disabled={!asset.durationConfigured || (availabilityChecked && !asset.isAvailable)}
+                  disabled={!asset.durationConfigured || saving}
                   onClick={() => selectAsset(asset)}
                 >
-                  {availabilityChecked && !asset.isAvailable ? "Unavailable — change dates" : selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select resource"}
+                  {selectedAsset ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : "Select resource"}
                 </Button>
               </Card>
             );
@@ -351,47 +352,53 @@ const BorrowingPage = () => {
           <p className="mt-1 text-sm text-stone-500">Select the full period you need the resource, including the expected return time.</p>
         </div>
         {selected ? <div className="mb-4 rounded-2xl bg-[var(--brand-50)] p-4 text-sm">
-          Selected: <strong>{selected.name}</strong> · Maximum: <strong>{formatBorrowDuration(selected.max_borrow_minutes)}</strong>
-          <p className="mt-1 text-stone-600">Times are Philippine time (UTC+08:00). The barangay checks the maximum again when you submit.</p>
+          Selected Resource: <strong>{selected.name}</strong>
+          <p className="mt-1 text-stone-600">All dates and times use Philippine time (UTC+08:00). A one-day borrowing limit means 24 hours from Borrow From.</p>
         </div> : <p className="mb-4 text-sm text-amber-700">Select a resource above to set the applicable return deadline.</p>}
-        {selected && <div className="mb-4 space-y-2 rounded-xl border border-stone-200 p-4">
-          <label htmlFor="borrow-duration-hours" className="block text-sm font-semibold">How many hours do you need?</label>
-          <select id="borrow-duration-hours" className="w-full rounded-xl border border-stone-300 p-3" value={durationHours !== "custom" && Number(durationHours)*60 > selected.max_borrow_minutes ? "custom" : durationHours}
-            onChange={e=>{const value=e.target.value; if(value === "custom") {setDurationHours(value);return;}applyDuration(value);}}>
-            {[1,2,4,8,12,24,48,72].filter(h=>h*60<=selected.max_borrow_minutes).map(h=><option key={h} value={String(h)}>{h} hour{h!==1?"s":""}</option>)}
-            <option value="custom">Custom — select a precise Return By time</option>
-          </select>
-          <p className="text-xs text-stone-500">Maximum: {formatBorrowDuration(selected.max_borrow_minutes)}. Changing the hours updates Return By. You can also enter a precise time below.</p>
-        </div>}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] xl:items-start">
           <TextInput
-            label="Borrow From *"
+            label="Borrow From"
+            aria-label="Borrow From"
             type="datetime-local"
             min={minimumDateTime}
             value={windowForm.startAt}
             onChange={(event) => changeWindow("startAt", event.target.value)}
+            onBlur={() => setScheduleTouched((current) => ({ ...current, startAt: true }))}
+            error={startError}
+            disabled={saving}
             required
           />
           <TextInput
-            label="Return By *"
+            label="Return By"
+            aria-label="Return By"
             type="datetime-local"
-            min={windowForm.startAt || minimumDateTime}
-            max={selected && fromManilaInput(windowForm.startAt) && selected.max_borrow_minutes ? toManilaInput(new Date(fromManilaInput(windowForm.startAt).getTime() + selected.max_borrow_minutes * 60_000)) : undefined}
+            min={schedule.start ? toManilaInput(new Date(schedule.start.getTime() + 60_000)) : minimumDateTime}
+            max={schedule.latestReturnAt || undefined}
             value={windowForm.dueAt}
             onChange={(event) => changeWindow("dueAt", event.target.value)}
+            onBlur={() => setScheduleTouched((current) => ({ ...current, dueAt: true }))}
+            error={dueError}
+            disabled={saving}
             required
           />
-          <Button type="button" onClick={checkAvailability} loading={checking} disabled={!selected}>
+          <Button type="button" className="xl:mt-7" onClick={checkAvailability} loading={checking} disabled={!schedule.isValid || saving}>
             <CalendarClock className="h-4 w-4" /> Check Availability
           </Button>
         </div>
-        {!availabilityChecked && !availabilityError ? (
+        <p role="alert" className="sr-only">{startError || dueError || (selected && schedule.errors.resource) || ""}</p>
+        {selected ? <dl aria-label="Borrowing schedule summary" className="mt-4 grid gap-4 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <div><dt className="text-xs font-semibold text-stone-500">Selected Duration</dt><dd className="mt-1 font-bold text-stone-800">{schedule.durationMinutes ? formatBorrowDuration(schedule.durationMinutes) : "Select a valid time range"}</dd></div>
+          <div><dt className="text-xs font-semibold text-stone-500">Maximum Duration</dt><dd className="mt-1 font-bold text-stone-800">{formatBorrowDuration(selected.max_borrow_minutes)}</dd></div>
+          <div className="sm:col-span-2 lg:col-span-1"><dt className="text-xs font-semibold text-stone-500">Latest Permitted Return</dt><dd className="mt-1 font-bold text-stone-800">{schedule.latestReturnAt ? formatBorrowDateTime(fromManilaInput(schedule.latestReturnAt)) : "Select a borrowing start time"}</dd></div>
+        </dl> : null}
+        {selected && schedule.errors.resource ? <p className="mt-4 text-sm font-medium text-rose-600">{schedule.errors.resource}</p> : null}
+        {schedule.isValid && !availabilityChecked && !availabilityError ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Schedule changed. Check availability for your selected resource.
+            {checking ? "Checking availability for your selected resource and schedule…" : "Check availability for this resource and schedule before continuing."}
           </div>
         ) : availabilityChecked ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Availability shown below is for {formatBorrowDateTime(fromManilaInput(windowForm.startAt)?.toISOString())} to {formatBorrowDateTime(fromManilaInput(windowForm.dueAt)?.toISOString())}.
+          <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${selected?.isAvailable ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {selected?.isAvailable ? <>Availability checked for {formatBorrowDateTime(schedule.start)} to {formatBorrowDateTime(schedule.due)}.</> : "The selected resource is unavailable for this schedule. Choose another resource or change the borrowing dates."}
           </div>
         ) : null}
       </Card>
@@ -416,10 +423,11 @@ const BorrowingPage = () => {
 
             {selected && !isFacility(selected) ? (
               <TextInput
-                label={`Quantity * — ${selected.availableQuantity} available`}
+                label="Quantity"
+                hint={availabilityChecked ? `${selected.availableQuantity} available for the checked schedule.` : "Check availability to confirm the quantity available for your schedule."}
                 type="number"
                 min="1"
-                max={selected.availableQuantity}
+                max={availabilityChecked ? selected.availableQuantity : selected.total_quantity}
                 step="1"
                 inputMode="numeric"
                 value={form.quantity}
@@ -486,7 +494,7 @@ const BorrowingPage = () => {
               </span>
             </label>
 
-            <Button type="submit" disabled={!availabilityChecked || !selected}>
+            <Button type="submit" disabled={!availabilityChecked || !schedule.isValid || !selected?.isAvailable || checking || saving}>
               Review Borrowing Request
             </Button>
           </form>
@@ -552,6 +560,7 @@ const BorrowingPage = () => {
       >
         {selected ? (
           <div className="space-y-5">
+            {!schedule.isValid ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{schedule.errors.startAt || schedule.errors.dueAt || schedule.errors.resource} Select Back to Edit to correct your schedule.</p> : null}
             <div className="rounded-3xl bg-[var(--brand-50)] p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-500)]">Resource</p>
               <h3 className="mt-2 text-2xl font-black text-[var(--brand-900)]">{selected.name}</h3>
@@ -568,7 +577,7 @@ const BorrowingPage = () => {
               The barangay will review this request. Only an <strong>Approved</strong> request reserves the resource for your schedule.
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button onClick={submit} loading={saving}>Confirm & Submit Request</Button>
+              <Button onClick={submit} loading={saving} disabled={!availabilityChecked || !schedule.isValid || !selected?.isAvailable}>Confirm & Submit Request</Button>
               <Button type="button" variant="ghost" disabled={saving} onClick={() => setReviewOpen(false)}>Back to Edit</Button>
             </div>
           </div>

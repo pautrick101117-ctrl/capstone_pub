@@ -57,8 +57,8 @@ test("admin and resident forms expose configured duration and resource-first sch
   assert.match(admin,/maxBorrowMinutes/);
   assert.match(admin,/formatBorrowDuration/);
   assert.ok(page.indexOf('1. Select a facility or item') < page.indexOf('2. Choose your borrowing schedule'));
-  assert.match(page,/max=\{selected && fromManilaInput/);
-  assert.match(page,/selected\.max_borrow_minutes \* 60_000/);
+  assert.match(page,/max=\{schedule\.latestReturnAt/);
+  assert.match(page,/error=\{dueError\}/);
   assert.match(clientLib,/\+08:00/);
   assert.match(clientLib,/Asia\/Manila/);
 });
