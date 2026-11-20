@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const source = (file) => readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+const source = (file) => readFile(new URL(`../../${file}`, import.meta.url), 'utf8');
 
 test('preview preserves full image and opens original', async () => {
   const code = await source('client/src/components/PostImage.jsx');

@@ -8,11 +8,7 @@ const LEADER_POSITION = /punong\s+barangay|barangay\s+(captain|chairman|chairper
 
 /** Keep portraits visible even when source photos have different dimensions. */
 function OfficialPortrait({ official, featured = false }) {
-  const [imageFailed, setImageFailed] = useState(false);
-
-  useEffect(() => {
-    setImageFailed(false);
-  }, [official.photo_url]);
+  const [failedImage, setFailedImage] = useState(null);
 
   return (
     <div
@@ -20,14 +16,14 @@ function OfficialPortrait({ official, featured = false }) {
         featured ? "h-64 w-full sm:h-[310px] md:h-[340px]" : "h-52 w-full sm:h-56"
       }`}
     >
-      {official.photo_url && !imageFailed ? (
+      {official.photo_url && official.photo_url !== failedImage ? (
         <img
           src={official.photo_url}
           alt={`Portrait of ${official.name}`}
           className="h-full w-full object-contain object-bottom"
           loading={featured ? "eager" : "lazy"}
           decoding="async"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImage(official.photo_url)}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--brand-600)]">

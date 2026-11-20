@@ -14,7 +14,7 @@ export const ActionReviewProvider = ({ children }) => {
       resolver.current = resolve;
       setPending({
         title: "Confirm this action?", description: "Review the details before continuing.",
-        confirmLabel: "Confirm & Continue", tone: "primary", ...config,
+        confirmLabel: "Confirm Action", tone: "primary", ...config,
         changes: config.changes || (config.after ? reviewChanges(config.before, config.after) : []),
       });
     });
@@ -34,7 +34,7 @@ export const ActionReviewProvider = ({ children }) => {
       confirmLabel={pending?.confirmLabel} cancelLabel={pending?.cancelLabel || "Go Back"}>
       {pending?.subject ? <div className="mb-4 rounded-2xl bg-stone-50 p-4 text-sm font-semibold text-stone-800">{pending.subject}</div> : null}
       {pending?.changes?.length ? <div className="max-h-60 overflow-auto rounded-2xl border border-stone-200">
-        <table className="w-full table-fixed text-left text-xs"><thead className="bg-stone-50"><tr><th className="p-3">Field</th><th className="p-3">Before</th><th className="p-3">After</th></tr></thead>
+        <table className="w-full table-fixed text-left text-xs"><thead className="bg-stone-50"><tr><th className="p-3">Field</th><th className="p-3">Current Value</th><th className="p-3">New Value</th></tr></thead>
           <tbody>{pending.changes.map((change) => <tr className="border-t border-stone-100" key={change.field}><th className="break-words p-3 font-semibold capitalize">{change.field}</th><td className="break-words p-3 text-stone-500">{change.before}</td><td className="break-words p-3 font-medium">{change.after}</td></tr>)}</tbody>
         </table></div> : null}
       {pending?.note ? <p className="mt-3 whitespace-pre-wrap text-sm">{pending.note}</p> : null}

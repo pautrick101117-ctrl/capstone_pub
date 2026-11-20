@@ -1,7 +1,7 @@
 import { SelectInput, TextInput } from "./ui";
 
 // Keep the submitted value as plain occupation text for existing API/database compatibility.
-export const OCCUPATION_OPTIONS = [
+const OCCUPATION_OPTIONS = [
   "Student",
   "Employed - Private Sector",
   "Employed - Government",

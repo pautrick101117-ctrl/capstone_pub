@@ -127,7 +127,7 @@ const Admin_Residents = () => {
     if(validIds.length<1 || validIds.length>5 || validIds.length!==idDocuments.length) return toast.error('Upload 1–5 valid ID images. Every row must contain an image.');
     if(idDocuments.some(item=>!item.typeId || (item.typeId==='custom'&&!item.customLabel.trim()))) return toast.error('Select the type of every ID image (or enter a custom name).');
     if(idDocuments.some(item=>item.file.size > 5*1024*1024 || !['image/jpeg','image/png','image/webp'].includes(item.file.type))) return toast.error('Use JPG, PNG or WebP images, each up to 5 MB.');
-    if(!await reviewAction({title:'Create Resident Account?',description:'ID images will be stored privately and temporary login details sent through Resend.',confirmLabel:'Create Resident',subject:`${form.firstName} ${form.lastName}`,after:{...form,idDocuments:validIds.map(item=>({filename:item.file.name,type:item.typeId==='custom'?item.customLabel:(idTypes.find(t=>t.id===item.typeId)?.label||'')}))}}))return;
+    if(!await reviewAction({title:'Create Resident Account?',description:'Identification images will be stored securely. The resident will receive account access instructions by email.',confirmLabel:'Create Resident Account',subject:`${form.firstName} ${form.lastName}`,after:{...form,idDocuments:validIds.map(item=>({filename:item.file.name,type:item.typeId==='custom'?item.customLabel:(idTypes.find(t=>t.id===item.typeId)?.label||'')}))}}))return;
     setSaving(true);
     try {
       const body=new FormData();
@@ -136,7 +136,7 @@ const Admin_Residents = () => {
       idDocuments.forEach(({file})=>body.append('idImages',file));
       const data=await api('/admin/users',{method:'POST',token,body});
       setCredentialResult({ ...data, action: "created" });
-      toast.success("Resident account created. Resend accepted the welcome email for delivery.");
+      toast.success("Resident account created. The welcome email has been accepted for delivery.");
       setForm(initialForm);setIdDocuments([{file:null,typeId:"",customLabel:""}]);
       setShowCreateModal(false);
       await load();
@@ -333,7 +333,7 @@ const Admin_Residents = () => {
       <PageHeader
         eyebrow="Resident Management"
         title="Create and maintain resident accounts"
-        description="Resident signup is admin-only. Create usernames, issue temporary passwords, and manage active status without deleting data."
+        description="Create and manage resident accounts, issue temporary passwords, and update account status. Only authorized administrators can register residents."
         actions={
           <>
             <Button variant="secondary" onClick={printResidents}>
@@ -530,7 +530,7 @@ const Admin_Residents = () => {
         open={Boolean(credentialResult)}
         onClose={() => setCredentialResult(null)}
         title={credentialResult?.action === "reset" ? "Reset instructions sent" : "Resident account created"}
-        description={credentialResult?.emailDelivery?.accepted ? "Resend accepted the email for delivery." : "Email delivery could not be confirmed."}
+        description={credentialResult?.emailDelivery?.accepted ? "The email has been accepted for delivery." : "Email delivery could not be confirmed."}
         widthClass="max-w-xl"
       >
         {credentialResult ? (
@@ -538,16 +538,16 @@ const Admin_Residents = () => {
             <div className={`rounded-2xl border p-4 text-sm ${credentialResult.emailDelivery?.accepted ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
               {credentialResult.action === "reset"
                 ? (credentialResult.emailDelivery?.accepted
-                    ? "Resend accepted the temporary password email. The old password keeps working until the resident uses the temporary password, then they must set a personal password."
+                    ? "The temporary password email has been accepted for delivery. The current password remains valid until the resident signs in with the temporary password and creates a personal password."
                     : "Email delivery was not confirmed. The resident's existing password stays unchanged.")
-                : "The resident account was created and Resend accepted its welcome email. For security, temporary credentials are not displayed to administrators."}
+                : "The resident account was created and the welcome email has been accepted for delivery. For security, temporary credentials are not displayed to administrators."}
             </div>
             <div className="rounded-2xl bg-stone-50 p-4 text-sm">
               <p><span className="text-stone-500">Resident email:</span> <strong>{credentialResult.user?.email || "Not set"}</strong></p>
               <p className="mt-2"><span className="text-stone-500">Username:</span> <strong>{credentialResult.user?.username || "Not set"}</strong></p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => setCredentialResult(null)}>Done</Button>
+              <Button onClick={() => setCredentialResult(null)}>Close</Button>
             </div>
           </div>
         ) : null}

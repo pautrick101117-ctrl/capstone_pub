@@ -87,7 +87,7 @@ const AdminLogin = () => {
           </div>
           <form className="space-y-4" onSubmit={submit}>
             {loginError ? <div role="alert" aria-live="assertive"><Alert tone="danger" title="Sign in failed">{loginError}</Alert></div> : null}
-            <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="admin username" />
+            <TextInput label="Username or Email" required autoComplete="username" maxLength={180} value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder="Enter your username or email" />
             <PasswordInput label="Password" required autoComplete="current-password" maxLength={128} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Enter your password" />
             <div className="flex justify-end"><button type="button" onClick={() => { setRecovery({ usernameOrEmail: form.username, code: "", newPassword: "" }); setRecoveryStep("request"); setRecoveryOpen(true); }} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">Forgot password?</button></div>
             {slowLogin ? <p role="status" aria-live="polite" className="text-sm text-stone-600">
@@ -99,7 +99,7 @@ const AdminLogin = () => {
           </form>
         </Card>
       </div>
-      <Modal open={recoveryOpen} onClose={() => !recovering && setRecoveryOpen(false)} title="Recover Admin Password" description="A verification code will be emailed to the address registered on an active administrative account.">
+      <Modal open={recoveryOpen} onClose={() => !recovering && setRecoveryOpen(false)} title="Reset Administrator Password" description="A verification code will be emailed to the address registered on an active administrative account.">
         <form className="space-y-4" onSubmit={recoveryStep === "request" ? requestCode : submitReset}>
           <TextInput required label="Username or Email" maxLength={180} value={recovery.usernameOrEmail} onChange={(event) => setRecovery((old) => ({ ...old, usernameOrEmail: event.target.value }))} />
           {recoveryStep === "reset" ? <>

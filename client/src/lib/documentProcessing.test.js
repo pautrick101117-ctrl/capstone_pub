@@ -55,7 +55,8 @@ test("email outbox is canonical, no duplicate event from notification log", () =
   const items = staffEmailItems(queue, legacy);
   assert.equal(items.length, 1);
   assert.equal(items[0].status, "Accepted by email provider");
-  assert.equal(staffEmailItems([{ id: "bad", notification_type: "approved", queue_state: "failed" }], [])[0].failed, true);
+  assert.equal(staffEmailItems([{ id: "bad", notification_type: "approved", queue_state: "failed", created_at: new Date().toISOString(), attempt_count: 0 }], [])[0].failed, true);
+  assert.equal(staffEmailItems([{ id: "old", notification_type: "approved", queue_state: "failed", created_at: "2020-01-01" }], [])[0].failed, false);
 });
 
 test("Certificate of Residency shows a missing start date", () => {

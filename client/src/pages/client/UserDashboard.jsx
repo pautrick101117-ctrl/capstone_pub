@@ -8,9 +8,12 @@ import { formatDateTime } from "../../lib/format";
 import { getStatusMeta } from "../../lib/status";
 
 const destinationForNotification = (note) => {
+  if (/^\/project-updates(?:\/|$)/.test(note?.destination || "")) return `/portal${note.destination}`;
+  if (note?.destination?.startsWith("/")) return note.destination;
   const text = `${note?.title || ""} ${note?.body || ""}`.toLowerCase();
   if (text.includes("borrow")) return "/portal/borrowing";
   if (text.includes("concern") || text.includes("complaint")) return "/portal/complaints";
+  if (text.includes("project update") || text.includes("project status") || text.includes("implementation")) return "/portal/project-updates";
   if (text.includes("vote") || text.includes("voting") || text.includes("election")) return "/portal/voting";
   if (text.includes("suggest")) return "/portal/suggestions";
   return "/portal/requests";
@@ -81,7 +84,7 @@ const UserDashboard = () => {
     return <div className="space-y-8"><PageHeader eyebrow="Resident Overview" title={`Welcome back, ${user?.firstName || "Resident"}`} description="Loading your requests, schedules and barangay updates." /><LoadingState rows={4} /></div>;
   }
 
-  if (error) return <ErrorState title="We couldn't load your dashboard." description={error} onRetry={() => load()} />;
+  if (error) return <ErrorState title="Unable to load your dashboard." description={error} onRetry={() => load()} />;
 
   return (
     <div className="space-y-8">

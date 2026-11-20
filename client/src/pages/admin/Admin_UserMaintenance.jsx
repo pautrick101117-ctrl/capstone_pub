@@ -80,7 +80,7 @@ const Admin_UserMaintenance = () => {
       </tbody></table></TableShell>
       <Pagination page={page} totalPages={Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))} onPageChange={setPage} /></>}
     </Card>
-    <Modal open={showForm} onClose={() => !saving && setShowForm(false)} title="Create Admin Invitation" description="An invitation will be emailed through Resend. The role is fixed as Admin.">
+    <Modal open={showForm} onClose={() => !saving && setShowForm(false)} title="Create Admin Invitation" description="An account setup invitation will be sent by email. This account will have Administrator access.">
       <form onSubmit={confirmCreate} className="space-y-4">
         <TextInput label="Full Name" required maxLength={120} value={form.fullName} onChange={(event) => setForm((old) => ({ ...old, fullName: event.target.value }))} placeholder="First name and last name" />
         <TextInput label="Email Address" required type="email" maxLength={180} value={form.email} onChange={(event) => setForm((old) => ({ ...old, email: event.target.value }))} placeholder="admin@example.com" />
@@ -91,8 +91,8 @@ const Admin_UserMaintenance = () => {
     </Modal>
     <ConfirmDialog open={Boolean(pending)} onClose={() => { if (!saving) { if (pending?.type === "create") setShowForm(true); setPending(null); } }} onConfirm={perform} loading={saving}
       title={pending?.type === "create" ? "Invite this administrator?" : "Resend this invitation?"}
-      description={pending?.type === "create" ? `An Admin invitation will be sent to ${form.email}. The account cannot log in until password setup.` : `A new one-time invitation link will be sent to ${pending?.entry?.email}. The previous link will stop working.`}
-      confirmLabel={pending?.type === "create" ? "Create & Send Invitation" : "Resend Invitation"} />
+      description={pending?.type === "create" ? `An administrator invitation will be sent to ${form.email}. The account can be used after the recipient creates a password.` : `A new one-time invitation link will be sent to ${pending?.entry?.email}. The previous link will stop working.`}
+      confirmLabel={pending?.type === "create" ? "Send Invitation" : "Resend Invitation"} />
   </div>;
 };
 export default Admin_UserMaintenance;

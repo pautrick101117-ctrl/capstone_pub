@@ -23,6 +23,7 @@ import { validateConcernLimits } from "../lib/concernLimits.js";
 import { attachCaseHistories, parseNewCaseResponse, updateCaseWithHistory } from "../lib/caseHistory.js";
 import { assertActiveMasterLabel } from "../lib/masterData.js";
 import { publicationDate, announcementEventDate } from "../lib/publication.js";
+import { manilaDate } from "../lib/documentRules.js";
 import { buildHouseholdMember, buildHouseholdMembers, censusConflict, censusDate } from "../lib/census.js";
 import {
   buildUsername,
@@ -1595,6 +1596,8 @@ router.patch("/projects/:id", async (req, res, next) => {
     const updates = {};
     if (req.body.title !== undefined) updates.title = `${req.body.title || ""}`.trim();
     if (req.body.description !== undefined) updates.description = `${req.body.description || ""}`.trim();
+    if (updates.title !== undefined) ensure(updates.title, "Project title is required.");
+    if (updates.description !== undefined) ensure(updates.description, "Project description is required.");
     if (req.body.status !== undefined) {
       if (!PROJECT_STATUSES.has(req.body.status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
       updates.status = req.body.status;
@@ -1608,12 +1611,12 @@ router.patch("/projects/:id", async (req, res, next) => {
       if (req.body[bodyKey] !== undefined) updates[dbKey] = req.body[bodyKey] || null;
     }
     const reason = `${req.body.reason || ""}`.trim();
-    if ((["on_hold", "cancelled"].includes(updates.status) ||
-         existing.status === "completed" && updates.status && updates.status !== "completed" ||
+    if ((updates.status && updates.status !== existing.status &&
+         (["on_hold", "cancelled", "completed"].includes(updates.status) || ["completed", "cancelled"].includes(existing.status)) ||
          updates.progress_percentage !== undefined && updates.progress_percentage < existing.progress_percentage) && reason.length < 5) {
-      throw Object.assign(new Error("Provide a reason for pausing, cancelling, correcting completion or reducing progress."), { status: 400 });
+      throw Object.assign(new Error("Explain the status change or progress correction using at least 5 characters."), { status: 400 });
     }
-    if (updates.status === "ongoing" && !existing.actual_start_date && !updates.actual_start_date) updates.actual_start_date = new Date().toISOString().slice(0, 10);
+    if (updates.status === "ongoing" && !existing.actual_start_date && !updates.actual_start_date) updates.actual_start_date = manilaDate();
     if (updates.status === "completed") {
       updates.progress_percentage = 100;
       updates.completed_at = existing.completed_at || new Date().toISOString();
@@ -1623,7 +1626,7 @@ router.patch("/projects/:id", async (req, res, next) => {
 
     const { data, error } = await db.rpc("bgy_phase10_update_project", {
       p_actor: req.currentUser.id, p_project: req.params.id,
-      p_changes: updates, p_reason: reason || null,
+      p_changes: updates, p_reason: reason || (updates.status && updates.status !== existing.status ? `Project status changed to ${updates.status === "on_hold" ? "On Hold" : updates.status[0].toUpperCase() + updates.status.slice(1)}.` : null),
     });
     if (error) throw mapVotingRpcError(error);
 
@@ -1651,14 +1654,20 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
     const { data: project, error: projectError } = await db.from("community_projects").select("*").eq("id", req.params.id).single();
     if (projectError) throw projectError;
     const title = `${req.body.title || ""}`.trim();
-    const description = `${req.body.description || ""}`.trim();
+    let description = `${req.body.description || ""}`.trim();
     ensure(title, "Update title is required.");
     ensure(description, "Update description is required.");
 
     let progress = req.body.progressPercentage === undefined || req.body.progressPercentage === "" ? null : Number(req.body.progressPercentage);
     if (progress !== null && (!Number.isInteger(progress) || progress < 0 || progress > 100)) throw Object.assign(new Error("Progress must be a whole number from 0 to 100."), { status: 400 });
-    const status = req.body.projectStatus || null;
+    const status = req.body.projectStatus || project.status;
     if (status && !PROJECT_STATUSES.has(status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
+    const reason = `${req.body.reason || ""}`.trim();
+    if ((["on_hold", "cancelled"].includes(status) || status !== project.status &&
+        (status === "completed" || ["completed", "cancelled"].includes(project.status))) && reason.length < 5) {
+      throw Object.assign(new Error("Explain the status change using at least 5 characters."), { status: 400 });
+    }
+    if (reason) description += `\n\nStatus explanation: ${reason}`;
 
     const imageUrl = await uploadAsset({ file: req.file, folder: "project-updates", prefix: `${project.id}-${title}` });
     const payload = {
@@ -1668,7 +1677,7 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
       image_url: imageUrl,
       progress_percentage: progress,
       project_status: status,
-      update_date: req.body.updateDate || new Date().toISOString().slice(0, 10),
+      update_date: req.body.updateDate || manilaDate(),
       created_by: req.currentUser.id,
       updated_at: new Date().toISOString(),
     };
@@ -1676,7 +1685,7 @@ router.post("/projects/:id/updates", upload.single("image"), async (req, res, ne
       p_actor: req.currentUser.id, p_project: project.id,
       p_title: title, p_description: description, p_image_url: imageUrl,
       p_progress: progress, p_status: status,
-      p_update_date: payload.update_date, p_reason: `${req.body.reason || ""}`.trim() || null,
+      p_update_date: payload.update_date, p_reason: reason || null,
     });
     if (publishError) throw mapVotingRpcError(publishError);
     const update = saved.update;
@@ -1725,7 +1734,7 @@ router.patch("/projects/:projectId/updates/:updateId", upload.single("image"), a
       throw Object.assign(new Error("Progress must be a whole number from 0 to 100."), { status: 400 });
     }
 
-    const status = req.body.projectStatus || existing.project_status || null;
+    const status = req.body.projectStatus === undefined ? existing.project_status || null : req.body.projectStatus || null;
     if (status && !PROJECT_STATUSES.has(status)) throw Object.assign(new Error("Invalid project status."), { status: 400 });
     const imageUrl = req.file
       ? await uploadAsset({ file: req.file, folder: "project-updates", prefix: `${project.id}-${title}` })

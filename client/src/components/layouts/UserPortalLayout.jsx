@@ -43,7 +43,7 @@ const groups = [
     links: [
       { to: "/portal/voting", label: "Project Voting", icon: Vote },
       { to: "/portal/suggestions", label: "Project Suggestions", icon: Lightbulb },
-      { to: "/project-updates", label: "Project Updates", icon: CheckSquare },
+      { to: "/portal/project-updates", label: "Project Updates", icon: CheckSquare },
       { to: "/portal/calendar", label: "Calendar", icon: CalendarDays },
       { to: "/portal/voting-result", label: "Voting Results", icon: CheckSquare },
     ],
@@ -60,11 +60,12 @@ const groups = [
 const allLinks = groups.flatMap((group) => group.links);
 
 const notificationDestination = (note) => {
+  if (/^\/project-updates(?:\/|$)/.test(note?.destination || "")) return `/portal${note.destination}`;
   if (note?.destination && `${note.destination}`.startsWith("/")) return note.destination;
   const text = `${note?.title || ""} ${note?.body || ""}`.toLowerCase();
   if (text.includes("borrow")) return "/portal/borrowing";
   if (text.includes("concern") || text.includes("complaint")) return "/portal/complaints";
-  if (text.includes("project update") || text.includes("implementation")) return "/project-updates";
+  if (text.includes("project update") || text.includes("project status") || text.includes("implementation")) return "/portal/project-updates";
   if (text.includes("suggest")) return "/portal/suggestions";
   if (text.includes("vote") || text.includes("voting") || text.includes("election")) return "/portal/voting";
   if (text.includes("request") || text.includes("clearance") || text.includes("barangay id")) return "/portal/requests";
@@ -103,13 +104,13 @@ const NotificationCenter = ({ open, onClose }) => {
             <h3 className="text-lg font-bold text-[var(--brand-900)]">Updates for you</h3>
           </div>
           {ordered.some((note) => !note.is_read) ? (
-            <Button variant="ghost" className="px-3 py-2" onClick={markAllNotificationsRead}>Mark all read</Button>
+            <Button variant="ghost" className="px-3 py-2" onClick={markAllNotificationsRead}>Mark All as Read</Button>
           ) : null}
         </div>
         <div className="divide-y divide-stone-100">
           {ordered.length === 0 ? (
             <div className="px-5 py-10 text-center">
-              <p className="font-semibold text-stone-700">You're all caught up.</p>
+              <p className="font-semibold text-stone-700">No unread notifications.</p>
               <p className="mt-1 text-sm text-stone-500">Request, voting and barangay updates will appear here.</p>
             </div>
           ) : (
@@ -144,7 +145,7 @@ const UserPortalLayout = () => {
   const { user, logout, unreadCount } = useAuth();
   const reviewAction = useReviewAction();
   const confirmLogout = async () => {
-    if (await reviewAction({ title: "Log out of your account?", description: "Your current session will end, and you'll need to sign in again to continue.", confirmLabel: "Log Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
+    if (await reviewAction({ title: "Sign out of your account?", description: "Your current session will end, and you will need to sign in again to continue.", confirmLabel: "Sign Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
   };
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -215,7 +216,7 @@ const UserPortalLayout = () => {
           ))}
         </div>
         <div className="border-t border-stone-100 p-4">
-          <Button variant="ghost" className="w-full justify-start" onClick={confirmLogout}><LogOut className="h-4 w-4" /> Logout</Button>
+          <Button variant="ghost" className="w-full justify-start" onClick={confirmLogout}><LogOut className="h-4 w-4" /> Sign Out</Button>
         </div>
       </aside>
 
@@ -259,7 +260,7 @@ const UserPortalLayout = () => {
                 const Icon = link.icon;
                 return <NavLink key={link.to} to={link.to} onClick={() => setMobileMenuOpen(false)} className={navClass}><Icon className="h-4 w-4" />{link.label}</NavLink>;
               })}
-              <button type="button" onClick={async () => { setMobileMenuOpen(false); await confirmLogout(); }} className="mt-2 flex items-center gap-3 rounded-2xl bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-700"><LogOut className="h-4 w-4" />Logout</button>
+              <button type="button" onClick={async () => { setMobileMenuOpen(false); await confirmLogout(); }} className="mt-2 flex items-center gap-3 rounded-2xl bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-700"><LogOut className="h-4 w-4" />Sign Out</button>
             </div>
           </div>
         </div>

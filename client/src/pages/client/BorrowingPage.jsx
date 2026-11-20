@@ -396,7 +396,7 @@ const BorrowingPage = () => {
         ) : null}
       </Card>
 
-      {availabilityError ? <ErrorState title="We couldn't check resource availability" description={availabilityError} onRetry={selected ? checkAvailability : loadAssets} /> : null}
+      {availabilityError ? <ErrorState title="Unable to check resource availability" description={availabilityError} onRetry={selected ? checkAvailability : loadAssets} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <Card>

@@ -88,7 +88,7 @@ const AdminPageLayout = () => {
   const { user, logout, token } = useAuth();
   const reviewAction = useReviewAction();
   const confirmLogout = async () => {
-    if (await reviewAction({ title: "Log out of your account?", description: "Your current session will end, and you'll need to sign in again to continue.", confirmLabel: "Log Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
+    if (await reviewAction({ title: "Sign out of your account?", description: "Your current session will end, and you will need to sign in again to continue.", confirmLabel: "Sign Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
   };
   const location = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
@@ -134,7 +134,7 @@ const AdminPageLayout = () => {
               <h1 className="truncate text-lg font-black text-[var(--brand-900)] sm:text-xl">{user?.fullName || "Barangay Admin"}</h1>
             </div>
           </div>
-          <Button variant="secondary" onClick={confirmLogout}><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Logout</span></Button>
+          <Button variant="secondary" onClick={confirmLogout}><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Sign Out</span></Button>
         </div>
       </header>
 

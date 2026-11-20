@@ -7,6 +7,7 @@ import { useAuth } from "../../context/auth";
 import { useToast } from "../../context/toast";
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/ui";
 import { countdownText, formatDateTime } from "../../lib/format";
+import ProjectStatus from "../../components/ProjectStatus";
 
 const clampPercentage = (value) => Math.min(100, Math.max(0, Number(value || 0)));
 
@@ -87,7 +88,7 @@ const VotingResult = () => {
       <section className="section-shell py-10">
         <EmptyState
           title="No voting results yet"
-          description="Voting results will appear here once a voting post has been posted from the database."
+          description="Voting results will appear here when a community voting round is published."
         />
       </section>
     );
@@ -115,7 +116,7 @@ const VotingResult = () => {
       <div className="mt-8 grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
         <Card className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={getStatusTone(election.phaseStatus || election.status)}>{isScheduled ? "Scheduled" : election.status}</Badge>
+            <Badge tone={getStatusTone(election.phaseStatus || election.status)}>{isScheduled ? "Scheduled" : isLive ? "Voting Open" : isClosed ? "Voting Closed" : "Awaiting Official Results"}</Badge>
 
             {isLive ? <Badge tone="neutral">{countdownText(election.endsAt)}</Badge> : null}
             {isScheduled ? <Badge tone="neutral">Opens {formatDateTime(election.startsAt)}</Badge> : null}
@@ -167,9 +168,9 @@ const VotingResult = () => {
           ) : null}
 
           {isClosed && election.project?.id ? (
-            <Link to={`/project-updates/${election.project.id}`} className="inline-flex text-sm font-bold text-[var(--brand-700)] hover:underline">
-              View the winning project's implementation progress →
-            </Link>
+            <div className="space-y-3"><ProjectStatus status={election.project.status} /><Link to={`${isResident ? "/portal/project-updates" : "/project-updates"}/${election.project.id}`} className="inline-flex text-sm font-bold text-[var(--brand-700)] hover:underline">
+              View Project Updates →
+            </Link></div>
           ) : null}
           {isClosed && isResident && election.project?.status === "completed" ? (
             <div className="rounded-3xl border border-stone-200 bg-stone-50 p-4">

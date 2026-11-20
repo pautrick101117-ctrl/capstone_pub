@@ -146,7 +146,7 @@ const AdminContentPage = ({ type = "news" }) => {
         actions={<Button onClick={openCreate}><Plus className="h-4 w-4" />Create {singular}</Button>}
       />
 
-      {error ? <ErrorState title={`Couldn't load ${label.toLowerCase()}`} description={error} onRetry={load} /> : null}
+      {error ? <ErrorState title={`Unable to load ${label.toLowerCase()}`} description={error} onRetry={load} /> : null}
 
       {!error ? (
         <Card>

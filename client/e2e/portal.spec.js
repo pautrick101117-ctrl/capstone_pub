@@ -208,7 +208,13 @@ async function fixture(page, role = "resident", options = {}) {
           body.status === "approved" ? "R2026-0001" : r.control_number,
         issue_date: body.issueDate || r.issue_date,
       });
+      state.emails++;
+      state.logs.unshift({ id: `mail-${state.emails}`, attempt_status: "accepted", notification_type: body.status, recipient: profile.email, created_at: new Date().toISOString() });
       return json({ request: r });
+    }
+    if (path === `/documents/requests/${requestId}/pickup`) {
+      Object.assign(state.requests[0], { pickup_scheduled_for: body.pickupAt, pickup_instructions: body.pickupInstructions, lock_version: state.requests[0].lock_version + 1 });
+      return json({ request: state.requests[0] });
     }
     if (
       path === `/documents/requests/${requestId}/generate` ||
@@ -384,7 +390,7 @@ test("resident login and all five conditional document applications submit once 
     .locator('input[autocomplete="current-password"]')
     .fill("Synthetic123");
   await page
-    .getByRole("button", { name: "Login to Portal", exact: true })
+    .getByRole("button", { name: "Sign In to Portal", exact: true })
     .click();
   await expect(page).toHaveURL(/\/portal$/);
   for (const type of types) {
@@ -444,98 +450,58 @@ test("resident revision instructions and corrected submission remain visible", a
   await expect.poll(() => state.requests[0].status).toBe("submitted");
   expect(state.submitted).toBe(0);
 });
-test("admin review, Word versions, preview, preparation, pickup notification and claim controls", async ({
-  page,
-}) => {
-  const { state, errors } = await fixture(page, "super_admin", {
-    requests: [request("submitted")],
-  });
+test("admin review, Word versions, preview, preparation, pickup notification and claim controls", async ({ page }) => {
+  const { state, errors } = await fixture(page, "super_admin", { requests: [request("submitted")] });
   await page.goto("/admin/requests");
-  await page.getByRole("button", { name: "Open request" }).click();
-  await page.getByLabel("Decision").selectOption("under_review");
-  await page
-    .getByRole("button", { name: "Review decision", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("link", { name: "Process request", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin/requests/document/${requestId}$`));
+  await page.getByRole("button", { name: "Start review", exact: true }).click();
   await expect.poll(() => state.requests[0].status).toBe("under_review");
-  await page.getByLabel("Decision").selectOption("approved");
-  await page.getByLabel("Approved template").selectOption(templateId);
-  await page.getByLabel("identity Verified").check();
-  await page.getByLabel("residency Verified").check();
-  await page
-    .getByRole("button", { name: "Review decision", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByLabel("I checked this resident's identity.", { exact: true }).check();
+  await page.getByLabel("I checked that the resident lives in Barangay Iba.", { exact: true }).check();
+  await page.getByRole("button", { name: "Approve & create Word draft", exact: true }).click();
+  await page.getByRole("button", { name: "Approve request", exact: true }).click();
   await expect.poll(() => state.requests[0].status).toBe("approved");
-  await page
-    .getByRole("button", { name: "Generate draft Word document" })
-    .click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(page.getByText("Version 1 · generated · Draft")).toBeVisible();
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
-  await expect(
-    page
-      .frameLocator('iframe[title="Word preview version 1"]')
-      .getByText("Synthetic A. Resident", { exact: false })
-      .first(),
-  ).toBeVisible();
+  await expect.poll(() => state.files.length).toBe(1);
+  const preview = page.frameLocator('iframe[title="Word preview version 1"]');
+  await expect(preview.getByText("Synthetic A. Resident", { exact: false }).first()).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download Word", exact: true }).click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/\.docx$/);
-  await page.getByLabel("Revised Word document").setInputFiles({
+  await page.getByLabel("Upload edited Word file (.docx)").setInputFiles({
     name: "revised.docx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    buffer: await readFile(
-      new URL(
-        "../../artifacts/documents/certificate-of-residency.docx",
-        import.meta.url,
-      ),
-    ),
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    buffer: await readFile(new URL("../../artifacts/documents/certificate-of-residency.docx", import.meta.url)),
   });
-  await page
-    .getByRole("button", { name: "Upload revised Word version", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Save edited Word version", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(page.getByText("Version 2 · uploaded · Draft")).toBeVisible();
-  await page.getByLabel("Use this version").first().check();
-  await page
-    .getByRole("button", { name: "Confirm reviewed and mark prepared" })
-    .click();
+  await expect.poll(() => state.files.length).toBe(2);
+  await expect(page.frameLocator('iframe[title="Word preview version 2"]').locator("section.docx").first()).toBeVisible();
+  await page.getByLabel("I reviewed the selected Word document and confirmed its details are correct.").check();
+  await page.getByRole("button", { name: "Confirm document prepared", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect.poll(() => state.requests[0].status).toBe("document_prepared");
-  await page.getByLabel("Decision").selectOption("ready_for_pickup");
-  await page
-    .getByRole("button", { name: "Review decision", exact: true })
-    .click();
+  const futurePickup = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) + "T09:00";
+  await page.getByLabel("Pickup date & time (Philippine time)").fill(futurePickup);
+  await page.getByRole("button", { name: "Save pickup schedule", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect.poll(() => state.requests[0].pickup_scheduled_for).toBeTruthy();
+  await page.getByLabel("The physical document has been signed, sealed if required, and is available for collection.").check();
+  await page.getByRole("button", { name: "Confirm ready for pickup", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect.poll(() => state.requests[0].status).toBe("ready_for_pickup");
-  await page
-    .getByRole("button", { name: "Preview email", exact: true })
-    .click();
-  await expect(
-    page.getByText(`To: ${profile.email}`, { exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Send reviewed email", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect.poll(() => state.emails).toBe(1);
-  await expect(page.getByText(/Email accepted by Resend/)).toBeVisible();
-  await page.getByLabel("Decision").selectOption("claimed");
-  await page
-    .getByRole("button", { name: "Review decision", exact: true })
-    .click();
+  await expect(page.getByText(/Latest resident email:/).first()).toBeVisible();
+  expect(state.logs.some(log => log.notification_type === "ready_for_pickup" && log.attempt_status === "accepted")).toBe(true);
+  await expect(page.getByRole("button", { name: "Preview email", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Mark document as collected", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect.poll(() => state.requests[0].status).toBe("claimed");
   expect(errors).toEqual([]);
-  await page.screenshot({
-    path: "../artifacts/admin-document-workflow.png",
-    fullPage: true,
-  });
+  await page.screenshot({ path: "../artifacts/admin-document-workflow.png", fullPage: true });
 });
+
 test("photo validation and mobile request layout", async ({ page }) => {
   const { state } = await fixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -583,8 +549,7 @@ test("all five generated Word files render their editable content, logos and pho
   for (const type of types) {
     state.requests[0].request_type = type;
     await page.goto("/admin/requests");
-    await page.getByRole("button", { name: "Open request" }).click();
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await page.getByRole("link", { name: "Process request", exact: true }).click();
     const preview = page.frameLocator('iframe[title="Word preview version 1"]');
     await expect(preview.locator("section.docx")).toHaveCount(2);
     await expect(preview.locator("img").first()).toBeVisible();

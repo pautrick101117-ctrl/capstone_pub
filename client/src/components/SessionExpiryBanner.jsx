@@ -20,7 +20,7 @@ const SessionExpiryBanner = () => {
 
   return (
     <Alert tone="warning" title="Your session will expire soon" actions={<Button type="button" variant="secondary" onClick={keepSessionAlive}>Stay Signed In</Button>}>
-      <p>For your security, you'll be signed out in {minutes}:{String(seconds).padStart(2, "0")} unless you continue using the portal.</p>
+      <p>For your security, you will be signed out in {minutes}:{String(seconds).padStart(2, "0")} unless you continue using the portal.</p>
     </Alert>
   );
 };

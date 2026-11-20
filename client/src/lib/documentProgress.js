@@ -8,7 +8,7 @@ export const documentProgress = (status) => {
   const reviewStatuses = ["under_review", "acknowledged", "processing", "approved", "document_prepared"];
   const completed = status === "claimed";
   let step = status === "submitted" ? 0 : reviewStatuses.includes(status) ? 1 : 2;
-  let message = "We'll update you when barangay staff review your request.";
+  let message = "We will update you when barangay staff review your request.";
   let tone = "info";
   if (status === "under_review" || status === "acknowledged" || status === "processing") message = "Barangay staff are reviewing your application. No action is needed right now.";
   if (status === "approved" || status === "document_prepared") message = "Your request is approved. Staff are preparing the document; please wait for a pickup notice.";

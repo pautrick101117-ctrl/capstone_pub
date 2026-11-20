@@ -38,6 +38,7 @@ router.get("/landing", async (_req, res, next) => {
       announcements,
       liveElection,
       contentRows,
+      communityProjects,
     ] = await Promise.all([
       db.from("users").select("*", { count: "exact", head: true }).eq("role", "resident").eq("is_active", true),
       db.from("fund_projects").select("*", { count: "exact", head: true }).eq("status", "completed"),
@@ -49,13 +50,14 @@ router.get("/landing", async (_req, res, next) => {
       db.from("announcements").select("*").eq("type", "announcement").order("published_at", { ascending: false }).limit(3),
       db.from("elections").select("id, title, description, ends_at, image_url").eq("status", "live").gt("ends_at", new Date().toISOString()).maybeSingle(),
       db.from("landing_content").select("*").order("key_name"),
+      db.from("community_projects").select("id, title, description, status, cover_image_url, updated_at").order("updated_at", { ascending: false }).limit(3),
     ]);
 
     // Supabase query builders resolve to { data, error } rather than throwing.
     // Do not silently report "0 residents / 0 funds" when a real DB read fails.
     for (const result of [
       residents, completedProjects, activeOfficials, totalFundsSpent,
-      fundSources, upcomingEvents, news, announcements, liveElection, contentRows,
+      fundSources, upcomingEvents, news, announcements, liveElection, contentRows, communityProjects,
     ]) {
       if (result.error) throw result.error;
     }
@@ -89,6 +91,7 @@ router.get("/landing", async (_req, res, next) => {
       })),
       news: (news.data || []).map(mapAnnouncement),
       announcements: (announcements.data || []).map(mapAnnouncement),
+      communityProjects: communityProjects.data || [],
       liveElection: liveElection.data
         ? {
             id: liveElection.data.id,
@@ -228,7 +231,6 @@ router.get("/projects", async (req, res, next) => {
     const { page, limit, from, to } = getPagination(req);
     let query = db.from("community_projects").select("*", { count: "exact" });
     if (req.query.status && req.query.status !== "all") query = query.eq("status", req.query.status);
-    else query = query.neq("status", "cancelled");
     const { data, error, count } = await query.order("updated_at", { ascending: false }).range(from, to);
     if (error) throw error;
     res.json({ items: data || [], pagination: { page, limit, total: count || 0 } });

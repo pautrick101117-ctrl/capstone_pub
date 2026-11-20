@@ -129,7 +129,7 @@ const Login = () => {
               placeholder="Enter your password"
             />
 
-            <p className="text-xs leading-5 text-stone-500">Using the temporary password from your welcome email? Enter it exactly as shown—capital letters matter and there are no spaces. You'll choose your own password after signing in.</p>
+            <p className="text-xs leading-5 text-stone-500">Enter the temporary password from your welcome email exactly as shown, including capital letters. You will be asked to create a personal password after signing in.</p>
             <div className="flex justify-end">
               <button type="button" onClick={() => setShowForgotModal(true)} className="text-sm font-semibold text-[var(--brand-600)] hover:underline">
                 Forgot password?
@@ -137,7 +137,7 @@ const Login = () => {
             </div>
 
             <Button type="submit" className="w-full justify-center py-3" loading={loading}>
-              Login to Portal
+              Sign In to Portal
             </Button>
           </form>
         </Card>
@@ -151,7 +151,7 @@ const Login = () => {
           setResetForm(initialResetForm);
         }}
         title="Forgot Password"
-        description="Request a verification code first. The OTP will be sent to the resident email on file."
+        description="Request a verification code using your account details. The code will be sent to your registered email address."
       >
         <form className="space-y-4" onSubmit={submitReset}>
           <TextInput

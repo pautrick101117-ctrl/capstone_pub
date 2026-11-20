@@ -118,7 +118,7 @@ const RequestsPage = () => {
 
       {success ? (
         <Alert tone="success" title={success.type === "id" ? "ID appointment request submitted" : "Request submitted successfully"} actions={<Button type="button" variant="secondary" onClick={() => { setSuccess(null); setActiveTab("mine"); }}>View My Requests <ArrowRight className="h-4 w-4" /></Button>}>
-          <p>{success.type === "id" ? "Your requested pickup schedule is waiting for barangay confirmation. Submitted does not mean confirmed yet." : `Your ${success.title} request is now in the barangay queue. We'll notify you when its status changes.`}</p>
+          <p>{success.type === "id" ? "Your requested pickup schedule has been submitted. Please wait for barangay confirmation before visiting." : `Your ${success.title} request has been submitted for barangay review. You will be notified when its status changes.`}</p>
           {success.id ? <p className="mt-1 text-xs font-semibold">Reference: {success.id}</p> : null}
         </Alert>
       ) : null}
@@ -133,7 +133,7 @@ const RequestsPage = () => {
         <div className="space-y-6">
           <Card className="p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><h2 className="font-bold text-[var(--brand-900)]">My document requests</h2><p className="text-sm text-stone-500">Open a request to see its progress and barangay notes.</p></div>
+              <div><h2 className="font-bold text-[var(--brand-900)]">My document requests</h2><p className="text-sm text-stone-500">Open a request to see its progress and barangay responses.</p></div>
               <SegmentedTabs value={filter} onChange={setFilter} className="border-0 bg-stone-50" items={[{ value: "all", label: "All" }, { value: "active", label: "In Progress" }, { value: "completed", label: "Closed" }]} />
             </div>
           </Card>

@@ -205,7 +205,7 @@ export const EmptyState = ({ title, description, action }) => (
   </Card>
 );
 
-export const ErrorState = ({ title = "We couldn't load this information.", description = "Please check your connection and try again.", onRetry }) => (
+export const ErrorState = ({ title = "Unable to load this information.", description = "Please check your connection and try again.", onRetry }) => (
   <Card className="border-rose-200 bg-rose-50/60">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">

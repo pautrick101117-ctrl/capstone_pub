@@ -10,6 +10,7 @@ export default function WordPreview({ file, blob, title }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(() => /identification card/i.test(title || "") ? 200 : 100);
+  const zoomRef = useRef(zoom);
   const [retryCount, setRetryCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -29,7 +30,7 @@ export default function WordPreview({ file, blob, title }) {
         doc.body.style.margin = "0";
         doc.body.style.padding = "20px";
         doc.body.style.textAlign = "center";
-        doc.body.style.zoom = `${zoom}%`;
+        doc.body.style.zoom = `${zoomRef.current}%`;
         await renderAsync(await source.arrayBuffer(), doc.body, undefined, {
           inWrapper: true,
           breakPages: true,
@@ -47,6 +48,7 @@ export default function WordPreview({ file, blob, title }) {
     return () => { cancelled = true; };
   }, [file?.id, blob, token, retryCount]);
   useEffect(() => {
+    zoomRef.current = zoom;
     const doc = frame.current?.contentDocument;
     if (doc) doc.body.style.zoom = `${zoom}%`;
   }, [zoom]);
@@ -58,7 +60,7 @@ export default function WordPreview({ file, blob, title }) {
       {loading ? <p role="status" className="mb-2 text-xs text-stone-600">Rendering Word document…</p> : null}
       {error ? <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
         <span>Document preview failed: {error}</span>
-        <button type="button" className="min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold" onClick={() => setRetryCount(n => n + 1)}>Try again</button>
+        <button type="button" className="min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold" onClick={() => setRetryCount(n => n + 1)}>Retry Preview</button>
       </div> : null}
       <div className="mb-3 flex items-center gap-3">
         <label className="text-sm font-semibold" htmlFor="document-zoom">Preview size</label>

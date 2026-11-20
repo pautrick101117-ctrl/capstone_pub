@@ -83,6 +83,8 @@ const router = createBrowserRouter(
           <Route path="portal/voting" element={<VotingCenter />} />
           <Route path="portal/calendar" element={<CalendarPage />} />
           <Route path="portal/suggestions" element={<SuggestionsPage />} />
+          <Route path="portal/project-updates" element={<ProjectUpdatesPage />} />
+          <Route path="portal/project-updates/:projectId" element={<ProjectUpdatesPage />} />
           <Route path="portal/results" element={<Navigate to="/portal/voting-result" replace />} />
           <Route path="portal/voting-result" element={<VotingResult />} />
           <Route path="portal/voting-result/:electionId" element={<VotingResult />} />

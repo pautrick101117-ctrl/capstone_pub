@@ -175,7 +175,7 @@ export default function TemplateManager({ openOnLoad = false }) {
       fetchPreview(selected, config, { savedOnly: !canEdit });
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [open, selected?.id, draftFingerprint, canEdit, fetchPreview, previewedConfig, preview, previewRetry]);
+  }, [open, selected, config, draftFingerprint, canEdit, fetchPreview, previewedConfig, preview, previewRetry]);
 
   useEffect(() => () => {
     serialRef.current += 1;
@@ -339,7 +339,7 @@ export default function TemplateManager({ openOnLoad = false }) {
                   </div>
                   {previewError ? <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                     <span>{previewError}</span>
-                    <Button type="button" variant="secondary" disabled={previewing} onClick={() => { setPreviewError(""); setPreviewRetry(v => v + 1); }}>Try preview again</Button>
+                    <Button type="button" variant="secondary" disabled={previewing} onClick={() => { setPreviewError(""); setPreviewRetry(v => v + 1); }}>Retry Preview</Button>
                   </div> : null}
                   <p role="status" aria-live="polite" className="text-sm text-stone-600">
                     {previewing || (preview && !isCurrentPreview && !previewError) ? <><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" /> Updating preview from unsaved edits…</> : isCurrentPreview ? (hasUnsavedChanges ? "Preview updated · Changes not saved" : "Preview of saved template") : previewError ? "Preview needs attention. Your edits are still here and have not been saved." : "Preparing sample preview…"}

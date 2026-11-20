@@ -23,7 +23,7 @@ test("Word preparation uses latest draft with acknowledgement", async () => {
 });
 test("preview editor offers retry and warns on unsaved changes", async () => {
   const editor = await read("../components/TemplateManager.jsx");
-  assert.match(editor, /Try preview again/);
+  assert.match(editor, /Retry Preview/);
   assert.match(editor, /You have unsaved template changes/);
   assert.match(editor, /beforeunload/);
   assert.match(editor, /previewRetry/);

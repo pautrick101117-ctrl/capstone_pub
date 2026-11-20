@@ -54,7 +54,7 @@ const AdminDashboard = () => {
   const requestKeys = useMemo(() => Object.keys(requestsByType[0] || {}).filter((key) => key !== "date"), [requestsByType]);
 
   if (loading) return <div className="space-y-8"><PageHeader eyebrow="Admin Dashboard" title="Barangay operations" description="Loading service queues, resident activity and operational metrics." /><LoadingState rows={5} /></div>;
-  if (error) return <ErrorState title="We couldn't load the admin dashboard." description={error} onRetry={load} />;
+  if (error) return <ErrorState title="Unable to load the admin dashboard." description={error} onRetry={load} />;
 
   const queueCards = [
     { icon: ClipboardList, label: "Requests Waiting", value: dashboard.stats?.pendingRequests ?? 0, hint: "Document requests not yet completed", to: "/admin/requests" },

@@ -36,7 +36,7 @@ const LandingPageLayout = () => {
   const residentSignedIn = isResidentSession(auth);
   const reviewAction = useReviewAction();
   const confirmLogout = async () => {
-    if (await reviewAction({ title: "Log out of your account?", description: "Your current session will end, and you'll need to sign in again to continue.", confirmLabel: "Log Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
+    if (await reviewAction({ title: "Sign out of your account?", description: "Your current session will end, and you will need to sign in again to continue.", confirmLabel: "Sign Out", cancelLabel: "Stay Signed In", tone: "primary" })) logout();
   };
 
   useEffect(() => {
@@ -88,7 +88,7 @@ const LandingPageLayout = () => {
             {residentSignedIn ? (
               <>
                 <NavLink to="/portal" className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">Open Portal</NavLink>
-                <button onClick={confirmLogout} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">Logout</button>
+                <button onClick={confirmLogout} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">Sign Out</button>
               </>
             ) : (
               <NavLink to="/login" className="rounded-full bg-[var(--brand-500)] px-4 py-2 text-sm font-semibold text-white">Resident Login</NavLink>
@@ -116,7 +116,7 @@ const LandingPageLayout = () => {
               {residentSignedIn ? (
                 <div className="grid gap-2">
                   <NavLink to="/portal" onClick={() => setOpen(false)} className="rounded-full bg-[var(--brand-500)] px-4 py-3 text-center text-sm font-semibold text-white">Open Portal</NavLink>
-                  <button onClick={async () => { setOpen(false); await confirmLogout(); }} className="rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-700">Logout</button>
+                  <button onClick={async () => { setOpen(false); await confirmLogout(); }} className="rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-700">Sign Out</button>
                 </div>
               ) : <NavLink to="/login" onClick={() => setOpen(false)} className="block rounded-full bg-[var(--brand-500)] px-4 py-3 text-center text-sm font-semibold text-white">Resident Login</NavLink>}
             </div>

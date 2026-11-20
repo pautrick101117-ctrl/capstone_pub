@@ -282,7 +282,7 @@ const Admin_VotingResult = () => {
       <PageHeader
         eyebrow="Governance & Transparency"
         title="Project Voting"
-        description="Create voting posts in a modal, edit the exact post you selected, close live voting safely, and preserve closed elections as permanent records."
+        description="Prepare community voting rounds, manage approved project choices, and publish official results. Closed voting records are retained for transparency."
         actions={<Button onClick={startNew}><Plus className="h-4 w-4" /> Create Voting</Button>}
       />
       <SegmentedTabs value={tab} onChange={setTab} items={tabs} />
@@ -337,7 +337,7 @@ const Admin_VotingResult = () => {
         <Pagination page={page} totalPages={pagination.totalPages || Math.max(1, Math.ceil((pagination.total || 0) / pageSize))} onPageChange={setPage} />
       </div> : null}
 
-      <Modal open={builderOpen} onClose={() => !saving && setBuilderOpen(false)} title={form.id ? "Edit Voting Post" : "Create Voting Post"} description={form.id ? `Editing this specific ${label(form.originalStatus).toLowerCase()} post.` : "Build a new voting post from approved resident project suggestions."} widthClass="max-w-6xl" closeDisabled={saving || builderLoading}>
+      <Modal open={builderOpen} onClose={() => !saving && setBuilderOpen(false)} title={form.id ? "Edit Voting Post" : "Create Voting Post"} description={form.id ? `Update the details of this ${label(form.originalStatus).toLowerCase()} voting round.` : "Build a new voting post from approved resident project suggestions."} widthClass="max-w-6xl" closeDisabled={saving || builderLoading}>
         {builderLoading ? <LoadingState rows={5} /> : <div className="space-y-6">
           {form.originalStatus !== "draft" ? <Alert tone="warning" title="Voting is locked">Published voting posts and their options can no longer be edited.</Alert> : null}
           <Card><h2 className="text-xl font-bold text-[var(--brand-900)]">Voting Details</h2><div className="mt-5 grid gap-4 lg:grid-cols-2"><TextInput label="Voting Title" required value={form.title} onChange={(e) => setForm((v) => ({ ...v, title: e.target.value }))} /><div className="lg:col-span-2"><TextArea label="Description" value={form.description} onChange={(e) => setForm((v) => ({ ...v, description: e.target.value }))} /></div><TextInput label="Voting Opens" type="datetime-local" value={form.startsAt} onChange={(e) => setForm((v) => ({ ...v, startsAt: e.target.value }))} /><TextInput label="Voting Closes" type="datetime-local" value={form.endsAt} onChange={(e) => setForm((v) => ({ ...v, endsAt: e.target.value }))} /></div></Card>

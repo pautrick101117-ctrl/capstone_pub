@@ -36,7 +36,7 @@ export const REPORTS = {
     ['Project ID','id'],['Name','name'],['Term','term'],['Amount (PHP)','amount'],['Description','description'],['Status','status'],['Project Date','date']
   ), {dateColumn:'date', dateOnly:true}),
   projects: definition('Community Projects', 'community_projects', columns(
-    ['Project ID','id'],['Title','title'],['Description','description'],['Status','status'],['Progress (%)','progress_percentage'],['Recorded','created_at']
+    ['Project ID','id'],['Title','title'],['Description','description'],['Status','status'],['Recorded','created_at']
   )),
   voting: definition('Voting Posts', 'elections', columns(
     ['Election ID','id'],['Title','title'],['Description','description'],['Status','status'],['Starts','starts_at'],['Ends','ends_at'],['Result','result_kind'],['Recorded','created_at']
@@ -58,6 +58,7 @@ export const reportRange = ({from = '', to = ''} = {}) => {
 
 export const reportCell = (row, key) => {
   const value = key.split('.').reduce((object, part) => object?.[part], row);
+  if (value && key === 'status') return String(value).replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
   if (value && key.endsWith('_at') && !Number.isNaN(Date.parse(value))) return new Intl.DateTimeFormat('en-PH',{
     timeZone:'Asia/Manila',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',
   }).format(new Date(value));
